@@ -1,11 +1,18 @@
-﻿using Blasphemous.EditorMode.Components;
+using Blasphemous.EditorMode.Components;
 using Blasphemous.ModdingAPI;
+using Gameplay.UI;
+using Blasphemous.Framework.UI;
+using System.Collections;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Blasphemous.EditorMode;
 
-public class EditorMode : BlasMod
+internal class EditorMode : BlasMod
 {
+    internal EditorWidget EditorWidget { get; private set; }
+    internal static SpriteStorage SpriteStorage { get; private set; }
+
     internal EditorMode() : base(ModInfo.MOD_ID, ModInfo.MOD_NAME, ModInfo.MOD_AUTHOR, ModInfo.MOD_VERSION) { }
 
     protected override void OnInitialize()
@@ -15,25 +22,75 @@ public class EditorMode : BlasMod
             {
                 { "OpenEditor", KeyCode.Semicolon },
             });
+        SpriteStorage = new(FileHandler);
+    }
+
+    protected override void OnLevelLoaded(string oldLevel, string newLevel)
+    {
+        if (oldLevel == "MainMenu")
+        {
+            if ((EditorWidget == null) && (GameObject.Find("Editor Widget") == null))
+            {
+                UIController.instance.StartCoroutine(DelayAndCreateEditorGameObject(1.5f));
+            }
+        }
+    }
+
+    protected override void OnUpdate()
+    {
+        if (InputHandler.GetKeyDown("OpenEditor"))
+        {
+            if ((EditorWidget == null) && (GameObject.Find("Editor Widget") == null))
+            {
+                UIController.instance.StartCoroutine(DelayAndCreateEditorGameObject(1.5f));
+            }
+
+            EditorWidget.gameObject.SetActive(!EditorWidget.gameObject.activeSelf);
+            if (EditorWidget.gameObject.activeSelf)
+            {
+                EditorWidget.gameObject.transform.SetAsLastSibling();
+            }
+
+#if DEBUG
+            Cursor.visible = EditorWidget.gameObject.activeInHierarchy;
+            ModLog.Warn($"{(EditorWidget.gameObject.activeSelf ? "Activated" : "Deactivated")} editor widget!");
+            ModLog.Warn($"Active in hierarchy? {EditorWidget.gameObject.activeInHierarchy}");
+            ModLog.Warn($"Cursor lock state: {Cursor.lockState}, visibility: {Cursor.visible}, position: {Input.mousePosition}");
+            ModLog.Warn($"Cursor scaled position: {Main.EditorMode.EditorWidget.ScaledMousePosition}");
+#endif
+        }
     }
 
     private GameObject CreateEditorGameObject()
     {
         GameObject obj = new("Editor Widget");
-        obj.transform.SetParent(GameObject.Find("/Game UI/Content").transform);
-        obj.AddComponent<EditorWidget>();
+        obj.transform.SetParent(UIModder.Parents.CanvasHighRes, false);
+        obj.layer = LayerMask.NameToLayer("UI");
+        obj.transform.SetAsLastSibling();
 
-        // set the GameObject's position to the middle of the screen
+        // set the GameObject's position and size
         RectTransform rt = obj.AddComponent<RectTransform>();
+        rt.sizeDelta = new(640f, 360f);
         rt.anchorMin = new(0.5f, 0.5f);
         rt.anchorMax = new(0.5f, 0.5f);
         rt.pivot = new(0.5f, 0.5f);
         rt.anchoredPosition = new(0f, 0f);
-        rt.sizeDelta = new(640f, 360f);
+
+        obj.AddComponent<EditorWidget>();
 
         // deactivate the GameObject after initialization for default.
         obj.SetActive(false);
+#if DEBUG
+        ModLog.Warn($"Created editor widget at anchor position `{rt.anchoredPosition}`, absolute position {rt.position}!");
+        ModLog.Warn($"Editor widget anchor min: `{rt.anchorMin}`, pivot {rt.pivot}!");
+#endif
 
         return obj;
+    }
+
+    private IEnumerator DelayAndCreateEditorGameObject(float delaySeconds)
+    {
+        yield return new WaitForSeconds(delaySeconds);
+        EditorWidget = CreateEditorGameObject().GetComponent<EditorWidget>();
     }
 }
