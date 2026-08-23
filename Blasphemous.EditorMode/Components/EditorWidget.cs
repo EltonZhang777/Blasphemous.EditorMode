@@ -11,13 +11,12 @@ internal class EditorWidget : MonoBehaviour
     internal GameObject cursorObj;
     internal GameObject freezeGameButtonObj;
 
-    internal Vector2 ScaledMousePosition => new Vector2(
-            Input.mousePosition.x * (640f / Screen.width),
-            Input.mousePosition.y * (360f / Screen.height));
-
     private void Awake()
     {
 #if DEBUG
+        // output absolute position of editor widget
+        ModLog.Warn($"Editor widget absolute position: {transform.position}");
+
         // add test text
         GameObject testTextObj = new("Test Text");
         testTextObj.SetActive(true);
@@ -46,19 +45,40 @@ internal class EditorWidget : MonoBehaviour
         // add cursor image
         Image cursorImage = cursorObj.AddComponent<Image>();
         cursorImage.sprite = EditorMode.SpriteStorage.Cursor;
+        cursorImage.raycastTarget = false;
 
         // initialize game freeze button
         freezeGameButtonObj = new("Freeze Game Button");
         freezeGameButtonObj.SetActive(true);
         freezeGameButtonObj.layer = LayerMask.NameToLayer("UI");
         freezeGameButtonObj.transform.SetParent(gameObject.transform);
+        freezeGameButtonObj.transform.SetAsLastSibling();
         RectTransform freezeGameRt = freezeGameButtonObj.AddComponent<RectTransform>();
-        freezeGameRt.sizeDelta = new(40f, 40f);
-        freezeGameRt.anchoredPosition = new(285f, 75f);
+        freezeGameRt.sizeDelta = new(140f, 40f);
+        freezeGameRt.anchoredPosition = new(250f, 75f);
+        freezeGameRt.anchorMin = new(0.5f, 0.5f);
+        freezeGameRt.anchorMax = new(0.5f, 0.5f);
+        freezeGameRt.pivot = new(0.5f, 0.5f);
         Image freezeGameButtonImage = freezeGameButtonObj.AddComponent<Image>();
-        freezeGameButtonImage.sprite = EditorMode.SpriteStorage.Cursor; // WIP sprite, pending actual sprite
+        freezeGameButtonImage.color = new Color(1f, 1f, 1f, 0.6f);
         Button freezeGameButton = freezeGameButtonObj.AddComponent<Button>();
+        freezeGameButton.interactable = true;
         freezeGameButton.onClick.AddListener(OnFreezeGameButtonClicked);
+
+        // add text to the button
+        GameObject freezeGameText = new("Freeze Game Text");
+        freezeGameText.transform.SetParent(freezeGameButtonObj.transform);
+        RectTransform textRt = freezeGameText.AddComponent<RectTransform>();
+        textRt.anchorMin = Vector2.zero;
+        textRt.anchorMax = Vector2.one;
+        textRt.offsetMin = Vector2.zero;
+        textRt.offsetMax = Vector2.zero;
+        Text text = freezeGameText.AddComponent<Text>();
+        text.text = "Freeze Game";
+        text.font = UIModder.Fonts.Blasphemous;
+        text.fontSize = 20;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = Color.black;
 #if DEBUG
         ModLog.Warn($"freezeGameButtonObj.transform.position: {freezeGameButtonObj.transform.position}");
 #endif
@@ -68,7 +88,7 @@ internal class EditorWidget : MonoBehaviour
     {
         // move mouse cursor sprite to mouse position
         RectTransform cursorRt = cursorObj.GetComponent<RectTransform>();
-        cursorRt.anchoredPosition = ScaledMousePosition;
+        cursorRt.anchoredPosition = Input.mousePosition;
     }
 
 
@@ -76,10 +96,12 @@ internal class EditorWidget : MonoBehaviour
     {
         if (UIController.instance.Paused)
         {
+            ModLog.Info("Resuming game...");
             Core.Logic.ResumeGame();
         }
         else
         {
+            ModLog.Info("Pausing game...");
             Core.Logic.PauseGame();
         }
     }

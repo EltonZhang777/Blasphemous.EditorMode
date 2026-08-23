@@ -10,8 +10,11 @@ namespace Blasphemous.EditorMode;
 
 internal class EditorMode : BlasMod
 {
+
     internal EditorWidget EditorWidget { get; private set; }
     internal static SpriteStorage SpriteStorage { get; private set; }
+
+    private static bool _isStartingEditorWidget = false;
 
     internal EditorMode() : base(ModInfo.MOD_ID, ModInfo.MOD_NAME, ModInfo.MOD_AUTHOR, ModInfo.MOD_VERSION) { }
 
@@ -29,10 +32,7 @@ internal class EditorMode : BlasMod
     {
         if (oldLevel == "MainMenu")
         {
-            if ((EditorWidget == null) && (GameObject.Find("Editor Widget") == null))
-            {
-                UIController.instance.StartCoroutine(DelayAndCreateEditorGameObject(1.5f));
-            }
+            SafeCreateEditorAfterDelay(1.5f);
         }
     }
 
@@ -40,41 +40,40 @@ internal class EditorMode : BlasMod
     {
         if (InputHandler.GetKeyDown("OpenEditor"))
         {
-            if ((EditorWidget == null) && (GameObject.Find("Editor Widget") == null))
+            SafeCreateEditorAfterDelay(1.5f);
+            if (EditorWidget != null)
             {
-                UIController.instance.StartCoroutine(DelayAndCreateEditorGameObject(1.5f));
-            }
-
-            EditorWidget.gameObject.SetActive(!EditorWidget.gameObject.activeSelf);
-            if (EditorWidget.gameObject.activeSelf)
-            {
-                EditorWidget.gameObject.transform.SetAsLastSibling();
-            }
+                EditorWidget.gameObject.SetActive(!EditorWidget.gameObject.activeSelf);
+                if (EditorWidget.gameObject.activeSelf)
+                {
+                    EditorWidget.gameObject.transform.SetAsLastSibling();
+                }
 
 #if DEBUG
-            Cursor.visible = EditorWidget.gameObject.activeInHierarchy;
-            ModLog.Warn($"{(EditorWidget.gameObject.activeSelf ? "Activated" : "Deactivated")} editor widget!");
-            ModLog.Warn($"Active in hierarchy? {EditorWidget.gameObject.activeInHierarchy}");
-            ModLog.Warn($"Cursor lock state: {Cursor.lockState}, visibility: {Cursor.visible}, position: {Input.mousePosition}");
-            ModLog.Warn($"Cursor scaled position: {Main.EditorMode.EditorWidget.ScaledMousePosition}");
+                Cursor.visible = EditorWidget.gameObject.activeInHierarchy;
+                ModLog.Warn($"{(EditorWidget.gameObject.activeSelf ? "Activated" : "Deactivated")} editor widget!");
+                ModLog.Warn($"Active in hierarchy? {EditorWidget.gameObject.activeInHierarchy}");
+                ModLog.Warn($"Cursor lock state: {Cursor.lockState}, visibility: {Cursor.visible}, position: {Input.mousePosition}");
 #endif
+            }
         }
     }
 
     private GameObject CreateEditorGameObject()
     {
         GameObject obj = new("Editor Widget");
-        obj.transform.SetParent(UIModder.Parents.CanvasHighRes, false);
-        obj.layer = LayerMask.NameToLayer("UI");
-        obj.transform.SetAsLastSibling();
 
-        // set the GameObject's position and size
+        // Add and configure RectTransform BEFORE setting parent
         RectTransform rt = obj.AddComponent<RectTransform>();
         rt.sizeDelta = new(640f, 360f);
         rt.anchorMin = new(0.5f, 0.5f);
         rt.anchorMax = new(0.5f, 0.5f);
         rt.pivot = new(0.5f, 0.5f);
-        rt.anchoredPosition = new(0f, 0f);
+        rt.anchoredPosition = new(-640f, -360f);
+
+        obj.transform.SetParent(UIModder.Parents.CanvasHighRes, false);
+        obj.layer = LayerMask.NameToLayer("UI");
+        obj.transform.SetAsLastSibling();
 
         obj.AddComponent<EditorWidget>();
 
@@ -88,9 +87,19 @@ internal class EditorMode : BlasMod
         return obj;
     }
 
-    private IEnumerator DelayAndCreateEditorGameObject(float delaySeconds)
+    private IEnumerator DelayAndCreateEditorGameObjectCoroutine(float delaySeconds)
     {
+        _isStartingEditorWidget = true;
         yield return new WaitForSeconds(delaySeconds);
         EditorWidget = CreateEditorGameObject().GetComponent<EditorWidget>();
+        _isStartingEditorWidget = false;
+    }
+
+    private void SafeCreateEditorAfterDelay(float delaySeconds)
+    {
+        if ((EditorWidget == null || GameObject.Find("Editor Widget") == null) && !_isStartingEditorWidget)
+        {
+            UIController.instance.StartCoroutine(DelayAndCreateEditorGameObjectCoroutine(delaySeconds));
+        }
     }
 }
