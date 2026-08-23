@@ -24,6 +24,7 @@
     <PackageReference Include="Blasphemous.Framework.UI" Version="0.2.0" />
     <PackageReference Include="Blasphemous.GameLibs" Version="4.0.67" />
     <PackageReference Include="Blasphemous.ModdingAPI" Version="3.0.1" />
+    <PackageReference Include="UnityEngine.Modules" Version="2017.4.40" IncludeAssets="compile" />
   </ItemGroup>
 
   <ItemGroup>
