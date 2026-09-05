@@ -135,7 +135,7 @@ internal sealed class LevelEditSession
                 continue;
             }
 
-            if (!ValidatePlacementData(data, creator, report))
+            if (!PlacementValidation.Validate(data, creator, report))
                 continue;
 
             if (!ids.Add(data.Id))
@@ -266,71 +266,6 @@ internal sealed class LevelEditSession
     {
         State = LevelEditSessionState.Dirty;
         LastReport = report;
-    }
-
-    private static bool ValidatePlacementData(
-        FrameworkObjectData data,
-        CreatorMetadata creator,
-        ApplyReport report)
-    {
-        bool valid = true;
-        if (!HasTransform(creator.TransformCapabilities, TransformCapabilities.Position)
-            && !IsZero(data.Position))
-        {
-            report.Error("TRANSFORM_UNSUPPORTED", data.Id, "Creator does not support position editing.");
-            valid = false;
-        }
-        if (!HasTransform(creator.TransformCapabilities, TransformCapabilities.Rotation)
-            && !IsZero(data.Rotation))
-        {
-            report.Error("TRANSFORM_UNSUPPORTED", data.Id, "Creator does not support rotation editing.");
-            valid = false;
-        }
-        if (!HasTransform(creator.TransformCapabilities, TransformCapabilities.Scale)
-            && !IsOne(data.Scale))
-        {
-            report.Error("TRANSFORM_UNSUPPORTED", data.Id, "Creator does not support scale editing.");
-            valid = false;
-        }
-
-        foreach (string property in data.Properties)
-        {
-            bool supported = false;
-            foreach (string supportedKey in creator.PropertyKeys)
-            {
-                if (string.Equals(property, supportedKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    supported = true;
-                    break;
-                }
-            }
-
-            if (!supported)
-            {
-                report.Error(
-                    "PROPERTY_UNSUPPORTED",
-                    data.Id,
-                    "Creator does not support property '" + property + "'.");
-                valid = false;
-            }
-        }
-
-        return valid;
-    }
-
-    private static bool HasTransform(TransformCapabilities value, TransformCapabilities flag)
-    {
-        return (value & flag) == flag;
-    }
-
-    private static bool IsZero(FrameworkVector value)
-    {
-        return value.X == 0f && value.Y == 0f && value.Z == 0f;
-    }
-
-    private static bool IsOne(FrameworkVector value)
-    {
-        return value.X == 1f && value.Y == 1f && value.Z == 1f;
     }
 
     private static bool HasFatalFrameworkDiagnostic(IEnumerable<FrameworkDiagnostic> diagnostics)

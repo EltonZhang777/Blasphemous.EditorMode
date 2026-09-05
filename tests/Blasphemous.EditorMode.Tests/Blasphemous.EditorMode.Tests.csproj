@@ -28,6 +28,8 @@
     <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\ApplyReport.cs" Link="Diagnostics\ApplyReport.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Editing\PlacementRecord.cs" Link="Editing\PlacementRecord.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Editing\LevelEditSession.cs" Link="Editing\LevelEditSession.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\PlacementValidation.cs" Link="Editing\PlacementValidation.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\RuntimePlacementManager.cs" Link="Editing\RuntimePlacementManager.cs" />
   </ItemGroup>
 
 </Project>
