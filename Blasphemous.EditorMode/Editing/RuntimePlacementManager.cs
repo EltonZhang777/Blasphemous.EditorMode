@@ -87,6 +87,7 @@ internal sealed class RuntimePlacementManager
     }
 
     internal PlacementRecord Selected { get; private set; }
+    internal PlacementRecord Clipboard { get; private set; }
 
     internal bool TryPlace(
         string type,
@@ -193,6 +194,60 @@ internal sealed class RuntimePlacementManager
         }
 
         return TrySelect(handle.PlacementId, report, out placement);
+    }
+
+    internal bool TryCopy(string id, ApplyReport report, out PlacementRecord copied)
+    {
+        copied = null;
+        if (!TrySelect(id, report, out PlacementRecord selected))
+            return false;
+
+        Clipboard = selected.CopyWithId(selected.Id);
+        copied = Clipboard;
+        report.Info("PLACEMENT_COPIED", id, "Placement copied to the editor cursor.");
+        return true;
+    }
+
+    internal bool TryPick(string id, ApplyReport report, out PlacementRecord picked)
+    {
+        return TryCopy(id, report, out picked);
+    }
+
+    internal bool TryPaste(ApplyReport report, out PlacementRecord pasted)
+    {
+        pasted = null;
+        if (Clipboard == null)
+        {
+            report.Error("CLIPBOARD_EMPTY", "$", "The editor cursor has no Placement.");
+            return false;
+        }
+
+        return TryPlace(
+            Clipboard.Type,
+            Clipboard.Transform,
+            Clipboard.Properties,
+            report,
+            out pasted);
+    }
+
+    internal bool TrySetLocked(string id, bool locked, ApplyReport report)
+    {
+        PlacementRecord current;
+        if (!TrySelect(id, report, out current))
+            return false;
+
+        PlacementRecord changed = current.WithLocked(locked);
+        if (!_session.TryReplacePlacement(changed, report))
+            return false;
+
+        Selected = changed;
+        report.Applied();
+        return true;
+    }
+
+    internal bool TryDelete(string id, ApplyReport report)
+    {
+        return TryRemove(id, report);
     }
 
     internal bool TryMove(

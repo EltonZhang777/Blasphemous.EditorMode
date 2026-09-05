@@ -137,6 +137,54 @@ public sealed class RuntimePlacementManagerTests
         Assert.Contains(report.Entries, x => x.Code == "TRANSFORM_UNSUPPORTED");
     }
 
+    [Fact]
+    public void Copy_pick_and_paste_preserve_data_but_remap_the_id()
+    {
+        LevelEditSession session = CreateSession();
+        var factory = new FakeFactory();
+        var manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        var report = new ApplyReport();
+        PlacementRecord source;
+        PlacementTransform transform = new PlacementTransform(2f, 3f, 4f, 0f, 0f, 20f, 1f, 1f, 1f);
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, transform, null, report, out source));
+
+        PlacementRecord cursor;
+        Assert.True(manager.TryPick(source.Id, report, out cursor));
+        Assert.Equal(source.Id, cursor.Id);
+        Assert.Equal(source.Transform, cursor.Transform);
+        PlacementRecord pasted;
+        Assert.True(manager.TryPaste(report, out pasted));
+        Assert.NotEqual(source.Id, pasted.Id);
+        Assert.Equal(source.Type, pasted.Type);
+        Assert.Equal(source.Transform, pasted.Transform);
+        Assert.Equal(2, session.Placements.Count);
+    }
+
+    [Fact]
+    public void Lock_is_editor_only_and_blocks_mutating_operations()
+    {
+        LevelEditSession session = CreateSession();
+        var factory = new FakeFactory();
+        var manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        var report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out placement));
+        Assert.True(manager.TrySetLocked(placement.Id, true, report));
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.True(placement.IsLocked);
+        Assert.False(manager.TryMove(placement.Id, PlacementTransform.Default, report));
+        Assert.False(manager.TryDelete(placement.Id, report));
+        Assert.True(manager.TrySetLocked(placement.Id, false, report));
+        Assert.True(manager.TryDelete(placement.Id, report));
+        Assert.Contains(report.Entries, x => x.Code == "PLACEMENT_LOCKED");
+    }
+
     private static LevelEditSession CreateSession()
     {
         FrameworkFileResult file = CreateEmptyFile();
