@@ -30,6 +30,7 @@
     <Compile Include="..\..\Blasphemous.EditorMode\Editing\LevelEditSession.cs" Link="Editing\LevelEditSession.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Editing\PlacementValidation.cs" Link="Editing\PlacementValidation.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Editing\RuntimePlacementManager.cs" Link="Editing\RuntimePlacementManager.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\EditCommandHistory.cs" Link="Editing\EditCommandHistory.cs" />
   </ItemGroup>
 
 </Project>

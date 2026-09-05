@@ -185,6 +185,59 @@ public sealed class RuntimePlacementManagerTests
         Assert.Contains(report.Entries, x => x.Code == "PLACEMENT_LOCKED");
     }
 
+    [Fact]
+    public void Undo_and_redo_restore_session_runtime_and_dirty_state()
+    {
+        LevelEditSession session = CreateSession();
+        var factory = new FakeFactory();
+        var manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        var report = new ApplyReport();
+        PlacementRecord placement;
+
+        Assert.Equal(LevelEditSessionState.Clean, session.State);
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out placement));
+        Assert.Equal(LevelEditSessionState.Dirty, session.State);
+        Assert.True(manager.History.CanUndo);
+        Assert.True(manager.TryUndo(report));
+        Assert.Empty(session.Placements);
+        Assert.Empty(manager.OwnedPlacementIds);
+        Assert.Equal(LevelEditSessionState.Clean, session.State);
+        Assert.True(manager.History.CanRedo);
+        Assert.True(manager.TryRedo(report));
+        Assert.Single(session.Placements);
+        Assert.Equal(LevelEditSessionState.Dirty, session.State);
+        Assert.Single(manager.OwnedPlacementIds);
+        Assert.Equal(2, factory.Created.Count);
+    }
+
+    [Fact]
+    public void Reset_discards_edit_history_and_keeps_imported_source_in_memory_only()
+    {
+        LevelEditSession session = CreateSession();
+        string originalSource = session.OriginalSourceText;
+        var factory = new FakeFactory();
+        var manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        var report = new ApplyReport();
+        PlacementRecord placement;
+
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out placement));
+        Assert.True(manager.TryReset(report));
+        Assert.Empty(session.Placements);
+        Assert.Empty(manager.OwnedPlacementIds);
+        Assert.Equal(originalSource, session.OriginalSourceText);
+        Assert.False(manager.History.CanUndo);
+        Assert.False(manager.History.CanRedo);
+        Assert.Equal(LevelEditSessionState.Clean, session.State);
+        Assert.Equal(1, factory.Created[0].DestroyCount);
+        Assert.Contains(report.Entries, x => x.Code == "SESSION_RESET");
+    }
+
     private static LevelEditSession CreateSession()
     {
         FrameworkFileResult file = CreateEmptyFile();

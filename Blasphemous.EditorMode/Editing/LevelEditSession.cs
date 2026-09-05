@@ -268,6 +268,16 @@ internal sealed class LevelEditSession
         LastReport = report;
     }
 
+    internal void RestorePlacements(
+        IEnumerable<PlacementRecord> placements,
+        LevelEditSessionState state,
+        ApplyReport report)
+    {
+        _placements.Clear();
+        _placements.AddRange(placements ?? new PlacementRecord[0]);
+        SetState(state, report);
+    }
+
     private static bool HasFatalFrameworkDiagnostic(IEnumerable<FrameworkDiagnostic> diagnostics)
     {
         foreach (FrameworkDiagnostic diagnostic in diagnostics ?? new FrameworkDiagnostic[0])

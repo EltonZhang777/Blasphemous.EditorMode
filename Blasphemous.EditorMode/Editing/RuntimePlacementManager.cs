@@ -70,6 +70,8 @@ internal sealed class RuntimePlacementManager
     private readonly IRuntimePlacementFactory _factory;
     private readonly Dictionary<string, IRuntimePlacementHandle> _projections =
         new Dictionary<string, IRuntimePlacementHandle>(StringComparer.OrdinalIgnoreCase);
+    private readonly EditCommandHistory _history = new EditCommandHistory();
+    private readonly PlacementManagerSnapshot _initialSnapshot;
 
     internal RuntimePlacementManager(
         LevelEditSession session,
@@ -79,6 +81,7 @@ internal sealed class RuntimePlacementManager
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _initialSnapshot = CaptureSnapshot();
     }
 
     internal ReadOnlyCollection<string> OwnedPlacementIds
@@ -88,6 +91,7 @@ internal sealed class RuntimePlacementManager
 
     internal PlacementRecord Selected { get; private set; }
     internal PlacementRecord Clipboard { get; private set; }
+    internal EditCommandHistory History { get { return _history; } }
 
     internal bool TryPlace(
         string type,
@@ -96,6 +100,18 @@ internal sealed class RuntimePlacementManager
         ApplyReport report,
         out PlacementRecord placement)
     {
+        return TryPlaceCore(type, transform, properties, report, "place", out placement);
+    }
+
+    private bool TryPlaceCore(
+        string type,
+        PlacementTransform transform,
+        IEnumerable<string> properties,
+        ApplyReport report,
+        string commandName,
+        out PlacementRecord placement)
+    {
+        PlacementManagerSnapshot before = CaptureSnapshot();
         placement = null;
         CreatorMetadata creator;
         if (!_catalog.TryGet(type, out creator))
@@ -159,6 +175,7 @@ internal sealed class RuntimePlacementManager
         _projections.Add(id, handle);
         Selected = placement;
         report.Applied();
+        RecordSnapshotCommand(commandName, before, CaptureSnapshot());
         return true;
     }
 
@@ -198,6 +215,12 @@ internal sealed class RuntimePlacementManager
 
     internal bool TryCopy(string id, ApplyReport report, out PlacementRecord copied)
     {
+        return TryCopyCore(id, report, "copy", out copied);
+    }
+
+    private bool TryCopyCore(string id, ApplyReport report, string commandName, out PlacementRecord copied)
+    {
+        PlacementManagerSnapshot before = CaptureSnapshot();
         copied = null;
         if (!TrySelect(id, report, out PlacementRecord selected))
             return false;
@@ -205,12 +228,13 @@ internal sealed class RuntimePlacementManager
         Clipboard = selected.CopyWithId(selected.Id);
         copied = Clipboard;
         report.Info("PLACEMENT_COPIED", id, "Placement copied to the editor cursor.");
+        RecordSnapshotCommand(commandName, before, CaptureSnapshot());
         return true;
     }
 
     internal bool TryPick(string id, ApplyReport report, out PlacementRecord picked)
     {
-        return TryCopy(id, report, out picked);
+        return TryCopyCore(id, report, "pick", out picked);
     }
 
     internal bool TryPaste(ApplyReport report, out PlacementRecord pasted)
@@ -222,16 +246,18 @@ internal sealed class RuntimePlacementManager
             return false;
         }
 
-        return TryPlace(
+        return TryPlaceCore(
             Clipboard.Type,
             Clipboard.Transform,
             Clipboard.Properties,
             report,
+            "paste",
             out pasted);
     }
 
     internal bool TrySetLocked(string id, bool locked, ApplyReport report)
     {
+        PlacementManagerSnapshot before = CaptureSnapshot();
         PlacementRecord current;
         if (!TrySelect(id, report, out current))
             return false;
@@ -242,6 +268,7 @@ internal sealed class RuntimePlacementManager
 
         Selected = changed;
         report.Applied();
+        RecordSnapshotCommand("lock", before, CaptureSnapshot());
         return true;
     }
 
@@ -255,6 +282,7 @@ internal sealed class RuntimePlacementManager
         PlacementTransform transform,
         ApplyReport report)
     {
+        PlacementManagerSnapshot before = CaptureSnapshot();
         PlacementRecord current;
         IRuntimePlacementHandle handle;
         CreatorMetadata creator;
@@ -286,6 +314,7 @@ internal sealed class RuntimePlacementManager
 
         Selected = changed;
         report.Applied();
+        RecordSnapshotCommand("transform", before, CaptureSnapshot());
         return true;
     }
 
@@ -295,6 +324,7 @@ internal sealed class RuntimePlacementManager
         string rawValue,
         ApplyReport report)
     {
+        PlacementManagerSnapshot before = CaptureSnapshot();
         PlacementRecord current;
         IRuntimePlacementHandle handle;
         CreatorMetadata creator;
@@ -355,11 +385,13 @@ internal sealed class RuntimePlacementManager
 
         Selected = changed;
         report.Applied();
+        RecordSnapshotCommand("property", before, CaptureSnapshot());
         return true;
     }
 
     internal bool TryRemove(string id, ApplyReport report)
     {
+        PlacementManagerSnapshot before = CaptureSnapshot();
         IRuntimePlacementHandle handle;
         PlacementRecord current;
         if (!_projections.TryGetValue(id, out handle)
@@ -391,7 +423,220 @@ internal sealed class RuntimePlacementManager
         if (Selected != null && string.Equals(Selected.Id, id, StringComparison.OrdinalIgnoreCase))
             Selected = null;
         report.Applied();
+        RecordSnapshotCommand("delete", before, CaptureSnapshot());
         return true;
+    }
+
+    internal bool TryUndo(ApplyReport report)
+    {
+        return _history.Undo(report);
+    }
+
+    internal bool TryRedo(ApplyReport report)
+    {
+        return _history.Redo(report);
+    }
+
+    internal bool TryReset(ApplyReport report)
+    {
+        if (!RestoreSnapshot(_initialSnapshot, report))
+            return false;
+
+        _history.Clear();
+        report.Info(
+            "SESSION_RESET",
+            _session.Room.ExportFileKey,
+            "Session reset to the imported snapshot; Original Save and source export were not written.");
+        return true;
+    }
+
+    private PlacementManagerSnapshot CaptureSnapshot()
+    {
+        var projections = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
+        foreach (string id in _projections.Keys)
+        {
+            PlacementRecord placement;
+            if (_session.TryGetPlacement(id, out placement))
+                projections[id] = placement;
+        }
+
+        return new PlacementManagerSnapshot(
+            _session.Placements,
+            Clipboard,
+            Selected == null ? null : Selected.Id,
+            _session.State,
+            projections);
+    }
+
+    private void RecordSnapshotCommand(
+        string name,
+        PlacementManagerSnapshot before,
+        PlacementManagerSnapshot after)
+    {
+        _history.Record(new SnapshotEditCommand(this, name, before, after));
+    }
+
+    private bool RestoreSnapshot(PlacementManagerSnapshot snapshot, ApplyReport report)
+    {
+        var applied = new List<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>>();
+        var created = new Dictionary<string, IRuntimePlacementHandle>(StringComparer.OrdinalIgnoreCase);
+        var targetIds = new HashSet<string>(snapshot.Projections.Keys, StringComparer.OrdinalIgnoreCase);
+
+        foreach (KeyValuePair<string, PlacementRecord> target in snapshot.Projections)
+        {
+            IRuntimePlacementHandle handle;
+            if (_projections.TryGetValue(target.Key, out handle)
+                && handle != null
+                && !handle.IsOriginal
+                && handle.IsAlive)
+            {
+                PlacementRecord previous;
+                if (!_session.TryGetPlacement(target.Key, out previous))
+                {
+                    report.Error("HISTORY_RESTORE_FAILED", target.Key, "Projection has no session Placement.");
+                    Rollback(applied, created);
+                    return false;
+                }
+
+                string error;
+                if (!handle.TryApply(target.Value, out error))
+                {
+                    report.Error("HISTORY_RESTORE_FAILED", target.Key, error ?? "Runtime projection rejected history restore.");
+                    Rollback(applied, created);
+                    return false;
+                }
+
+                applied.Add(new KeyValuePair<IRuntimePlacementHandle, PlacementRecord>(handle, previous));
+                continue;
+            }
+
+            try
+            {
+                handle = _factory.Create(target.Value);
+            }
+            catch (Exception exception)
+            {
+                report.Error("HISTORY_RESTORE_FAILED", target.Key, exception.Message);
+                Rollback(applied, created);
+                return false;
+            }
+
+            if (handle == null
+                || handle.IsOriginal
+                || !handle.IsAlive
+                || !string.Equals(handle.PlacementId, target.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                report.Error("HISTORY_RESTORE_FAILED", target.Key, "Runtime factory returned an invalid projection.");
+                Rollback(applied, created);
+                return false;
+            }
+
+            created.Add(target.Key, handle);
+        }
+
+        foreach (string id in new List<string>(_projections.Keys))
+        {
+            if (targetIds.Contains(id))
+                continue;
+
+            IRuntimePlacementHandle handle = _projections[id];
+            if (handle == null || !handle.IsAlive || handle.IsOriginal)
+                continue;
+
+            string error;
+            if (!handle.TryDestroy(out error))
+            {
+                report.Error("HISTORY_RESTORE_FAILED", id, error ?? "Runtime projection rejected removal.");
+                Rollback(applied, created);
+                return false;
+            }
+        }
+
+        _session.RestorePlacements(snapshot.Placements, snapshot.State, report);
+        foreach (string id in new List<string>(_projections.Keys))
+        {
+            if (!targetIds.Contains(id))
+                _projections.Remove(id);
+        }
+        foreach (KeyValuePair<string, IRuntimePlacementHandle> createdProjection in created)
+            _projections[createdProjection.Key] = createdProjection.Value;
+
+        Clipboard = snapshot.Clipboard;
+        Selected = null;
+        if (snapshot.SelectedId != null)
+        {
+            PlacementRecord selected;
+            if (_session.TryGetPlacement(snapshot.SelectedId, out selected))
+                Selected = selected;
+        }
+        report.Applied();
+        return true;
+    }
+
+    private static void Rollback(
+        IEnumerable<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>> applied,
+        IEnumerable<KeyValuePair<string, IRuntimePlacementHandle>> created)
+    {
+        foreach (KeyValuePair<IRuntimePlacementHandle, PlacementRecord> change in applied)
+            change.Key.TryApply(change.Value, out _);
+        foreach (KeyValuePair<string, IRuntimePlacementHandle> projection in created)
+            projection.Value.TryDestroy(out _);
+    }
+
+    private sealed class PlacementManagerSnapshot
+    {
+        internal PlacementManagerSnapshot(
+            IEnumerable<PlacementRecord> placements,
+            PlacementRecord clipboard,
+            string selectedId,
+            LevelEditSessionState state,
+            IDictionary<string, PlacementRecord> projections)
+        {
+            Placements = new List<PlacementRecord>(placements ?? new PlacementRecord[0]);
+            Clipboard = clipboard;
+            SelectedId = selectedId;
+            State = state;
+            Projections = new Dictionary<string, PlacementRecord>(
+                projections ?? new Dictionary<string, PlacementRecord>(),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        internal IList<PlacementRecord> Placements { get; }
+        internal PlacementRecord Clipboard { get; }
+        internal string SelectedId { get; }
+        internal LevelEditSessionState State { get; }
+        internal IDictionary<string, PlacementRecord> Projections { get; }
+    }
+
+    private sealed class SnapshotEditCommand : IReversibleEditCommand
+    {
+        private readonly RuntimePlacementManager _owner;
+        private readonly PlacementManagerSnapshot _before;
+        private readonly PlacementManagerSnapshot _after;
+
+        internal SnapshotEditCommand(
+            RuntimePlacementManager owner,
+            string name,
+            PlacementManagerSnapshot before,
+            PlacementManagerSnapshot after)
+        {
+            _owner = owner;
+            Name = name;
+            _before = before;
+            _after = after;
+        }
+
+        public string Name { get; }
+
+        public bool Undo(ApplyReport report)
+        {
+            return _owner.RestoreSnapshot(_before, report);
+        }
+
+        public bool Redo(ApplyReport report)
+        {
+            return _owner.RestoreSnapshot(_after, report);
+        }
     }
 
     private IEnumerable<string> AllIds()
