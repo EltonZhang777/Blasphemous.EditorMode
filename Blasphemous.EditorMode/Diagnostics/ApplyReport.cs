@@ -93,10 +93,11 @@ internal sealed class ApplyReport
     {
         foreach (FrameworkDiagnostic diagnostic in diagnostics ?? new FrameworkDiagnostic[0])
         {
+            string code = ClassifyFrameworkDiagnostic(diagnostic.Message);
             if (diagnostic.Severity == FrameworkDiagnosticSeverity.Error)
-                Error("FRAMEWORK_JSON", diagnostic.Location, diagnostic.Message);
+                Error(code, diagnostic.Location, diagnostic.Message);
             else
-                Warning("FRAMEWORK_JSON", diagnostic.Location, diagnostic.Message);
+                Warning(code, diagnostic.Location, diagnostic.Message);
         }
     }
 
@@ -108,6 +109,19 @@ internal sealed class ApplyReport
         foreach (ApplyReportEntry entry in other.Entries)
             Add(entry.Severity, entry.Code, entry.Location, entry.Message, entry.Skipped);
         AppliedCount += other.AppliedCount;
+    }
+
+    internal void MergeDependencyDiagnostics(IEnumerable<DependencyDiagnostic> diagnostics)
+    {
+        foreach (DependencyDiagnostic diagnostic in diagnostics ?? new DependencyDiagnostic[0])
+        {
+            Error(
+                diagnostic.Reason == DependencyFailureReason.Missing
+                    ? "DEPENDENCY_MISSING"
+                    : "DEPENDENCY_VERSION",
+                diagnostic.Id,
+                diagnostic.Message);
+        }
     }
 
     internal string ToSummary(string operation)
@@ -137,5 +151,36 @@ internal sealed class ApplyReport
             skipped));
         if (skipped)
             SkippedCount++;
+    }
+
+    private static string ClassifyFrameworkDiagnostic(string message)
+    {
+        if (message == null)
+            return "FRAMEWORK_JSON";
+        if (message.IndexOf("syntax", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "JSON_SYNTAX";
+        if (message.IndexOf("does not match Room Identity", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "ROOM_SCOPE";
+        if (message.IndexOf("Required top-level array", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("Top-level field", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("Required string field", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("path", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "JSON_SCHEMA";
+        if (message.IndexOf("Atomic Level Export", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("export", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "EXPORT_IO";
+        if (message.IndexOf("file could not be read", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "FILE_IO";
+        if (message.IndexOf("condition", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "CONDITION_INVALID";
+        if (message.IndexOf("transform", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "TRANSFORM_INVALID";
+        if (message.IndexOf("property", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "PROPERTY_INVALID";
+        if (message.IndexOf("Duplicate object id", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "PLACEMENT_DUPLICATE_ID";
+        if (message.IndexOf("Unknown", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "JSON_UNKNOWN_FIELD";
+        return "FRAMEWORK_JSON";
     }
 }
