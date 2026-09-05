@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.4.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.1" />
@@ -22,6 +23,7 @@
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\RoomIdentity.cs" Link="Lifecycle\RoomIdentity.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\BlasphemousLifecycleBridge.cs" Link="Lifecycle\BlasphemousLifecycleBridge.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\EditorRuntimeState.cs" Link="Lifecycle\EditorRuntimeState.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Framework\LevelFrameworkAdapter.cs" Link="Framework\LevelFrameworkAdapter.cs" />
   </ItemGroup>
 
 </Project>
