@@ -1,4 +1,5 @@
 using Blasphemous.EditorMode.Components;
+using Blasphemous.EditorMode.Content;
 using Blasphemous.ModdingAPI;
 using Gameplay.UI;
 using Blasphemous.Framework.UI;
@@ -34,6 +35,14 @@ internal class EditorMode : BlasMod
         {
             SafeCreateEditorAfterDelay(1.5f);
         }
+    }
+
+    protected override void OnAllInitialized()
+    {
+        CreatorProbeResult result = RuntimeCreatorProbe.Inspect(BaseCreatorCatalog.Entries);
+        ModLog.Info(result.Message);
+        foreach (CreatorProbeDiagnostic diagnostic in result.Diagnostics)
+            ModLog.Warn(diagnostic.Message);
     }
 
     protected override void OnUpdate()

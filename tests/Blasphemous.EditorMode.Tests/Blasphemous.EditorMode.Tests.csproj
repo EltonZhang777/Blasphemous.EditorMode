@@ -16,6 +16,9 @@
 
   <ItemGroup>
     <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\DependencyGate.cs" Link="Diagnostics\DependencyGate.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Framework\LevelFrameworkContract.cs" Link="Framework\LevelFrameworkContract.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Content\CreatorMetadata.cs" Link="Content\CreatorMetadata.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Content\CreatorProbe.cs" Link="Content\CreatorProbe.cs" />
   </ItemGroup>
 
 </Project>
