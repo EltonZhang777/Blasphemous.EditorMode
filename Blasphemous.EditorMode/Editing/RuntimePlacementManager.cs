@@ -213,6 +213,60 @@ internal sealed class RuntimePlacementManager
         return TrySelect(handle.PlacementId, report, out placement);
     }
 
+    internal bool TryProjectExisting(PlacementRecord placement, ApplyReport report)
+    {
+        if (placement == null
+            || placement.Ownership != PlacementOwnership.ArchitectOwned
+            || !_session.TryGetPlacement(placement.Id, out PlacementRecord sessionPlacement))
+        {
+            report.Error("OWNERSHIP_REJECTED", placement == null ? "$" : placement.Id, "Only owned session placements can be projected.");
+            return false;
+        }
+
+        IRuntimePlacementHandle existing;
+        if (_projections.TryGetValue(placement.Id, out existing))
+        {
+            if (existing == null || existing.IsOriginal || !existing.IsAlive)
+            {
+                report.Error("RUNTIME_CREATE_FAILED", placement.Id, "Existing projection is not live and owned.");
+                return false;
+            }
+
+            if (!existing.TryApply(sessionPlacement, out string existingError))
+            {
+                report.Error("RUNTIME_APPLY_FAILED", placement.Id, existingError ?? "Projection rejected reconciliation.");
+                return false;
+            }
+
+            report.Applied();
+            return true;
+        }
+
+        IRuntimePlacementHandle handle;
+        try
+        {
+            handle = _factory.Create(sessionPlacement);
+        }
+        catch (Exception exception)
+        {
+            report.Error("RUNTIME_CREATE_FAILED", placement.Id, exception.Message);
+            return false;
+        }
+
+        if (handle == null
+            || handle.IsOriginal
+            || !handle.IsAlive
+            || !string.Equals(handle.PlacementId, placement.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            report.Error("OWNERSHIP_REJECTED", placement.Id, "Runtime factory returned an invalid reconciliation projection.");
+            return false;
+        }
+
+        _projections.Add(placement.Id, handle);
+        report.Applied();
+        return true;
+    }
+
     internal bool TryCopy(string id, ApplyReport report, out PlacementRecord copied)
     {
         return TryCopyCore(id, report, "copy", out copied);
@@ -275,6 +329,30 @@ internal sealed class RuntimePlacementManager
     internal bool TryDelete(string id, ApplyReport report)
     {
         return TryRemove(id, report);
+    }
+
+    internal bool TryClear(ApplyReport report)
+    {
+        bool success = true;
+        foreach (string id in new List<string>(_projections.Keys))
+        {
+            IRuntimePlacementHandle handle = _projections[id];
+            if (handle != null && handle.IsAlive && !handle.IsOriginal)
+            {
+                if (!handle.TryDestroy(out string error))
+                {
+                    report.Error("RUNTIME_CLEAR_FAILED", id, error ?? "Runtime projection rejected cleanup.");
+                    success = false;
+                    continue;
+                }
+            }
+
+            _projections.Remove(id);
+        }
+
+        if (success)
+            Selected = null;
+        return success;
     }
 
     internal bool TryMove(

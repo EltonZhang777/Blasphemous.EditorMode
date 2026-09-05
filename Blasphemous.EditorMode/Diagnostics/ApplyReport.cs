@@ -100,6 +100,16 @@ internal sealed class ApplyReport
         }
     }
 
+    internal void Merge(ApplyReport other)
+    {
+        if (other == null)
+            return;
+
+        foreach (ApplyReportEntry entry in other.Entries)
+            Add(entry.Severity, entry.Code, entry.Location, entry.Message, entry.Skipped);
+        AppliedCount += other.AppliedCount;
+    }
+
     internal string ToSummary(string operation)
     {
         string status = HasErrors ? "failed" : IsPartial ? "partial" : "passed";

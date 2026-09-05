@@ -31,6 +31,7 @@
     <Compile Include="..\..\Blasphemous.EditorMode\Editing\PlacementValidation.cs" Link="Editing\PlacementValidation.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Editing\RuntimePlacementManager.cs" Link="Editing\RuntimePlacementManager.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Editing\EditCommandHistory.cs" Link="Editing\EditCommandHistory.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\RoomOverlayReconciler.cs" Link="Editing\RoomOverlayReconciler.cs" />
   </ItemGroup>
 
 </Project>
