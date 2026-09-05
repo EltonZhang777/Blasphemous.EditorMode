@@ -37,6 +37,7 @@ internal sealed class RoomOverlayReconciler
     private readonly IRuntimePlacementFactory _factory;
     private RuntimePlacementManager _manager;
     private RoomIdentity _room;
+    private LevelEditSession _session;
 
     internal RoomOverlayReconciler(ContentCatalog catalog, IRuntimePlacementFactory factory)
     {
@@ -45,6 +46,7 @@ internal sealed class RoomOverlayReconciler
     }
 
     internal RoomIdentity CurrentRoom { get { return _room; } }
+    internal LevelEditSession CurrentSession { get { return _session; } }
     internal RuntimePlacementManager Manager { get { return _manager; } }
 
     internal RoomOverlayReconcileResult Apply(RoomIdentity room, FrameworkFileResult file)
@@ -65,6 +67,11 @@ internal sealed class RoomOverlayReconciler
             return new RoomOverlayReconcileResult(room, null, null, report);
         }
 
+        if (report.IsPartial)
+            imported.Session.SetState(LevelEditSessionState.Partial, report);
+
+        next.CaptureInitialSnapshot();
+
         if (_manager != null && !_manager.TryClear(report))
         {
             next.TryClear(report);
@@ -73,19 +80,25 @@ internal sealed class RoomOverlayReconciler
 
         _manager = next;
         _room = room;
+        _session = imported.Session;
         return new RoomOverlayReconcileResult(room, imported.Session, next, report);
     }
 
     internal bool TryClear(ApplyReport report)
     {
         if (_manager == null)
+        {
+            _room = null;
+            _session = null;
             return true;
+        }
 
         bool result = _manager.TryClear(report);
         if (result)
         {
             _manager = null;
             _room = null;
+            _session = null;
         }
 
         return result;

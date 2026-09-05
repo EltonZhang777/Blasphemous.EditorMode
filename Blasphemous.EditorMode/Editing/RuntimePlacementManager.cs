@@ -22,6 +22,21 @@ internal interface IRuntimePlacementFactory
     IRuntimePlacementHandle Create(PlacementRecord placement);
 }
 
+/// <summary>Optional runtime condition seam for Framework-compatible placements.</summary>
+internal interface IRuntimePlacementConditionFilter
+{
+    bool ShouldProject(PlacementRecord placement, out string reason);
+}
+
+/// <summary>Optional seam for adopting objects already created by Level Framework.</summary>
+internal interface IRuntimePlacementAdopter
+{
+    bool TryAdopt(
+        PlacementRecord placement,
+        out IRuntimePlacementHandle handle,
+        out string error);
+}
+
 /// <summary>Creates deterministic, non-conflicting IDs for one session.</summary>
 internal static class PlacementIdGenerator
 {
@@ -71,7 +86,7 @@ internal sealed class RuntimePlacementManager
     private readonly Dictionary<string, IRuntimePlacementHandle> _projections =
         new Dictionary<string, IRuntimePlacementHandle>(StringComparer.OrdinalIgnoreCase);
     private readonly EditCommandHistory _history = new EditCommandHistory();
-    private readonly PlacementManagerSnapshot _initialSnapshot;
+    private PlacementManagerSnapshot _initialSnapshot;
 
     internal RuntimePlacementManager(
         LevelEditSession session,
@@ -81,6 +96,11 @@ internal sealed class RuntimePlacementManager
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _initialSnapshot = CaptureSnapshot();
+    }
+
+    internal void CaptureInitialSnapshot()
+    {
         _initialSnapshot = CaptureSnapshot();
     }
 
@@ -158,6 +178,19 @@ internal sealed class RuntimePlacementManager
         }
         if (!PlacementValidation.ValidateCondition(condition, id, report))
         {
+            placement = null;
+            return false;
+        }
+
+        IRuntimePlacementConditionFilter conditionFilter = _factory as IRuntimePlacementConditionFilter;
+        if (conditionFilter != null
+            && !conditionFilter.ShouldProject(placement, out string conditionReason))
+        {
+            report.Warning(
+                "CONDITION_UNMET",
+                id,
+                conditionReason ?? "Placement condition is not active in the current runtime.",
+                true);
             placement = null;
             return false;
         }
@@ -244,6 +277,36 @@ internal sealed class RuntimePlacementManager
             return false;
         }
 
+        IRuntimePlacementConditionFilter conditionFilter = _factory as IRuntimePlacementConditionFilter;
+        if (conditionFilter != null
+            && !conditionFilter.ShouldProject(placement, out string conditionReason))
+        {
+            IRuntimePlacementHandle inactiveHandle;
+            if (_projections.TryGetValue(placement.Id, out inactiveHandle)
+                && inactiveHandle != null
+                && inactiveHandle.IsAlive
+                && !inactiveHandle.IsOriginal)
+            {
+                if (!inactiveHandle.TryDestroy(out string destroyError))
+                {
+                    report.Error(
+                        "RUNTIME_CLEAR_FAILED",
+                        placement.Id,
+                        destroyError ?? "Inactive projection rejected cleanup.");
+                    return false;
+                }
+            }
+            _projections.Remove(placement.Id);
+            if (Selected != null && string.Equals(Selected.Id, placement.Id, StringComparison.OrdinalIgnoreCase))
+                Selected = null;
+            report.Warning(
+                "CONDITION_UNMET",
+                placement.Id,
+                conditionReason ?? "Placement condition is not active in the current runtime.",
+                true);
+            return true;
+        }
+
         IRuntimePlacementHandle existing;
         if (_projections.TryGetValue(placement.Id, out existing))
         {
@@ -264,6 +327,38 @@ internal sealed class RuntimePlacementManager
         }
 
         IRuntimePlacementHandle handle;
+        IRuntimePlacementAdopter adopter = _factory as IRuntimePlacementAdopter;
+        if (adopter != null)
+        {
+            string adoptionError;
+            if (adopter.TryAdopt(placement, out handle, out adoptionError))
+            {
+                if (handle == null
+                    || handle.IsOriginal
+                    || !handle.IsAlive
+                    || !string.Equals(handle.PlacementId, placement.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (handle != null && !handle.IsOriginal && handle.IsAlive)
+                        handle.TryDestroy(out _);
+                    report.Error(
+                        "OWNERSHIP_REJECTED",
+                        placement.Id,
+                        "Runtime adopter returned an invalid reconciliation projection.");
+                    return false;
+                }
+
+                _projections.Add(placement.Id, handle);
+                report.Applied();
+                return true;
+            }
+
+            if (adoptionError != null)
+            {
+                report.Error("RUNTIME_ADOPTION_FAILED", placement.Id, adoptionError);
+                return false;
+            }
+        }
+
         try
         {
             handle = _factory.Create(sessionPlacement);
@@ -316,6 +411,14 @@ internal sealed class RuntimePlacementManager
 
     internal bool TryPaste(ApplyReport report, out PlacementRecord pasted)
     {
+        return TryPaste(null, report, out pasted);
+    }
+
+    internal bool TryPaste(
+        PlacementTransform transform,
+        ApplyReport report,
+        out PlacementRecord pasted)
+    {
         pasted = null;
         if (Clipboard == null)
         {
@@ -325,7 +428,7 @@ internal sealed class RuntimePlacementManager
 
         return TryPlaceCore(
             Clipboard.Type,
-            Clipboard.Transform,
+            transform ?? Clipboard.Transform,
             Clipboard.Properties,
             report,
             "paste",
@@ -582,10 +685,29 @@ internal sealed class RuntimePlacementManager
     {
         var applied = new List<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>>();
         var created = new Dictionary<string, IRuntimePlacementHandle>(StringComparer.OrdinalIgnoreCase);
-        var targetIds = new HashSet<string>(snapshot.Projections.Keys, StringComparer.OrdinalIgnoreCase);
+        var targetIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        IRuntimePlacementConditionFilter conditionFilter = _factory as IRuntimePlacementConditionFilter;
+        foreach (KeyValuePair<string, PlacementRecord> target in snapshot.Projections)
+        {
+            if (conditionFilter != null
+                && !conditionFilter.ShouldProject(target.Value, out string conditionReason))
+            {
+                report.Warning(
+                    "CONDITION_UNMET",
+                    target.Key,
+                    conditionReason ?? "Placement condition is not active in the current runtime.",
+                    true);
+                continue;
+            }
+
+            targetIds.Add(target.Key);
+        }
 
         foreach (KeyValuePair<string, PlacementRecord> target in snapshot.Projections)
         {
+            if (!targetIds.Contains(target.Key))
+                continue;
+
             IRuntimePlacementHandle handle;
             if (_projections.TryGetValue(target.Key, out handle)
                 && handle != null

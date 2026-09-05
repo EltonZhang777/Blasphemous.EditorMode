@@ -115,6 +115,46 @@ public sealed class RoomOverlayReconcilerTests
         }
     }
 
+    [Fact]
+    public void Reset_restores_imported_placements_and_their_runtime_projections()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, DocumentWithPlacement());
+            FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
+            var factory = new FakeFactory();
+            var reconciler = new RoomOverlayReconciler(
+                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                factory);
+            RoomOverlayReconcileResult result = reconciler.Apply(
+                CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
+                file);
+            var report = new ApplyReport();
+
+            Assert.True(result.Succeeded, result.StatusMessage);
+            PlacementRecord placement;
+            Assert.True(result.Manager.TryPlace(
+                BaseCreatorCatalog.BellIronType,
+                PlacementTransform.Default,
+                null,
+                report,
+                out placement));
+            Assert.True(result.Manager.TryReset(report));
+            Assert.Single(result.Session.Placements);
+            Assert.Single(result.Manager.OwnedPlacementIds);
+            Assert.Equal(2, factory.Created.Count);
+            Assert.False(factory.Created[1].IsAlive);
+            Assert.True(factory.Created[0].IsAlive);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
     private static string DocumentWithPlacement()
     {
         return "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"authored\",\"position\":{\"x\":1,\"y\":2,\"z\":3},\"condition\":\"flag:opened\"}],\"modifications\":[],\"deletions\":[]}";

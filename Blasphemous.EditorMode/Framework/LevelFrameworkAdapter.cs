@@ -316,6 +316,19 @@ internal static class LevelFrameworkAdapter
         return new FrameworkFileResult(path, originalText, parsed.Document, parsed.Diagnostics);
     }
 
+    /// <summary>Creates an empty room-scoped file result when no export exists yet.</summary>
+    internal static FrameworkFileResult EmptyFile(string path)
+    {
+        return new FrameworkFileResult(
+            path,
+            null,
+            new FrameworkLevelEdit(
+                new FrameworkObjectData[0],
+                new FrameworkObjectData[0],
+                new FrameworkObjectData[0]),
+            new FrameworkDiagnostic[0]);
+    }
+
     /// <summary>Validates and atomically writes a room-scoped canonical JSON file.</summary>
     internal static FrameworkExportResult ExportFile(
         string path,

@@ -187,6 +187,31 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
+    public void Inactive_conditions_are_not_projected_into_runtime()
+    {
+        LevelEditSession session = CreateSession();
+        var factory = new InactiveConditionFactory();
+        var manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        var report = new ApplyReport();
+        PlacementRecord placement;
+
+        Assert.False(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            "flag:not-opened",
+            report,
+            out placement));
+        Assert.Null(placement);
+        Assert.Empty(session.Placements);
+        Assert.Equal(0, factory.CreateCount);
+        Assert.Contains(report.Entries, x => x.Code == "CONDITION_UNMET");
+    }
+
+    [Fact]
     public void Undo_and_redo_restore_session_runtime_and_dirty_state()
     {
         LevelEditSession session = CreateSession();
@@ -319,6 +344,23 @@ public sealed class RuntimePlacementManagerTests
             DestroyCount++;
             IsAlive = false;
             return true;
+        }
+    }
+
+    private sealed class InactiveConditionFactory : IRuntimePlacementFactory, IRuntimePlacementConditionFilter
+    {
+        internal int CreateCount { get; private set; }
+
+        public IRuntimePlacementHandle Create(PlacementRecord placement)
+        {
+            CreateCount++;
+            return new FakeHandle(placement.Id, false);
+        }
+
+        public bool ShouldProject(PlacementRecord placement, out string reason)
+        {
+            reason = "Condition is false in the test runtime.";
+            return false;
         }
     }
 }
