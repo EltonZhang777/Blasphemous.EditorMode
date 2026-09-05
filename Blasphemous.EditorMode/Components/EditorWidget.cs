@@ -89,6 +89,8 @@ internal class EditorWidget : MonoBehaviour
             "Freeze",
             new Vector2(85f, -142f),
             OnFreezeGameButtonClicked).gameObject;
+        CreateButton("Pick", "Pick", new Vector2(165f, -142f), () => Main.EditorMode.TryPickSelected());
+        CreateButton("Clear Preview", "Clear", new Vector2(245f, -142f), () => Main.EditorMode.ClearPreview());
 
         cursorObj = new GameObject("Cursor");
         cursorObj.layer = LayerMask.NameToLayer("UI");

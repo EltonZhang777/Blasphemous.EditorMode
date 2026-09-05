@@ -297,6 +297,19 @@ internal class EditorMode : BlasMod
         return result;
     }
 
+    internal bool TryPickSelected()
+    {
+        RuntimePlacementManager manager = PlacementManager;
+        if (manager == null || manager.Selected == null)
+            return false;
+
+        var report = new ApplyReport();
+        PlacementRecord ignored;
+        bool result = manager.TryPick(manager.Selected.Id, report, out ignored);
+        PublishReport("Pick", report);
+        return result;
+    }
+
     internal bool TryPasteAtCursor()
     {
         RuntimePlacementManager manager = PlacementManager;
@@ -350,6 +363,17 @@ internal class EditorMode : BlasMod
         success.Info("PREVIEW_CREATED", type, "Isolated preview created; it is not part of the Room Overlay.");
         PublishReport("Preview", success);
         return true;
+    }
+
+    internal void ClearPreview()
+    {
+        if (_preview == null)
+            return;
+
+        DisposePreview();
+        var report = new ApplyReport();
+        report.Info("PREVIEW_DISPOSED", "preview", "Isolated preview discarded.");
+        PublishReport("Preview", report);
     }
 
     internal bool TryApplySelectedTransform(string[] values)
