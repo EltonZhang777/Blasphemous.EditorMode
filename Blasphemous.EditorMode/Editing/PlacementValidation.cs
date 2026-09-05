@@ -51,22 +51,13 @@ internal static class PlacementValidation
 
         foreach (string property in placement.Properties)
         {
-            bool supported = false;
-            foreach (string supportedKey in creator.PropertyKeys)
-            {
-                if (string.Equals(property, supportedKey, System.StringComparison.OrdinalIgnoreCase))
-                {
-                    supported = true;
-                    break;
-                }
-            }
-
-            if (!supported)
+            string error;
+            if (!creator.TryValidateProperty(property, out error))
             {
                 report.Error(
                     "PROPERTY_UNSUPPORTED",
                     placement.Id,
-                    "Creator does not support property '" + property + "'.");
+                    "Creator does not support property '" + property + "': " + error);
                 valid = false;
             }
         }

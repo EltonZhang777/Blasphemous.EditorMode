@@ -234,6 +234,75 @@ internal sealed class RuntimePlacementManager
         return true;
     }
 
+    internal bool TrySetProperty(
+        string id,
+        string key,
+        string rawValue,
+        ApplyReport report)
+    {
+        PlacementRecord current;
+        IRuntimePlacementHandle handle;
+        CreatorMetadata creator;
+        if (!TrySelect(id, report, out current)
+            || !_projections.TryGetValue(id, out handle)
+            || !_catalog.TryGet(current.Type, out creator))
+            return false;
+        if (current.IsLocked)
+        {
+            report.Error("PLACEMENT_LOCKED", id, "Locked placement cannot be edited.");
+            return false;
+        }
+
+        CreatorPropertyDefinition definition;
+        if (!creator.TryGetProperty(key, out definition))
+        {
+            report.Error("PROPERTY_UNSUPPORTED", id, "Property key '" + key + "' is not supported.");
+            return false;
+        }
+
+        string serialized;
+        string error;
+        if (!definition.TrySerialize(rawValue, out serialized, out error))
+        {
+            report.Error("PROPERTY_INVALID", id, error);
+            return false;
+        }
+
+        var properties = new List<string>(current.Properties);
+        bool replaced = false;
+        string prefix = definition.Key + "=";
+        for (int index = 0; index < properties.Count; index++)
+        {
+            if (string.Equals(properties[index], definition.Key, StringComparison.OrdinalIgnoreCase)
+                || (properties[index] != null
+                    && properties[index].StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            {
+                properties[index] = serialized;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced)
+            properties.Add(serialized);
+
+        PlacementRecord changed = current.WithProperties(properties);
+        if (!handle.TryApply(changed, out error))
+        {
+            report.Error("RUNTIME_APPLY_FAILED", id, error ?? "Runtime projection rejected the property.");
+            return false;
+        }
+
+        if (!_session.TryReplacePlacement(changed, report))
+        {
+            handle.TryApply(current, out _);
+            return false;
+        }
+
+        Selected = changed;
+        report.Applied();
+        return true;
+    }
+
     internal bool TryRemove(string id, ApplyReport report)
     {
         IRuntimePlacementHandle handle;

@@ -93,6 +93,50 @@ public sealed class RuntimePlacementManagerTests
             PlacementIdGenerator.Next("!!!", new string[0]));
     }
 
+    [Fact]
+    public void Transform_and_property_failures_leave_previous_values_intact()
+    {
+        var creator = new CreatorMetadata(
+            "limited",
+            "Limited",
+            "Test",
+            CreatorOrigin.Architect,
+            "scene",
+            "path",
+            TransformCapabilities.Position,
+            new[]
+            {
+                new CreatorPropertyDefinition("count", CreatorPropertyType.Integer),
+                new CreatorPropertyDefinition("mode", CreatorPropertyType.Enum, new[] { "safe", "fast" })
+            },
+            true);
+        LevelEditSession session = CreateSession();
+        var factory = new FakeFactory();
+        var manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { creator }),
+            factory);
+        var report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(creator.Type, PlacementTransform.Default, null, report, out placement));
+
+        Assert.True(manager.TrySetProperty(placement.Id, "count", "42", report));
+        Assert.False(manager.TrySetProperty(placement.Id, "count", "bad", report));
+        Assert.False(manager.TrySetProperty(placement.Id, "missing", "1", report));
+        Assert.False(manager.TryMove(
+            placement.Id,
+            new PlacementTransform(1f, 0f, 0f, 0f, 5f, 0f, 1f, 1f, 1f),
+            report));
+
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Contains("count=42", placement.Properties);
+        Assert.DoesNotContain("count=bad", placement.Properties);
+        Assert.Equal(1, factory.Created[0].ApplyCount);
+        Assert.Contains(report.Entries, x => x.Code == "PROPERTY_INVALID");
+        Assert.Contains(report.Entries, x => x.Code == "PROPERTY_UNSUPPORTED");
+        Assert.Contains(report.Entries, x => x.Code == "TRANSFORM_UNSUPPORTED");
+    }
+
     private static LevelEditSession CreateSession()
     {
         FrameworkFileResult file = CreateEmptyFile();
