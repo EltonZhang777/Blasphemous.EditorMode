@@ -100,7 +100,18 @@ internal sealed class RuntimePlacementManager
         ApplyReport report,
         out PlacementRecord placement)
     {
-        return TryPlaceCore(type, transform, properties, report, "place", out placement);
+        return TryPlace(type, transform, properties, string.Empty, report, out placement);
+    }
+
+    internal bool TryPlace(
+        string type,
+        PlacementTransform transform,
+        IEnumerable<string> properties,
+        string condition,
+        ApplyReport report,
+        out PlacementRecord placement)
+    {
+        return TryPlaceCore(type, transform, properties, report, "place", condition, out placement);
     }
 
     private bool TryPlaceCore(
@@ -109,6 +120,7 @@ internal sealed class RuntimePlacementManager
         IEnumerable<string> properties,
         ApplyReport report,
         string commandName,
+        string condition,
         out PlacementRecord placement)
     {
         PlacementManagerSnapshot before = CaptureSnapshot();
@@ -128,7 +140,9 @@ internal sealed class RuntimePlacementManager
                 creator.Type,
                 transform,
                 properties,
-                PlacementOwnership.ArchitectOwned);
+                PlacementOwnership.ArchitectOwned,
+                false,
+                condition);
         }
         catch (Exception exception)
         {
@@ -138,6 +152,11 @@ internal sealed class RuntimePlacementManager
         }
 
         if (!PlacementValidation.Validate(placement, creator, report))
+        {
+            placement = null;
+            return false;
+        }
+        if (!PlacementValidation.ValidateCondition(condition, id, report))
         {
             placement = null;
             return false;
@@ -160,6 +179,8 @@ internal sealed class RuntimePlacementManager
             || !handle.IsAlive
             || !string.Equals(handle.PlacementId, id, StringComparison.OrdinalIgnoreCase))
         {
+            if (handle != null && !handle.IsOriginal && handle.IsAlive)
+                handle.TryDestroy(out _);
             report.Error("OWNERSHIP_REJECTED", id, "Runtime factory did not return an Architect-owned projection.");
             placement = null;
             return false;
@@ -258,6 +279,8 @@ internal sealed class RuntimePlacementManager
             || !handle.IsAlive
             || !string.Equals(handle.PlacementId, placement.Id, StringComparison.OrdinalIgnoreCase))
         {
+            if (handle != null && !handle.IsOriginal && handle.IsAlive)
+                handle.TryDestroy(out _);
             report.Error("OWNERSHIP_REJECTED", placement.Id, "Runtime factory returned an invalid reconciliation projection.");
             return false;
         }
@@ -306,6 +329,7 @@ internal sealed class RuntimePlacementManager
             Clipboard.Properties,
             report,
             "paste",
+            Clipboard.Condition,
             out pasted);
     }
 
@@ -604,6 +628,8 @@ internal sealed class RuntimePlacementManager
                 || !handle.IsAlive
                 || !string.Equals(handle.PlacementId, target.Key, StringComparison.OrdinalIgnoreCase))
             {
+                if (handle != null && !handle.IsOriginal && handle.IsAlive)
+                    handle.TryDestroy(out _);
                 report.Error("HISTORY_RESTORE_FAILED", target.Key, "Runtime factory returned an invalid projection.");
                 Rollback(applied, created);
                 return false;

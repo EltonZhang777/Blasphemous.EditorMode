@@ -103,6 +103,36 @@ internal static class PlacementValidation
             report);
     }
 
+    internal static bool ValidateCondition(
+        string condition,
+        string location,
+        ApplyReport report)
+    {
+        if (string.IsNullOrEmpty(condition) || condition.Trim().Length == 0)
+            return true;
+
+        int colon = condition.IndexOf(':');
+        if (colon <= 0 || colon == condition.Length - 1)
+        {
+            report.Error("CONDITION_INVALID", location, "Condition must use flag:<id>, penitence:<id>, or gamemode:<id>.");
+            return false;
+        }
+
+        string kind = condition.Substring(0, colon);
+        if (kind != "flag" && kind != "penitence" && kind != "gamemode")
+        {
+            report.Error("CONDITION_INVALID", location, "Unsupported condition kind: " + kind);
+            return false;
+        }
+        if (condition.Substring(colon + 1).Trim().Length == 0)
+        {
+            report.Error("CONDITION_INVALID", location, "Condition value cannot be blank.");
+            return false;
+        }
+
+        return true;
+    }
+
     private static bool HasTransform(TransformCapabilities value, TransformCapabilities flag)
     {
         return (value & flag) == flag;

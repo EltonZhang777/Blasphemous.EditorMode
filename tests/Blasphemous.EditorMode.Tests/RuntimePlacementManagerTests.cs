@@ -149,7 +149,7 @@ public sealed class RuntimePlacementManagerTests
         var report = new ApplyReport();
         PlacementRecord source;
         PlacementTransform transform = new PlacementTransform(2f, 3f, 4f, 0f, 0f, 20f, 1f, 1f, 1f);
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, transform, null, report, out source));
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, transform, null, "flag:opened", report, out source));
 
         PlacementRecord cursor;
         Assert.True(manager.TryPick(source.Id, report, out cursor));
@@ -160,6 +160,7 @@ public sealed class RuntimePlacementManagerTests
         Assert.NotEqual(source.Id, pasted.Id);
         Assert.Equal(source.Type, pasted.Type);
         Assert.Equal(source.Transform, pasted.Transform);
+        Assert.Equal(source.Condition, pasted.Condition);
         Assert.Equal(2, session.Placements.Count);
     }
 
