@@ -24,6 +24,9 @@
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\BlasphemousLifecycleBridge.cs" Link="Lifecycle\BlasphemousLifecycleBridge.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\EditorRuntimeState.cs" Link="Lifecycle\EditorRuntimeState.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Framework\LevelFrameworkAdapter.cs" Link="Framework\LevelFrameworkAdapter.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\ApplyReport.cs" Link="Diagnostics\ApplyReport.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\PlacementRecord.cs" Link="Editing\PlacementRecord.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\LevelEditSession.cs" Link="Editing\LevelEditSession.cs" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,131 @@
+using Blasphemous.EditorMode.Framework;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+
+namespace Blasphemous.EditorMode.Diagnostics;
+
+/// <summary>Severity used by import, edit, runtime, and export reports.</summary>
+internal enum ApplySeverity
+{
+    Info,
+    Warning,
+    Error
+}
+
+/// <summary>One actionable result entry.</summary>
+internal sealed class ApplyReportEntry
+{
+    internal ApplyReportEntry(
+        ApplySeverity severity,
+        string code,
+        string location,
+        string message,
+        bool skipped)
+    {
+        Severity = severity;
+        Code = code;
+        Location = location;
+        Message = message;
+        Skipped = skipped;
+    }
+
+    internal ApplySeverity Severity { get; }
+    internal string Code { get; }
+    internal string Location { get; }
+    internal string Message { get; }
+    internal bool Skipped { get; }
+}
+
+/// <summary>Shared report surface for nonfatal editor operations.</summary>
+internal sealed class ApplyReport
+{
+    private readonly List<ApplyReportEntry> _entries = new List<ApplyReportEntry>();
+
+    internal ReadOnlyCollection<ApplyReportEntry> Entries
+    {
+        get { return new ReadOnlyCollection<ApplyReportEntry>(_entries); }
+    }
+
+    internal int AppliedCount { get; private set; }
+    internal int SkippedCount { get; private set; }
+
+    internal bool HasErrors
+    {
+        get
+        {
+            foreach (ApplyReportEntry entry in _entries)
+            {
+                if (entry.Severity == ApplySeverity.Error)
+                    return true;
+            }
+
+            return false;
+        }
+    }
+
+    internal bool IsPartial
+    {
+        get { return SkippedCount > 0 || _entries.Exists(entry => entry.Severity == ApplySeverity.Warning); }
+    }
+
+    internal void Applied()
+    {
+        AppliedCount++;
+    }
+
+    internal void Info(string code, string location, string message)
+    {
+        Add(ApplySeverity.Info, code, location, message, false);
+    }
+
+    internal void Warning(string code, string location, string message, bool skipped = false)
+    {
+        Add(ApplySeverity.Warning, code, location, message, skipped);
+    }
+
+    internal void Error(string code, string location, string message, bool skipped = true)
+    {
+        Add(ApplySeverity.Error, code, location, message, skipped);
+    }
+
+    internal void MergeFrameworkDiagnostics(IEnumerable<FrameworkDiagnostic> diagnostics)
+    {
+        foreach (FrameworkDiagnostic diagnostic in diagnostics ?? new FrameworkDiagnostic[0])
+        {
+            if (diagnostic.Severity == FrameworkDiagnosticSeverity.Error)
+                Error("FRAMEWORK_JSON", diagnostic.Location, diagnostic.Message);
+            else
+                Warning("FRAMEWORK_JSON", diagnostic.Location, diagnostic.Message);
+        }
+    }
+
+    internal string ToSummary(string operation)
+    {
+        string status = HasErrors ? "failed" : IsPartial ? "partial" : "passed";
+        return string.Format(
+            "{0} {1}: {2} applied, {3} skipped, {4} diagnostic(s).",
+            operation,
+            status,
+            AppliedCount,
+            SkippedCount,
+            _entries.Count);
+    }
+
+    private void Add(
+        ApplySeverity severity,
+        string code,
+        string location,
+        string message,
+        bool skipped)
+    {
+        _entries.Add(new ApplyReportEntry(
+            severity,
+            code ?? "UNKNOWN",
+            location ?? "$",
+            message ?? string.Empty,
+            skipped));
+        if (skipped)
+            SkippedCount++;
+    }
+}
