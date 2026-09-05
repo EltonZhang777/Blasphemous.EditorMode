@@ -66,4 +66,19 @@ public sealed class RoomLifecycleTests
         Assert.Equal(RoomLifecycleState.Faulted, bridge.State);
         Assert.Null(bridge.CurrentRoom);
     }
+
+    [Fact]
+    public void Editing_is_only_allowed_for_a_loaded_room_and_repeated_load_keeps_it()
+    {
+        var bridge = new BlasphemousLifecycleBridge(null, null);
+        bridge.OnLevelLoaded("D03Z02S06", "D03Z02S06_LOGIC");
+
+        Assert.True(bridge.TryBeginEditing());
+        Assert.Equal(RoomLifecycleState.Editing, bridge.State);
+        Assert.False(bridge.OnLevelLoaded("D03Z02S06", "D03Z02S06_LOGIC"));
+        Assert.Equal(RoomLifecycleState.Editing, bridge.State);
+
+        bridge.EndEditing();
+        Assert.Equal(RoomLifecycleState.RoomLoaded, bridge.State);
+    }
 }

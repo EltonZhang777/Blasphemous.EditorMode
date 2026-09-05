@@ -19,14 +19,22 @@ internal class EditorMode : BlasMod
 
     private static bool _isStartingEditorWidget = false;
     private BlasphemousLifecycleBridge _lifecycleBridge;
+    private EditorModeGuard _editorGuard;
 
     internal EditorMode() : base(ModInfo.MOD_ID, ModInfo.MOD_NAME, ModInfo.MOD_AUTHOR, ModInfo.MOD_VERSION) { }
 
     protected override void OnInitialize()
     {
+        _editorGuard = new EditorModeGuard(
+            BlasphemousEditorRuntimeState.Capture,
+            BlasphemousEditorRuntimeState.Apply);
         _lifecycleBridge = new BlasphemousLifecycleBridge(
             room => ModLog.Info("Room Overlay ready: " + room.FrameworkLevelKey),
-            room => ModLog.Info("Room Overlay cleared: " + room.FrameworkLevelKey));
+            room =>
+            {
+                ExitEditorMode();
+                ModLog.Info("Room Overlay cleared: " + room.FrameworkLevelKey);
+            });
 
         InputHandler.RegisterDefaultKeybindings(
             new()
@@ -69,24 +77,87 @@ internal class EditorMode : BlasMod
     protected override void OnUpdate()
     {
         if (InputHandler.GetKeyDown("OpenEditor"))
-        {
-            SafeCreateEditorAfterDelay(1.5f);
-            if (EditorWidget != null)
-            {
-                EditorWidget.gameObject.SetActive(!EditorWidget.gameObject.activeSelf);
-                if (EditorWidget.gameObject.activeSelf)
-                {
-                    EditorWidget.gameObject.transform.SetAsLastSibling();
-                }
+            ToggleEditorMode();
+    }
 
-#if DEBUG
-                Cursor.visible = EditorWidget.gameObject.activeInHierarchy;
-                ModLog.Warn($"{(EditorWidget.gameObject.activeSelf ? "Activated" : "Deactivated")} editor widget!");
-                ModLog.Warn($"Active in hierarchy? {EditorWidget.gameObject.activeInHierarchy}");
-                ModLog.Warn($"Cursor lock state: {Cursor.lockState}, visibility: {Cursor.visible}, position: {Input.mousePosition}");
-#endif
-            }
+    private void ToggleEditorMode()
+    {
+        if (_editorGuard.IsActive)
+        {
+            ExitEditorMode();
+            return;
         }
+
+        if (!IsDebug)
+        {
+            ModLog.Warn("Editor Mode activation rejected: debug gate failed.");
+            return;
+        }
+
+        if (!_lifecycleBridge.TryBeginEditing())
+        {
+            ModLog.Warn("Editor Mode activation rejected: no compatible loaded room.");
+            return;
+        }
+
+        if (EditorWidget == null)
+        {
+            _lifecycleBridge.EndEditing();
+            SafeCreateEditorAfterDelay(1.5f);
+            ModLog.Warn("Editor Mode activation deferred until its widget is ready.");
+            return;
+        }
+
+        string error;
+        if (!_editorGuard.TryEnter(true, true, CreateEditorState(), out error))
+        {
+            _lifecycleBridge.EndEditing();
+            ModLog.Warn(error);
+            return;
+        }
+
+        try
+        {
+            EditorWidget.gameObject.SetActive(true);
+            EditorWidget.gameObject.transform.SetAsLastSibling();
+        }
+        catch (System.Exception exception)
+        {
+            if (!_editorGuard.TryExit(out error))
+                ModLog.Error(error);
+            _lifecycleBridge.EndEditing();
+            ModLog.Error("Editor Mode widget activation failed: " + exception.Message);
+        }
+    }
+
+    private void ExitEditorMode()
+    {
+        string error;
+        if (!_editorGuard.TryExit(out error))
+        {
+            ModLog.Error(error);
+            return;
+        }
+
+        _lifecycleBridge.EndEditing();
+        if (EditorWidget != null)
+            EditorWidget.gameObject.SetActive(false);
+    }
+
+    private static EditorRuntimeState CreateEditorState()
+    {
+        return new EditorRuntimeState(
+            0f,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            false,
+            false);
     }
 
     private GameObject CreateEditorGameObject()

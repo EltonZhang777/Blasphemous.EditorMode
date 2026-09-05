@@ -21,6 +21,7 @@
     <Compile Include="..\..\Blasphemous.EditorMode\Content\CreatorProbe.cs" Link="Content\CreatorProbe.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\RoomIdentity.cs" Link="Lifecycle\RoomIdentity.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\BlasphemousLifecycleBridge.cs" Link="Lifecycle\BlasphemousLifecycleBridge.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\EditorRuntimeState.cs" Link="Lifecycle\EditorRuntimeState.cs" />
   </ItemGroup>
 
 </Project>
