@@ -184,7 +184,7 @@ public sealed class LevelEditSessionTests
 
             Assert.False(exported.Succeeded);
             Assert.Equal(oldSource, File.ReadAllText(wrongPath));
-            Assert.Contains(exported.Report.Entries, x => x.Code == "FRAMEWORK_JSON");
+            Assert.Contains(exported.Report.Entries, x => x.Code == "ROOM_SCOPE");
         }
         finally
         {
