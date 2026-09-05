@@ -1,10 +1,12 @@
 using Blasphemous.EditorMode.Components;
 using Blasphemous.EditorMode.Content;
+using Blasphemous.EditorMode.Lifecycle;
 using Blasphemous.ModdingAPI;
 using Gameplay.UI;
 using Blasphemous.Framework.UI;
 using System.Collections;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace Blasphemous.EditorMode;
@@ -16,11 +18,16 @@ internal class EditorMode : BlasMod
     internal static SpriteStorage SpriteStorage { get; private set; }
 
     private static bool _isStartingEditorWidget = false;
+    private BlasphemousLifecycleBridge _lifecycleBridge;
 
     internal EditorMode() : base(ModInfo.MOD_ID, ModInfo.MOD_NAME, ModInfo.MOD_AUTHOR, ModInfo.MOD_VERSION) { }
 
     protected override void OnInitialize()
     {
+        _lifecycleBridge = new BlasphemousLifecycleBridge(
+            room => ModLog.Info("Room Overlay ready: " + room.FrameworkLevelKey),
+            room => ModLog.Info("Room Overlay cleared: " + room.FrameworkLevelKey));
+
         InputHandler.RegisterDefaultKeybindings(
             new()
             {
@@ -29,12 +36,26 @@ internal class EditorMode : BlasMod
         SpriteStorage = new(FileHandler);
     }
 
+    protected override void OnLevelPreloaded(string oldLevel, string newLevel)
+    {
+        _lifecycleBridge.OnLevelPreloaded(oldLevel, newLevel);
+    }
+
     protected override void OnLevelLoaded(string oldLevel, string newLevel)
     {
-        if (oldLevel == "MainMenu")
+        bool roomLoaded = _lifecycleBridge.OnLevelLoaded(
+            newLevel,
+            SceneManager.GetActiveScene().name);
+
+        if (roomLoaded && oldLevel == "MainMenu")
         {
             SafeCreateEditorAfterDelay(1.5f);
         }
+    }
+
+    protected override void OnLevelUnloaded(string oldLevel, string newLevel)
+    {
+        _lifecycleBridge.OnLevelUnloaded(oldLevel, newLevel);
     }
 
     protected override void OnAllInitialized()
