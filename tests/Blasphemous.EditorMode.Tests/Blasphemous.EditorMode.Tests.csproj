@@ -20,6 +20,7 @@
     <Compile Include="..\..\Blasphemous.EditorMode\Framework\LevelFrameworkContract.cs" Link="Framework\LevelFrameworkContract.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Content\CreatorMetadata.cs" Link="Content\CreatorMetadata.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Content\CreatorProbe.cs" Link="Content\CreatorProbe.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Content\ContentCatalog.cs" Link="Content\ContentCatalog.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\RoomIdentity.cs" Link="Lifecycle\RoomIdentity.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\BlasphemousLifecycleBridge.cs" Link="Lifecycle\BlasphemousLifecycleBridge.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\EditorRuntimeState.cs" Link="Lifecycle\EditorRuntimeState.cs" />
