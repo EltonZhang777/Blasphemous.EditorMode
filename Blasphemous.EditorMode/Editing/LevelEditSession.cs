@@ -41,6 +41,26 @@ internal sealed class LevelEditSessionImportResult
     internal string StatusMessage { get { return Report.ToSummary("Level import"); } }
 }
 
+/// <summary>Result of exporting the current Room Overlay.</summary>
+internal sealed class LevelEditSessionExportResult
+{
+    internal LevelEditSessionExportResult(
+        FrameworkExportResult frameworkResult,
+        ApplyReport report,
+        FrameworkLevelEdit document)
+    {
+        FrameworkResult = frameworkResult;
+        Report = report;
+        Document = document;
+    }
+
+    internal FrameworkExportResult FrameworkResult { get; }
+    internal ApplyReport Report { get; }
+    internal FrameworkLevelEdit Document { get; }
+    internal bool Succeeded { get { return FrameworkResult != null && FrameworkResult.Succeeded; } }
+    internal string StatusMessage { get { return Report.ToSummary("Level export"); } }
+}
+
 /// <summary>Domain seam for importing and editing one current Room Overlay.</summary>
 internal sealed class LevelEditSession
 {
@@ -276,6 +296,53 @@ internal sealed class LevelEditSession
         _placements.Clear();
         _placements.AddRange(placements ?? new PlacementRecord[0]);
         SetState(state, report);
+    }
+
+    internal FrameworkLevelEdit BuildExportDocument()
+    {
+        var additions = new List<FrameworkObjectData>();
+        foreach (PlacementRecord placement in _placements)
+        {
+            if (placement.Ownership == PlacementOwnership.ArchitectOwned)
+                additions.Add(placement.ToFrameworkData());
+        }
+
+        return new FrameworkLevelEdit(
+            additions,
+            ImportedDocument.Modifications,
+            ImportedDocument.Deletions);
+    }
+
+    internal LevelEditSessionExportResult Export(string path)
+    {
+        var report = new ApplyReport();
+        if (State == LevelEditSessionState.Failed)
+        {
+            report.Error("EXPORT_SESSION_FAILED", path, "A failed session cannot be exported.");
+            return new LevelEditSessionExportResult(null, report, null);
+        }
+
+        FrameworkLevelEdit document = BuildExportDocument();
+        FrameworkExportResult frameworkResult = LevelFrameworkAdapter.ExportFile(
+            path,
+            Room.ExportFileKey,
+            document);
+        report.MergeFrameworkDiagnostics(frameworkResult.Diagnostics);
+        if (!frameworkResult.Succeeded)
+        {
+            report.Error(
+                "EXPORT_FAILED",
+                path,
+                "Export failed; the previous valid file remains available.");
+            LastReport = report;
+            return new LevelEditSessionExportResult(frameworkResult, report, document);
+        }
+
+        State = report.IsPartial ? LevelEditSessionState.Partial : LevelEditSessionState.Clean;
+        LastReport = report;
+        report.Applied();
+        report.Info("EXPORT_SUCCEEDED", path, "Framework-compatible Level Export written; Original Save was not changed.");
+        return new LevelEditSessionExportResult(frameworkResult, report, document);
     }
 
     private static bool HasFatalFrameworkDiagnostic(IEnumerable<FrameworkDiagnostic> diagnostics)

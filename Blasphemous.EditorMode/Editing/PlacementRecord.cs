@@ -126,7 +126,8 @@ internal sealed class PlacementRecord
         PlacementTransform transform,
         IEnumerable<string> properties,
         PlacementOwnership ownership,
-        bool locked = false)
+        bool locked = false,
+        string condition = "")
     {
         if (string.IsNullOrEmpty(id) || id.Trim().Length == 0)
             throw new ArgumentException("Placement id is required.", nameof(id));
@@ -140,6 +141,7 @@ internal sealed class PlacementRecord
             new List<string>(properties ?? new string[0]));
         Ownership = ownership;
         IsLocked = locked;
+        Condition = condition ?? string.Empty;
     }
 
     internal string Id { get; }
@@ -148,6 +150,7 @@ internal sealed class PlacementRecord
     internal ReadOnlyCollection<string> Properties { get; }
     internal PlacementOwnership Ownership { get; }
     internal bool IsLocked { get; }
+    internal string Condition { get; }
 
     internal static PlacementRecord FromFramework(FrameworkObjectData data)
     {
@@ -156,27 +159,29 @@ internal sealed class PlacementRecord
             data.Type,
             PlacementTransform.FromFramework(data),
             data.Properties,
-            PlacementOwnership.ArchitectOwned);
+            PlacementOwnership.ArchitectOwned,
+            false,
+            data.Condition);
     }
 
     internal PlacementRecord WithTransform(PlacementTransform transform)
     {
-        return new PlacementRecord(Id, Type, transform, Properties, Ownership, IsLocked);
+        return new PlacementRecord(Id, Type, transform, Properties, Ownership, IsLocked, Condition);
     }
 
     internal PlacementRecord WithProperties(IEnumerable<string> properties)
     {
-        return new PlacementRecord(Id, Type, Transform, properties, Ownership, IsLocked);
+        return new PlacementRecord(Id, Type, Transform, properties, Ownership, IsLocked, Condition);
     }
 
     internal PlacementRecord WithLocked(bool locked)
     {
-        return new PlacementRecord(Id, Type, Transform, Properties, Ownership, locked);
+        return new PlacementRecord(Id, Type, Transform, Properties, Ownership, locked, Condition);
     }
 
     internal PlacementRecord CopyWithId(string id)
     {
-        return new PlacementRecord(id, Type, Transform, Properties, Ownership, false);
+        return new PlacementRecord(id, Type, Transform, Properties, Ownership, false, Condition);
     }
 
     internal FrameworkObjectData ToFrameworkData()
@@ -189,7 +194,7 @@ internal sealed class PlacementRecord
             Transform.Position,
             Transform.Rotation,
             Transform.Scale,
-            string.Empty,
+            Condition,
             Properties);
     }
 }
