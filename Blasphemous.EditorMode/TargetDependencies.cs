@@ -5,6 +5,8 @@ namespace Blasphemous.EditorMode;
 
 internal static class TargetDependencies
 {
+    internal const string UnityProfile = "2017.4.40f1";
+    internal const string GameLibsProfile = "4.0.67";
     internal const string ModdingApiId = "Blasphemous.ModdingAPI";
     internal const string ModdingApiMinimumVersion = "3.0.1";
     internal const string LevelFrameworkId = "Blasphemous.Framework.Levels";

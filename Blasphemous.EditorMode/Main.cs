@@ -15,6 +15,7 @@ internal class Main : BaseUnityPlugin
 
     private void Start()
     {
+        Logger.LogInfo(RuntimeDependencyProbe.DescribeTargetProfile());
         DependencyStatus = DependencyGate.Evaluate(
             TargetDependencies.Required,
             RuntimeDependencyProbe.ReadInstalled());
