@@ -577,45 +577,61 @@ internal class EditorMode : BlasMod
 
     private IEnumerator PreloadCreatorSources()
     {
-        yield return null;
-        foreach (CreatorMetadata metadata in Catalog.Entries)
+        try
         {
-            Blasphemous.Framework.Levels.ObjectCreator creator;
-            string error;
-            if (!RuntimeCreatorRegistry.TryGet(metadata.Type, out creator, out error))
+            yield return null;
+            foreach (CreatorMetadata metadata in Catalog.Entries)
             {
-                ModLog.Warn(error);
-                continue;
-            }
-            if (creator.Loader == null || creator.Loader.Result != null)
-                continue;
+                Blasphemous.Framework.Levels.ObjectCreator creator;
+                string error;
+                if (!RuntimeCreatorRegistry.TryGet(metadata.Type, out creator, out error))
+                {
+                    ModLog.Warn(error);
+                    continue;
+                }
+                if (creator.Loader == null || creator.Loader.Result != null)
+                    continue;
 
-            IEnumerator load = creator.Loader.Apply();
-            while (true)
-            {
-                bool hasNext;
-                object current = null;
+                IEnumerator load;
                 try
                 {
-                    hasNext = load.MoveNext();
-                    if (hasNext)
-                        current = load.Current;
+                    load = creator.Loader.Apply();
                 }
                 catch (System.Exception exception)
                 {
-                    ModLog.Error("Creator source preload failed for " + metadata.Type + ": " + exception.Message);
-                    break;
+                    ModLog.Error("Creator source preload could not start for " + metadata.Type + ": " + exception.Message);
+                    continue;
                 }
 
-                if (!hasNext)
-                    break;
-                yield return current;
-            }
+                while (true)
+                {
+                    bool hasNext;
+                    object current = null;
+                    try
+                    {
+                        hasNext = load.MoveNext();
+                        if (hasNext)
+                            current = load.Current;
+                    }
+                    catch (System.Exception exception)
+                    {
+                        ModLog.Error("Creator source preload failed for " + metadata.Type + ": " + exception.Message);
+                        break;
+                    }
 
-            if (creator.Loader.Result == null)
-                ModLog.Warn("Creator source preload returned no object: " + metadata.Type);
+                    if (!hasNext)
+                        break;
+                    yield return current;
+                }
+
+                if (creator.Loader.Result == null)
+                    ModLog.Warn("Creator source preload returned no object: " + metadata.Type);
+            }
         }
-        _creatorPreload = null;
+        finally
+        {
+            _creatorPreload = null;
+        }
     }
 
     private string RoomExportPath(RoomIdentity room)
@@ -699,6 +715,12 @@ internal class EditorMode : BlasMod
 
     private void SafeCreateEditorAfterDelay(float delaySeconds)
     {
+        if (UIController.instance == null)
+        {
+            ModLog.Warn("Editor Mode widget creation deferred because UI Framework is not ready.");
+            return;
+        }
+
         if ((EditorWidget == null || GameObject.Find("Editor Widget") == null) && !_isStartingEditorWidget)
         {
             UIController.instance.StartCoroutine(DelayAndCreateEditorGameObjectCoroutine(delaySeconds));

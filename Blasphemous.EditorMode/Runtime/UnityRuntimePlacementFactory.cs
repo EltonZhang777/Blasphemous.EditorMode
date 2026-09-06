@@ -138,18 +138,26 @@ internal sealed class UnityRuntimePlacementFactory :
 
         string kind = placement.Condition.Substring(0, colon);
         string value = placement.Condition.Substring(colon + 1);
-        switch (kind)
+        try
         {
-            case "flag":
-                return Core.Events.GetFlag(value);
-            case "penitence":
-                return Core.PenitenceManager.GetCurrentPenitence() != null
-                    && Core.PenitenceManager.GetCurrentPenitence().Id == value;
-            case "gamemode":
-                return Core.GameModeManager.CheckGameModeActive(value);
-            default:
-                reason = "Condition kind is unsupported: " + kind;
-                return false;
+            switch (kind)
+            {
+                case "flag":
+                    return Core.Events.GetFlag(value);
+                case "penitence":
+                    return Core.PenitenceManager.GetCurrentPenitence() != null
+                        && Core.PenitenceManager.GetCurrentPenitence().Id == value;
+                case "gamemode":
+                    return Core.GameModeManager.CheckGameModeActive(value);
+                default:
+                    reason = "Condition kind is unsupported: " + kind;
+                    return false;
+            }
+        }
+        catch (Exception exception)
+        {
+            reason = "Condition evaluation failed: " + exception.Message;
+            return false;
         }
     }
 
