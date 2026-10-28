@@ -694,6 +694,7 @@ internal class EditorMode : BlasMod
         obj.transform.SetAsLastSibling();
 
         obj.AddComponent<EditorWidget>();
+        rt.localScale = Vector3.one * (rt.parent.GetComponent<RectTransform>().rect.width * 0.8f / rt.rect.width);
 
         // deactivate the GameObject after initialization for default.
         obj.SetActive(false);
