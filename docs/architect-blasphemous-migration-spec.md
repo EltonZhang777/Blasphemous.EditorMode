@@ -1,6 +1,6 @@
 # Architect for Blasphemous 迁移规格
 
-状态：需求已确认；本文件是本地规格文档，不发布到 issue tracker。
+状态：需求已确认；实现按本规格分阶段进行。
 
 ## Problem Statement
 
@@ -155,10 +155,11 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 
 ### 工程边界
 
-- Blasphemous 版本使用独立工程/仓库；当前 Architect-Silksong 只作为功能基线和证据来源。
+- 当前 Blasphemous.EditorMode 工程是迁移实施目标；Architect-Silksong 只作为功能基线和证据来源，基础 Framework 工程和 Extended 工程只读使用。
 - 不共享 Silksong 的 Assembly-CSharp、DataManager、ModMenu、AssetHelper、SSMP、Patchwork 或 QuickWarp 运行时依赖。
 - 使用 BepInEx 和 Blasphemous.ModdingAPI 的目标游戏惯例；目标编译框架以实际 ModdingAPI/GameLibs 依赖为准，不沿用当前 netstandard2.1 假设。
-- 当前会话不创建移植代码。
+- 本轮只整理和发布规格，不创建迁移实现代码。
+- 后续实施授权范围为 Phase 0 → Phase 3：版本/能力门禁、独立插件与生命周期、P0 对象编辑闭环、Framework JSON round-trip；P1、P2 和 OUT 能力不因本规格自动提前实施。
 
 ### 依赖与能力
 
@@ -166,7 +167,8 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 - Architect 不修改基础 Framework 源码。
 - Blasphemous.LevelFrameworkExtended 不作为默认依赖，也不提供默认兼容分支。
 - 如果基础 Framework 缺少绝对必要能力，只在单独的扩展建议中描述可实现于 Extended 的能力。
-- 依赖门禁必须记录实际加载版本并拒绝未知不兼容版本。
+- 依赖门禁必须记录实际加载的 Unity、ModdingAPI、GameLibs 和 Framework 版本，并拒绝未知不兼容版本。
+- 当前工程中的依赖声明与文档记录存在版本差异时，必须以目标 profile 的实际部署 DLL 和可验证的包依赖为准，统一编译声明、插件依赖声明和运行时门禁，不得猜测版本。
 
 ### 领域模块
 
@@ -204,6 +206,7 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 - P1：收藏、Hotbar、Prefab 基础复用、事件子集、预加载进度、单对象 fixer、更多属性和目录。
 - P2：完整 Script Editor、Tilemap、Prefab 编辑器、多房间、整张地图、Standalone Level、Workshop 本地内容。
 - OUT：在线登录、上传、搜索、下载、网络 Workshop、SSMP 联机、远程外部资源下载。
+- 本次授权只推进 P0 以及支撑 P0 的 Phase 0–3 工作；P1/P2 仅保留接口或能力登记，不作为本次完成条件。
 
 ## Testing Decisions
 
@@ -235,6 +238,8 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 - 原版对象只读和 Architect-owned 对象可编辑。
 - TimeScale、Core.Input、UIController.Paused、玩家控制和 HUD 的完整恢复。
 - 多次触发 OnLevelPreLoaded/OnLevelLoaded。
+
+如果当前环境无法启动目标游戏或加载实际测试 profile，可以先完成纯逻辑测试、构建和静态验证；游戏集成烟测必须标记为待验证，不得宣称已通过。
 
 ### 失败注入
 
