@@ -68,6 +68,20 @@ public sealed class ContentCatalogTests
     }
 
     [Fact]
+    public void Preview_follows_cursor_until_disposed()
+    {
+        int updates = 0;
+        var preview = new PreviewInstance(BaseCreatorCatalog.BellIron, null, () => updates++);
+
+        preview.FollowCursor();
+        Assert.Equal(1, updates);
+
+        preview.Dispose();
+        preview.FollowCursor();
+        Assert.Equal(1, updates);
+    }
+
+    [Fact]
     public void Search_filters_by_display_text_and_category()
     {
         ContentCatalog catalog = ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron });

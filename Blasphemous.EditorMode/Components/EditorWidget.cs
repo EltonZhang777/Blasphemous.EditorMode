@@ -4,6 +4,7 @@ using Blasphemous.ModdingAPI;
 using Blasphemous.Framework.UI;
 using Framework.Managers;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -13,12 +14,21 @@ using UnityEngine.UI;
 namespace Blasphemous.EditorMode.Components;
 
 /// <summary>Minimal P0 canvas for browsing and commanding the current Room Overlay.</summary>
+[DefaultExecutionOrder(10000)]
 internal class EditorWidget : MonoBehaviour
 {
-    internal GameObject cursorObj;
     internal GameObject freezeGameButtonObj;
 
     private RectTransform _root;
+    private Canvas _canvas;
+    private GraphicRaycaster _canvasRaycaster;
+    private GameObject _fallbackEventSystem;
+    private BaseInputModule[] _inputModulesBeforeEditor;
+    private bool[] _inputModulesWereEnabled;
+    private StandaloneInputModule _standaloneInputModule;
+    private bool _standaloneInputModuleWasAdded;
+    private bool _addedCanvasRaycaster;
+    private bool _canvasRaycasterWasEnabled;
     private Text _statusText;
     private Transform _catalogRoot;
     private Transform _propertyRoot;
@@ -33,6 +43,7 @@ internal class EditorWidget : MonoBehaviour
         _root = GetComponent<RectTransform>();
         _root = _root ?? gameObject.AddComponent<RectTransform>();
         _root.sizeDelta = new Vector2(640f, 420f);
+        _canvas = GetComponentInParent<Canvas>();
 
         Image background = gameObject.GetComponent<Image>();
         if (background == null)
@@ -78,8 +89,8 @@ internal class EditorWidget : MonoBehaviour
         CreateButton("Export", "Export", new Vector2(-155f, -178f), () => Main.EditorMode.ExportCurrentRoom());
         CreateButton("Undo", "Undo", new Vector2(-75f, -178f), () => Main.EditorMode.TryUndo());
         CreateButton("Redo", "Redo", new Vector2(5f, -178f), () => Main.EditorMode.TryRedo());
-        CreateButton("Copy", "Copy", new Vector2(85f, -178f), () => Main.EditorMode.TryCopySelected());
-        CreateButton("Paste", "Paste", new Vector2(165f, -178f), () => Main.EditorMode.TryPasteAtCursor());
+        CreateButton("Copy", "Copy Ctrl+C", new Vector2(85f, -178f), () => Main.EditorMode.TryCopySelected());
+        CreateButton("Paste", "Paste Ctrl+V", new Vector2(165f, -178f), () => Main.EditorMode.TryPasteAtCursor());
         CreateButton("Delete", "Delete", new Vector2(245f, -178f), () => Main.EditorMode.TryDeleteSelected());
         CreateButton("Lock", "Lock", new Vector2(-155f, -142f), () => Main.EditorMode.TryToggleSelectedLock());
         CreateButton("Reset", "Reset", new Vector2(-75f, -142f), () => Main.EditorMode.TryReset());
@@ -89,36 +100,98 @@ internal class EditorWidget : MonoBehaviour
             "Freeze",
             new Vector2(85f, -142f),
             OnFreezeGameButtonClicked).gameObject;
-        CreateButton("Pick", "Pick", new Vector2(165f, -142f), () => Main.EditorMode.TryPickSelected());
+        CreateButton("Pick", "Pick P", new Vector2(165f, -142f), () => Main.EditorMode.TryPickSelected());
         CreateButton("Clear Preview", "Clear", new Vector2(245f, -142f), () => Main.EditorMode.ClearPreview());
-
-        cursorObj = new GameObject("Cursor");
-        cursorObj.layer = LayerMask.NameToLayer("UI");
-        cursorObj.transform.SetParent(transform, false);
-        RectTransform cursorRect = cursorObj.AddComponent<RectTransform>();
-        cursorRect.anchorMin = new Vector2(0.5f, 0.5f);
-        cursorRect.anchorMax = new Vector2(0.5f, 0.5f);
-        cursorRect.pivot = new Vector2(0f, 1f);
-        cursorRect.sizeDelta = new Vector2(40f, 40f);
-        Image cursorImage = cursorObj.AddComponent<Image>();
-        cursorImage.sprite = EditorMode.SpriteStorage == null ? null : EditorMode.SpriteStorage.Cursor;
-        cursorImage.raycastTarget = false;
-        cursorObj.transform.SetAsLastSibling();
     }
 
     private void OnEnable()
     {
+        EnsureUiInput();
         Refresh();
+    }
+
+    private void OnDisable()
+    {
+        if (_canvasRaycaster != null)
+            _canvasRaycaster.enabled = !_addedCanvasRaycaster && _canvasRaycasterWasEnabled;
+
+        if (_standaloneInputModuleWasAdded && _standaloneInputModule != null)
+        {
+            _standaloneInputModule.enabled = false;
+            _standaloneInputModuleWasAdded = false;
+        }
+
+        if (_inputModulesBeforeEditor != null)
+        {
+            for (int i = 0; i < _inputModulesBeforeEditor.Length; i++)
+            {
+                if (_inputModulesBeforeEditor[i] != null)
+                    _inputModulesBeforeEditor[i].enabled = _inputModulesWereEnabled[i];
+            }
+        }
+
+        _inputModulesBeforeEditor = null;
+        _inputModulesWereEnabled = null;
+        _standaloneInputModule = null;
+        if (_fallbackEventSystem != null)
+            _fallbackEventSystem.SetActive(false);
     }
 
     private void Update()
     {
-        UpdateCursor();
-        if (Input.GetMouseButtonDown(0)
-            && EventSystem.current != null
-            && !EventSystem.current.IsPointerOverGameObject()
-            && Main.EditorMode != null)
-            Main.EditorMode.TrySelectAtCursor();
+        EditorMode editor = Main.EditorMode;
+        if (editor == null)
+            return;
+
+        editor.UpdatePreviewAtCursor();
+
+        if (IsInputFieldFocused())
+            return;
+
+        bool controlPressed = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+        if (Input.GetKeyDown(KeyCode.P) && !IsPointerOverEditorControl())
+        {
+            editor.TryPickAtCursor();
+            return;
+        }
+
+        if (controlPressed && Input.GetKeyDown(KeyCode.C))
+        {
+            editor.TryCopySelected();
+            return;
+        }
+
+        if (controlPressed && Input.GetKeyDown(KeyCode.V))
+        {
+            editor.TryPasteAtCursor();
+            return;
+        }
+
+        if (Input.GetMouseButtonDown(0) && !IsPointerOverEditorControl())
+            editor.TrySelectAtCursor();
+    }
+
+    private bool IsPointerOverEditorControl()
+    {
+        EventSystem eventSystem = EventSystem.current;
+        if (eventSystem == null)
+            return false;
+
+        var pointer = new PointerEventData(eventSystem);
+        pointer.position = Input.mousePosition;
+        var raycastResults = new List<RaycastResult>();
+        eventSystem.RaycastAll(pointer, raycastResults);
+
+        foreach (RaycastResult result in raycastResults)
+        {
+            GameObject hit = result.gameObject;
+            if (hit != null
+                && hit.transform.IsChildOf(transform)
+                && hit.GetComponentInParent<Selectable>() != null)
+                return true;
+        }
+
+        return false;
     }
 
     internal void Refresh()
@@ -153,14 +226,27 @@ internal class EditorWidget : MonoBehaviour
         string dependency = Main.DependencyStatus == null
             ? "unknown"
             : Main.DependencyStatus.IsCompatible ? "compatible" : "blocked";
+        string locked = selectedPlacement == null
+            ? "—"
+            : selectedPlacement.IsLocked ? "yes" : "no";
         string report = editor.ReportSurface == null ? "" : editor.ReportSurface.UiText;
         _statusText.text = string.Format(
-            "Room: {0}\nSession: {1}   Selected: {2}\nDependencies: {3}\n{4}",
+            "Room: {0}\nSession: {1}   Selected: {2}   Locked: {3}\nDependencies: {4}   Preview: {5}\n{6}",
             room,
             state,
             selected,
+            locked,
             dependency,
+            editor.PreviewStatus,
             report ?? "");
+    }
+
+    private static bool IsInputFieldFocused()
+    {
+        GameObject selected = EventSystem.current == null
+            ? null
+            : EventSystem.current.currentSelectedGameObject;
+        return selected != null && selected.GetComponentInParent<InputField>() != null;
     }
 
     private InputField[] CreateTransformFields(string group, float x)
@@ -362,18 +448,83 @@ internal class EditorWidget : MonoBehaviour
         }
     }
 
-    private void UpdateCursor()
+    private void EnsureUiInput()
     {
-        if (cursorObj == null || _root == null)
-            return;
+        if (_canvas != null)
+        {
+            _canvasRaycaster = _canvas.GetComponent<GraphicRaycaster>();
+            if (_canvasRaycaster == null)
+            {
+                _canvasRaycaster = _canvas.gameObject.AddComponent<GraphicRaycaster>();
+                _addedCanvasRaycaster = true;
+            }
 
-        Vector2 local;
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
-            _root,
-            Input.mousePosition,
-            null,
-            out local))
-            cursorObj.GetComponent<RectTransform>().anchoredPosition = local;
+            _canvasRaycasterWasEnabled = _canvasRaycaster.enabled;
+            _canvasRaycaster.enabled = true;
+        }
+
+        EventSystem eventSystem = EventSystem.current;
+        bool createdFallbackEventSystem = eventSystem == null;
+        if (createdFallbackEventSystem)
+        {
+            if (_fallbackEventSystem == null)
+            {
+                _fallbackEventSystem = new GameObject("Editor Mode Event System");
+                _fallbackEventSystem.transform.SetParent(transform, false);
+                _fallbackEventSystem.SetActive(false);
+                _fallbackEventSystem.AddComponent<EventSystem>();
+                _fallbackEventSystem.AddComponent<StandaloneInputModule>();
+            }
+
+            _fallbackEventSystem.SetActive(true);
+            eventSystem = _fallbackEventSystem.GetComponent<EventSystem>();
+        }
+        else if (_fallbackEventSystem != null && eventSystem.gameObject != _fallbackEventSystem)
+            _fallbackEventSystem.SetActive(false);
+
+        _inputModulesBeforeEditor = eventSystem.GetComponents<BaseInputModule>();
+        _inputModulesWereEnabled = new bool[_inputModulesBeforeEditor.Length];
+        string previousInputModule = null;
+        for (int i = 0; i < _inputModulesBeforeEditor.Length; i++)
+        {
+            BaseInputModule module = _inputModulesBeforeEditor[i];
+            if (module == null)
+                continue;
+
+            _inputModulesWereEnabled[i] = module.enabled;
+            if (module.enabled && previousInputModule == null)
+                previousInputModule = module.GetType().Name;
+
+            if (_standaloneInputModule == null && module.GetType() == typeof(StandaloneInputModule))
+                _standaloneInputModule = (StandaloneInputModule)module;
+        }
+
+        if (_standaloneInputModule == null)
+        {
+            _standaloneInputModule = eventSystem.gameObject.AddComponent<StandaloneInputModule>();
+            _standaloneInputModuleWasAdded = true;
+        }
+
+        for (int i = 0; i < _inputModulesBeforeEditor.Length; i++)
+        {
+            BaseInputModule module = _inputModulesBeforeEditor[i];
+            if (module != null && module != _standaloneInputModule)
+                module.enabled = false;
+        }
+
+        _standaloneInputModule.enabled = true;
+        ModLog.Info(string.Format(
+            "Editor Mode is using the Unity StandaloneInputModule for pointer input (previous module: {0}).",
+            previousInputModule ?? "none"));
+
+        Debug.Assert(_canvas == null || (_canvasRaycaster != null && _canvasRaycaster.enabled));
+        Debug.Assert(_standaloneInputModule.isActiveAndEnabled);
+        for (int i = 0; i < _inputModulesBeforeEditor.Length; i++)
+        {
+            BaseInputModule module = _inputModulesBeforeEditor[i];
+            if (module != null && module != _standaloneInputModule)
+                Debug.Assert(!module.isActiveAndEnabled);
+        }
     }
 
     private Text CreateText(

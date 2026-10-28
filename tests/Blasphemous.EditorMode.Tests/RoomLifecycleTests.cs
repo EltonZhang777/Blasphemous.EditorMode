@@ -27,6 +27,9 @@ public sealed class RoomLifecycleTests
 
         Assert.False(RoomIdentity.TryCreate("MainMenu", "MainMenu", out identity, out error));
         Assert.Contains("not a Room Overlay", error);
+        var bridge = new BlasphemousLifecycleBridge(null, null);
+        Assert.False(bridge.OnLevelLoaded("MainMenu", "MainMenu"));
+        Assert.Null(bridge.CurrentRoom);
         Assert.False(RoomIdentity.TryCreate("D03Z02S06", "D04Z01S01_LOGIC", out identity, out error));
         Assert.Contains("does not belong", error);
     }

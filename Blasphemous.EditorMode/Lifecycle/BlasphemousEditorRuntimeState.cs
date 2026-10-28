@@ -30,7 +30,9 @@ internal static class BlasphemousEditorRuntimeState
             penitent != null && penitent.Status.Invulnerable,
             collider == null || collider.enabled,
             collider == null || collider.EnableCollision2D,
-            ui != null && ui.Cinematic != null && ui.Cinematic.InCinematicMode);
+            ui != null && ui.Cinematic != null && ui.Cinematic.InCinematicMode,
+            Cursor.visible,
+            (int)Cursor.lockState);
     }
 
     internal static void Apply(EditorRuntimeState state)
@@ -55,6 +57,9 @@ internal static class BlasphemousEditorRuntimeState
             Core.UI.ShowGamePlayUI = state.HudVisible;
             Core.UI.ShowGamePlayUIForDebug = state.HudDebugVisible;
         }
+
+        Cursor.lockState = (CursorLockMode)state.CursorLockState;
+        Cursor.visible = state.CursorVisible;
 
         var penitent = logic == null ? null : logic.Penitent;
         if (penitent == null)

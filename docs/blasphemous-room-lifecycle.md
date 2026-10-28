@@ -1,6 +1,6 @@
 # Blasphemous Room Lifecycle
 
-Status: callback mapping and pure lifecycle behavior are implemented. In-game callback ordering and cleanup remain pending because this goal skips in-game tests.
+Status: callback mapping and pure lifecycle behavior are implemented. The target profile now confirms room entry and bell-iron placement/import after creator preload; repeated callback ordering, transitions, and cleanup remain pending.
 
 ## Runtime facts
 
@@ -28,3 +28,7 @@ MainMenu, unrelated active scenes, unsupported scene suffixes, and missing value
 - Invalid loaded data enters `Faulted` without creating a room.
 
 The bridge does not write the Original Save and does not treat `OnLevelPreloaded` as a real-time editing API.
+
+## Creator source preload
+
+Start creator preload only after a validated Room Identity exists. A prior attempt from MainMenu logged `[Error :Editor Mode] Creator source preload failed for bell-iron: Scene to unload is invalid`; the preload is now gated on `CurrentRoom` and begins after the room-load callback. The latest target-profile smoke loaded the room and placed/imported bell-iron without reproducing the error. This verifies the bell-iron path only; other creators and broader transition/cleanup behavior still need coverage.

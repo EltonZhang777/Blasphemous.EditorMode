@@ -24,17 +24,21 @@ public sealed class EditorModeGuardTests
     [Fact]
     public void Exit_restores_every_captured_field()
     {
-        var state = new TestState { Current = CreateSnapshot(1.5f, true, true, false, true, false, false, true, false, true, false) };
+        var state = new TestState { Current = CreateSnapshot(1.5f, true, true, false, true, false, false, true, false, true, false, false, 2) };
         var original = state.Current;
         var guard = CreateGuard(state);
         string error;
 
         Assert.True(guard.TryEnter(true, true, CreateSnapshot(), out error));
         Assert.True(guard.IsActive);
+        Assert.True(state.Current.CursorVisible);
+        Assert.Equal(0, state.Current.CursorLockState);
         state.ThrowOnApplyNumber = 2;
         Assert.True(guard.TryExit(out error));
         Assert.False(guard.IsActive);
         Assert.Same(original, state.Current);
+        Assert.False(state.Current.CursorVisible);
+        Assert.Equal(2, state.Current.CursorLockState);
     }
 
     [Fact]
@@ -88,7 +92,9 @@ public sealed class EditorModeGuardTests
         bool invulnerable = false,
         bool collisionEnabled = true,
         bool collision2DEnabled = true,
-        bool cinematicMode = false)
+        bool cinematicMode = false,
+        bool cursorVisible = true,
+        int cursorLockState = 0)
     {
         return new EditorRuntimeState(
             timeScale,
@@ -101,12 +107,14 @@ public sealed class EditorModeGuardTests
             invulnerable,
             collisionEnabled,
             collision2DEnabled,
-            cinematicMode);
+            cinematicMode,
+            cursorVisible,
+            cursorLockState);
     }
 
     private sealed class TestState
     {
-        internal readonly EditorRuntimeState Original = CreateSnapshot(0.75f, false, true, false, false, false, false, true, false, true, false);
+        internal readonly EditorRuntimeState Original = CreateSnapshot(0.75f, false, true, false, false, false, false, true, false, true, false, false, 2);
         internal EditorRuntimeState Current;
         internal int ThrowOnApplyNumber;
         internal int Applies;

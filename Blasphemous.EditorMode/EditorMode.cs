@@ -23,12 +23,15 @@ internal class EditorMode : BlasMod
 {
 
     internal EditorWidget EditorWidget { get; private set; }
+
+    internal bool IsActive { get { return _editorGuard != null && _editorGuard.IsActive; } }
     internal static SpriteStorage SpriteStorage { get; private set; }
     internal ContentCatalog Catalog { get; private set; }
     internal RoomIdentity CurrentRoom { get { return _lifecycleBridge == null ? null : _lifecycleBridge.CurrentRoom; } }
     internal LevelEditSession Session { get { return _overlayReconciler == null ? null : _overlayReconciler.CurrentSession; } }
     internal RuntimePlacementManager PlacementManager { get { return _overlayReconciler == null ? null : _overlayReconciler.Manager; } }
     internal ApplyReportSurface ReportSurface { get { return _reportPublisher.Surface; } }
+    internal string PreviewStatus { get { return _preview == null ? "none" : _preview.Metadata.DisplayName + " (follows cursor)"; } }
 
     private static bool _isStartingEditorWidget = false;
     private BlasphemousLifecycleBridge _lifecycleBridge;
@@ -74,11 +77,11 @@ internal class EditorMode : BlasMod
             newLevel,
             SceneManager.GetActiveScene().name);
 
-        if (string.Equals(newLevel, "MainMenu", System.StringComparison.OrdinalIgnoreCase))
-            StartCreatorPreload();
-
         if (roomLoaded)
+        {
+            StartCreatorPreload();
             SafeCreateEditorAfterDelay(1.5f);
+        }
     }
 
     protected override void OnLevelUnloaded(string oldLevel, string newLevel)
@@ -101,9 +104,11 @@ internal class EditorMode : BlasMod
                 CursorWorldPosition));
         _runtimeFactory = new UnityRuntimePlacementFactory(FindCurrentObjectHolder);
         _overlayReconciler = new RoomOverlayReconciler(Catalog, _runtimeFactory);
-        StartCreatorPreload();
         if (_lifecycleBridge.CurrentRoom != null)
+        {
+            StartCreatorPreload();
             StartRoomPreparation(_lifecycleBridge.CurrentRoom);
+        }
     }
 
     protected override void OnDispose()
@@ -185,6 +190,7 @@ internal class EditorMode : BlasMod
             return;
         }
 
+        DisposePreview();
         _lifecycleBridge.EndEditing();
         if (EditorWidget != null)
             EditorWidget.gameObject.SetActive(false);
@@ -310,6 +316,11 @@ internal class EditorMode : BlasMod
         return result;
     }
 
+    internal bool TryPickAtCursor()
+    {
+        return TrySelectAtCursor() && TryPickSelected();
+    }
+
     internal bool TryPasteAtCursor()
     {
         RuntimePlacementManager manager = PlacementManager;
@@ -360,9 +371,18 @@ internal class EditorMode : BlasMod
         }
 
         var success = new ApplyReport();
-        success.Info("PREVIEW_CREATED", type, "Isolated preview created; it is not part of the Room Overlay.");
+        success.Info(
+            "PREVIEW_CREATED",
+            type,
+            "Preview follows the pointer through the level view; Clear removes it. It is not part of the Room Overlay.");
         PublishReport("Preview", success);
         return true;
+    }
+
+    internal void UpdatePreviewAtCursor()
+    {
+        if (IsActive && _preview != null)
+            _preview.FollowCursor();
     }
 
     internal void ClearPreview()
@@ -568,7 +588,12 @@ internal class EditorMode : BlasMod
 
     private void StartCreatorPreload()
     {
-        if (_creatorPreloadStarted || Catalog == null || UIController.instance == null)
+        // Level Framework preload from MainMenu previously failed with "Scene to unload is invalid".
+        if (_lifecycleBridge == null
+            || _lifecycleBridge.CurrentRoom == null
+            || _creatorPreloadStarted
+            || Catalog == null
+            || UIController.instance == null)
             return;
 
         _creatorPreloadStarted = true;
@@ -674,7 +699,9 @@ internal class EditorMode : BlasMod
             true,
             false,
             false,
-            false);
+            false,
+            true,
+            (int)CursorLockMode.None);
     }
 
     private GameObject CreateEditorGameObject()

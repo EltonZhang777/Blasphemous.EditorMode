@@ -65,7 +65,14 @@ internal static class UnityPreviewFactory
 
             IsolateGameplay(previewObject);
             root.SetActive(true);
-            return new PreviewInstance(metadata, () => UnityEngine.Object.Destroy(root));
+            return new PreviewInstance(
+                metadata,
+                () => UnityEngine.Object.Destroy(root),
+                () =>
+                {
+                    if (previewObject != null && positionProvider != null)
+                        previewObject.transform.position = positionProvider();
+                });
         }
         catch
         {

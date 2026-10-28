@@ -8,17 +8,25 @@ namespace Blasphemous.EditorMode.Content;
 internal sealed class PreviewInstance : IDisposable
 {
     private Action _dispose;
+    private Action _followCursor;
 
-    internal PreviewInstance(CreatorMetadata metadata, Action dispose)
+    internal PreviewInstance(CreatorMetadata metadata, Action dispose, Action followCursor = null)
     {
         Metadata = metadata ?? throw new ArgumentNullException(nameof(metadata));
         _dispose = dispose;
+        _followCursor = followCursor;
     }
 
     internal CreatorMetadata Metadata { get; }
     internal bool IsGameplayIsolated { get { return true; } }
     internal bool AffectsRoomOverlay { get { return false; } }
     internal bool IsDisposed { get; private set; }
+
+    internal void FollowCursor()
+    {
+        if (!IsDisposed && _followCursor != null)
+            _followCursor();
+    }
 
     public void Dispose()
     {
@@ -28,6 +36,7 @@ internal sealed class PreviewInstance : IDisposable
         IsDisposed = true;
         Action dispose = _dispose;
         _dispose = null;
+        _followCursor = null;
         if (dispose != null)
             dispose();
     }

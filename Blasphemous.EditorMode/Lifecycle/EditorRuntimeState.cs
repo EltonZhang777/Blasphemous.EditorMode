@@ -16,7 +16,9 @@ internal sealed class EditorRuntimeState
         bool invulnerable,
         bool collisionEnabled,
         bool collision2DEnabled,
-        bool cinematicMode)
+        bool cinematicMode,
+        bool cursorVisible,
+        int cursorLockState)
     {
         TimeScale = timeScale;
         Paused = paused;
@@ -29,6 +31,8 @@ internal sealed class EditorRuntimeState
         CollisionEnabled = collisionEnabled;
         Collision2DEnabled = collision2DEnabled;
         CinematicMode = cinematicMode;
+        CursorVisible = cursorVisible;
+        CursorLockState = cursorLockState;
     }
 
     internal float TimeScale { get; }
@@ -42,6 +46,8 @@ internal sealed class EditorRuntimeState
     internal bool CollisionEnabled { get; }
     internal bool Collision2DEnabled { get; }
     internal bool CinematicMode { get; }
+    internal bool CursorVisible { get; }
+    internal int CursorLockState { get; }
 }
 
 /// <summary>Restores a captured runtime snapshot when Editor Mode exits.</summary>
