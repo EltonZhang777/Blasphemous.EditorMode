@@ -4,7 +4,7 @@ name: Build
 on:
   push:
     tags: [ "**" ]
-    branches: [ "main" ]
+    branches: [ "main", "test-ci" ]
 
 jobs:
   build:
@@ -16,45 +16,121 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check whether tag commit is on main
+      id: tag_target
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          echo "on_main=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "on_main=false" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
 
+    - name: Validate SemVer Tag
+      if: startsWith(github.ref, 'refs/tags/') && steps.tag_target.outputs.on_main == 'true'
+      env:
+        TAG_NAME: ${{ github.ref_name }}
+      run: |
+        SEMVER_REGEX='^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+
+        if [[ ! "$TAG_NAME" =~ $SEMVER_REGEX ]]; then
+          echo "Error: Tag '$TAG_NAME' does not follow SemVer format"
+          echo "Valid examples: 1.0.0, v1.0.0, 2.13.15-alpha, 1.0.0-beta.1"
+          exit 1
+        fi
+
+        PACKAGE_VERSION="${TAG_NAME#v}"
+        echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> "$GITHUB_ENV"
+
     - name: Build Project
+      env:
+        IS_MAIN_TAG: ${{ steps.tag_target.outputs.on_main }}
       run: |
         dotnet restore
-        dotnet build --configuration Release --no-restore
+        if [[ "$IS_MAIN_TAG" == "true" ]]; then
+          dotnet build --configuration Release --no-restore -p:Version="$PACKAGE_VERSION"
+        else
+          dotnet build --configuration Release --no-restore -p:GeneratePackageOnBuild=false
+        fi
 
-    - name: Export Settings
+    - name: Prepare Release Assets
+      if: startsWith(github.ref, 'refs/tags/') && steps.tag_target.outputs.on_main == 'true'
       run: |
-        MOD_TITLE=$(grep -oP '<Title>\K[^<]+' ${{ github.event.repository.name }}/${{ github.event.repository.name }}.csproj)
-        echo "MOD_TITLE=$MOD_TITLE" >> $GITHUB_ENV
-        MOD_NAME=$(grep -oP '<TargetName>\K[^<]+' ${{ github.event.repository.name }}/${{ github.event.repository.name }}.csproj)
-        echo "MOD_NAME=$MOD_NAME" >> $GITHUB_ENV
-        MOD_VERSION=$(grep -oP '<Version>\K[^<]+' ${{ github.event.repository.name }}/${{ github.event.repository.name }}.csproj)
-        echo "MOD_VERSION=$MOD_VERSION" >> $GITHUB_ENV
+        PROJECT_FILE="Blasphemous.FrameRateUnlimiter/Blasphemous.FrameRateUnlimiter.csproj"
+        if [[ -z "$PROJECT_FILE" ]]; then
+          echo "Error: No project file was found"
+          exit 1
+        fi
+
+        MOD_TITLE="$(sed -n 's|^[[:space:]]*<Title>\([^<]*\)</Title>[[:space:]]*$|\1|p' "$PROJECT_FILE" | head -n 1)"
+        MOD_NAME="$(sed -n 's|^[[:space:]]*<TargetName>\([^<]*\)</TargetName>[[:space:]]*$|\1|p' "$PROJECT_FILE" | head -n 1)"
+        PACKAGE_FILE="$(find . -type f -name '*.nupkg' -print -quit)"
+        ZIP_FILE="$(find . -type f -name "*$MOD_NAME.zip" -print -quit)"
+
+        if [[ -z "$MOD_TITLE" || -z "$MOD_NAME" ]]; then
+          echo "Error: Could not read the project title or target name"
+          exit 1
+        fi
+        if [[ -z "$PACKAGE_FILE" ]]; then
+          echo "Error: No NuGet package was generated"
+          exit 1
+        fi
+        if [[ -z "$ZIP_FILE" ]]; then
+          echo "Error: No release ZIP was generated for '$MOD_NAME'"
+          exit 1
+        fi
+
+        {
+          printf 'MOD_TITLE=%s\n' "$MOD_TITLE"
+          printf 'MOD_NAME=%s\n' "$MOD_NAME"
+          printf 'PACKAGE_FILE=%s\n' "$PACKAGE_FILE"
+          printf 'PACKAGE_ASSET_NAME=%s\n' "$(basename "$PACKAGE_FILE")"
+          printf 'ZIP_FILE=%s\n' "$ZIP_FILE"
+        } >> "$GITHUB_ENV"
 
     - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/') && steps.tag_target.outputs.on_main == 'true'
       id: create_release
       uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ github.ref }}
-        release_name: v${{ env.MOD_VERSION }}
+        tag_name: ${{ github.ref_name }}
+        release_name: ${{ env.MOD_TITLE }} ${{ env.PACKAGE_VERSION }}
         draft: true
 
-    - name: Upload Release
+    - name: Upload Release ZIP
+      if: startsWith(github.ref, 'refs/tags/') && steps.tag_target.outputs.on_main == 'true'
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: publish/${{ env.MOD_NAME }}.zip
+        asset_path: ${{ env.ZIP_FILE }}
         asset_name: ${{ env.MOD_NAME }}.zip
         asset_content_type: application/zip
 
-    - name: Upload Nuget
-      run: dotnet nuget push **\*.nupkg -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json
+    - name: Upload Release Package
+      if: startsWith(github.ref, 'refs/tags/') && steps.tag_target.outputs.on_main == 'true'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ env.PACKAGE_FILE }}
+        asset_name: ${{ env.PACKAGE_ASSET_NAME }}
+        asset_content_type: application/octet-stream
+
+    - name: Publish NuGet Package
+      if: startsWith(github.ref, 'refs/tags/') && steps.tag_target.outputs.on_main == 'true'
+      env:
+        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      run: dotnet nuget push "$PACKAGE_FILE" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json

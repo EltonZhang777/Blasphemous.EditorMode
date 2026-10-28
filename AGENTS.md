@@ -1,13 +1,17 @@
+## local instructions
+
+See [AGENTS.local.md](AGENTS.local.md)
+
 ## Agent skills
 
 ### Issue tracker
 
-Issues and specs live in GitHub Issues; use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and specs live in this repo's GitHub Issues; use `gh`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Use the default canonical labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+Use the default five triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-This is a single-context repo; read `CONTEXT.md` and relevant `docs/adr/` files. See `docs/agents/domain.md`.
+Use the single-context layout: root `GLOSSARY.md` and `docs/adr/`. See `docs/agents/domain.md`.
