@@ -7,11 +7,32 @@ internal sealed class ApplyReportSurface
 {
     internal ApplyReport LastReport { get; private set; }
     internal string UiText { get; private set; }
+    internal string ActionableMessage { get; private set; }
 
     internal void Publish(string operation, ApplyReport report)
     {
         LastReport = report ?? throw new ArgumentNullException(nameof(report));
         UiText = report.ToSummary(operation);
+        ActionableMessage = null;
+        string warningMessage = null;
+        foreach (ApplyReportEntry entry in report.Entries)
+        {
+            if (entry.Severity == ApplySeverity.Info)
+                continue;
+
+            string message = "[" + entry.Code + "] " + entry.Message;
+            if (entry.Severity == ApplySeverity.Error)
+            {
+                ActionableMessage = message;
+                break;
+            }
+
+            if (warningMessage == null)
+                warningMessage = message;
+        }
+
+        if (ActionableMessage == null)
+            ActionableMessage = warningMessage;
     }
 }
 

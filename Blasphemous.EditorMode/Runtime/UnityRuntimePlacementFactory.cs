@@ -1,5 +1,6 @@
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Editing;
+using Blasphemous.ModdingAPI;
 using Blasphemous.Framework.Levels;
 using Blasphemous.Framework.Levels.Modifiers;
 using Framework.Managers;
@@ -182,11 +183,28 @@ internal sealed class UnityRuntimePlacementFactory :
             return false;
         }
 
-        Vector3 world = camera.ScreenToWorldPoint(new Vector3(
-            screenPoint.x,
-            screenPoint.y,
-            Mathf.Abs(camera.transform.position.z)));
-        RuntimePlacementMarker marker = FindMarkerAtWorldPoint(holder, new Vector2(world.x, world.y));
+        Vector2 cameraPixels = UnityScreenCoordinateMapper.ToCameraPixels(camera, screenPoint);
+        Vector3 world = UnityScreenCoordinateMapper.ToWorldPosition(camera, cameraPixels);
+        Ray screenRay = camera.ScreenPointToRay(cameraPixels);
+        string targetTextureSize = camera.targetTexture == null
+            ? "<none>"
+            : camera.targetTexture.width + "x" + camera.targetTexture.height;
+        RuntimePlacementMarker marker = FindMarkerAtScreenPoint(
+            holder,
+            new Vector2(world.x, world.y),
+            screenRay);
+        ModLog.Debug(
+            "[DIAG] PICK_HIT_TEST screenPosition=" + screenPoint
+            + " cameraPixelPosition=" + cameraPixels
+            + " screenSize=" + Screen.width + "x" + Screen.height
+            + " targetTextureSize=" + targetTextureSize
+            + " worldPosition=" + world
+            + " camera=" + camera.name
+            + " orthographic=" + camera.orthographic
+            + " pixelRect=" + camera.pixelRect
+            + " rayOrigin=" + screenRay.origin
+            + " rayDirection=" + screenRay.direction
+            + " result=" + (marker == null ? "<none>" : marker.PlacementId));
         if (marker == null)
             return false;
 
@@ -212,9 +230,10 @@ internal sealed class UnityRuntimePlacementFactory :
         marker.Source = "EditorMode";
     }
 
-    private static RuntimePlacementMarker FindMarkerAtWorldPoint(
+    private static RuntimePlacementMarker FindMarkerAtScreenPoint(
         Transform holder,
-        Vector2 worldPoint)
+        Vector2 worldPoint,
+        Ray screenRay)
     {
         Collider2D[] hits = Physics2D.OverlapPointAll(worldPoint);
         foreach (Collider2D hit in hits)
@@ -226,15 +245,24 @@ internal sealed class UnityRuntimePlacementFactory :
                 return marker;
         }
 
-        RuntimePlacementMarker[] markers = UnityEngine.Object.FindObjectsOfType<RuntimePlacementMarker>();
+        RuntimePlacementMarker[] markers = holder.GetComponentsInChildren<RuntimePlacementMarker>(true);
         foreach (RuntimePlacementMarker marker in markers)
         {
             if (!IsSelectableMarker(marker, holder))
                 continue;
             Renderer[] renderers = marker.GetComponentsInChildren<Renderer>(true);
+            if (renderers.Length == 0)
+                continue;
+
             foreach (Renderer renderer in renderers)
             {
-                if (renderer != null && renderer.bounds.Contains(new Vector3(worldPoint.x, worldPoint.y, renderer.bounds.center.z)))
+                if (renderer == null)
+                    continue;
+
+                bool rayHit = renderer.enabled
+                    && renderer.gameObject.activeInHierarchy
+                    && renderer.bounds.IntersectRay(screenRay);
+                if (rayHit)
                     return marker;
             }
         }

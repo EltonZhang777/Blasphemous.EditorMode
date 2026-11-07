@@ -33,6 +33,15 @@ internal class EditorMode : BlasMod
     internal ApplyReportSurface ReportSurface { get { return _reportPublisher.Surface; } }
     internal string PreviewStatus { get { return _preview == null ? "none" : _preview.Metadata.DisplayName + " (follows cursor)"; } }
 
+    internal string ClipboardStatus
+    {
+        get
+        {
+            RuntimePlacementManager manager = PlacementManager;
+            return manager == null || manager.Clipboard == null ? "empty" : manager.Clipboard.Id;
+        }
+    }
+
     private static bool _isStartingEditorWidget = false;
     private BlasphemousLifecycleBridge _lifecycleBridge;
     private EditorModeGuard _editorGuard;
@@ -62,6 +71,13 @@ internal class EditorMode : BlasMod
             new()
             {
                 { "OpenEditor", KeyCode.Semicolon },
+                { "PickPlacement", KeyCode.P },
+                { "PlacePreview", KeyCode.E },
+                { "SelectPlacement", KeyCode.Mouse0 },
+                { "CopyPlacement", KeyCode.C },
+                { "PastePlacement", KeyCode.V },
+                { "LeftControl", KeyCode.LeftControl },
+                { "RightControl", KeyCode.RightControl },
             });
         SpriteStorage = new(FileHandler);
     }
@@ -123,6 +139,10 @@ internal class EditorMode : BlasMod
         if (InputHandler.GetKeyDown("OpenEditor"))
             ToggleEditorMode();
     }
+
+    internal bool IsInputActionPressed(string actionName) => InputHandler.GetKeyDown(actionName);
+
+    internal bool IsInputActionHeld(string actionName) => InputHandler.GetKey(actionName);
 
     private void ToggleEditorMode()
     {
@@ -229,10 +249,16 @@ internal class EditorMode : BlasMod
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null)
+        {
+            var unavailable = new ApplyReport();
+            unavailable.Error("PLACE_NOT_READY", "placement", "Placement editing is not ready.");
+            PublishReport("Place", unavailable);
             return false;
+        }
 
         var report = new ApplyReport();
         Vector3 position = CursorWorldPosition();
+        LogCursorPosition("CURSOR_PLACE", position);
         PlacementRecord placement;
         bool result = manager.TryPlace(
             type,
@@ -251,6 +277,17 @@ internal class EditorMode : BlasMod
             out placement);
         PublishReport("Place", report);
         return result;
+    }
+
+    internal bool TryPlacePreviewAtCursor()
+    {
+        if (_preview != null)
+            return TryPlaceAtCursor(_preview.Metadata.Type);
+
+        var report = new ApplyReport();
+        report.Warning("PLACE_NO_PREVIEW", "preview", "Select a catalog entry and create a preview before placing it.");
+        PublishReport("Place", report);
+        return false;
     }
 
     internal bool TryUndo()
@@ -306,19 +343,50 @@ internal class EditorMode : BlasMod
     internal bool TryPickSelected()
     {
         RuntimePlacementManager manager = PlacementManager;
-        if (manager == null || manager.Selected == null)
+        ApplyReport report = new ApplyReport();
+        if (manager == null)
+        {
+            report.Error("PICK_NOT_READY", "clipboard", "Placement editing is not ready.");
+            PublishReport("Pick", report);
             return false;
+        }
+        if (manager.Selected == null)
+        {
+            report.Warning("PICK_NO_SELECTION", "clipboard", "Select or place an Architect-owned placement before clicking Pick.");
+            PublishReport("Pick", report);
+            return false;
+        }
 
-        var report = new ApplyReport();
-        PlacementRecord ignored;
-        bool result = manager.TryPick(manager.Selected.Id, report, out ignored);
-        PublishReport("Pick", report);
-        return result;
+        return TryPickPlacement(manager.Selected.Id, "Pick");
     }
 
     internal bool TryPickAtCursor()
     {
-        return TrySelectAtCursor() && TryPickSelected();
+        IRuntimePlacementHandle handle;
+        string error;
+        if (!TryFindAtCursor(out handle, out error))
+        {
+            ApplyReport report = new ApplyReport();
+            if (error == null)
+            {
+                report.Warning("PICK_NO_TARGET", "cursor", "Point to an Architect-owned placement before pressing P.");
+            }
+            else
+            {
+                report.Error("PICK_FAILED", "cursor", error);
+            }
+            PublishReport("Pick at cursor", report);
+            return false;
+        }
+
+        return TryPickPlacement(handle.PlacementId, "Pick at cursor");
+    }
+
+    internal void ReportPickBlockedByEditorControl()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Warning("PICK_POINTER_OVER_EDITOR", "cursor", "Move the pointer over the room and outside editor controls before pressing P.");
+        PublishReport("Pick at cursor", report);
     }
 
     internal bool TryPasteAtCursor()
@@ -337,6 +405,7 @@ internal class EditorMode : BlasMod
         }
 
         Vector3 position = CursorWorldPosition();
+        LogCursorPosition("CURSOR_PASTE", position);
         PlacementRecord ignored;
         bool result = manager.TryPaste(
             new PlacementTransform(
@@ -360,6 +429,7 @@ internal class EditorMode : BlasMod
         if (Catalog == null)
             return false;
 
+        LogCursorPosition("CURSOR_PREVIEW", CursorWorldPosition());
         DisposePreview();
         string error;
         if (!Catalog.TryCreatePreview(type, out _preview, out error))
@@ -448,23 +518,20 @@ internal class EditorMode : BlasMod
 
     internal bool TrySelectAtCursor()
     {
-        if (_runtimeFactory == null || PlacementManager == null)
-            return false;
-
         IRuntimePlacementHandle handle;
         string error;
-        if (!_runtimeFactory.TryFindAtScreenPoint(Input.mousePosition, out handle, out error))
+        if (!TryFindAtCursor(out handle, out error))
         {
             if (error != null)
             {
-                var failure = new ApplyReport();
+                ApplyReport failure = new ApplyReport();
                 failure.Error("SELECTION_FAILED", "cursor", error);
                 PublishReport("Select", failure);
             }
             return false;
         }
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         PlacementRecord ignored;
         bool result = PlacementManager.TrySelectRuntimeObject(handle, report, out ignored);
         PublishReport("Select", report);
@@ -679,11 +746,58 @@ internal class EditorMode : BlasMod
         if (Camera.main == null)
             return Vector3.zero;
 
-        Vector3 screen = Input.mousePosition;
-        float depth = Mathf.Abs(Camera.main.transform.position.z);
-        Vector3 world = Camera.main.ScreenToWorldPoint(new Vector3(screen.x, screen.y, depth));
-        world.z = 0f;
-        return world;
+        Vector2 cameraPixels = UnityScreenCoordinateMapper.ToCameraPixels(Camera.main, Input.mousePosition);
+        return UnityScreenCoordinateMapper.ToWorldPosition(Camera.main, cameraPixels);
+    }
+
+    private static void LogCursorPosition(string action, Vector3 worldPosition)
+    {
+        Camera camera = Camera.main;
+        Vector2 screenPosition = Input.mousePosition;
+        Vector2 cameraPixels = UnityScreenCoordinateMapper.ToCameraPixels(camera, screenPosition);
+        string targetTextureSize = camera == null || camera.targetTexture == null
+            ? "<none>"
+            : camera.targetTexture.width + "x" + camera.targetTexture.height;
+        ModLog.Debug(
+            "[DIAG] " + action
+            + " screenPosition=" + screenPosition
+            + " cameraPixelPosition=" + cameraPixels
+            + " screenSize=" + Screen.width + "x" + Screen.height
+            + " targetTextureSize=" + targetTextureSize
+            + " worldPosition=" + worldPosition
+            + " camera=" + (camera == null ? "<none>" : camera.name)
+            + " orthographic=" + (camera != null && camera.orthographic)
+            + " pixelRect=" + (camera == null ? "<none>" : camera.pixelRect.ToString()));
+    }
+
+    private bool TryPickPlacement(string id, string action)
+    {
+        RuntimePlacementManager manager = PlacementManager;
+        ApplyReport report = new ApplyReport();
+        if (manager == null)
+        {
+            report.Error("PICK_NOT_READY", "clipboard", "Placement editing is not ready.");
+            PublishReport(action, report);
+            return false;
+        }
+
+        PlacementRecord ignored;
+        bool result = manager.TryPick(id, report, out ignored);
+        PublishReport(action, report);
+        return result;
+    }
+
+    private bool TryFindAtCursor(out IRuntimePlacementHandle handle, out string error)
+    {
+        handle = null;
+        error = null;
+        if (_runtimeFactory == null || PlacementManager == null)
+        {
+            error = "Placement editing is not ready.";
+            return false;
+        }
+
+        return _runtimeFactory.TryFindAtScreenPoint(Input.mousePosition, out handle, out error);
     }
 
     private static EditorRuntimeState CreateEditorState()

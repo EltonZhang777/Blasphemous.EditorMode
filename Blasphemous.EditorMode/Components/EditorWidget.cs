@@ -1,4 +1,5 @@
 using Blasphemous.EditorMode.Content;
+using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
 using Blasphemous.ModdingAPI;
 using Blasphemous.Framework.UI;
@@ -53,9 +54,9 @@ internal class EditorWidget : MonoBehaviour
 
         _statusText = CreateText(
             "Editor Status",
-            new Vector2(0f, 146f),
-            new Vector2(600f, 56f),
-            16,
+            new Vector2(0f, 165f),
+            new Vector2(600f, 90f),
+            13,
             TextAnchor.UpperLeft);
 
         CreateText(
@@ -148,27 +149,44 @@ internal class EditorWidget : MonoBehaviour
         if (IsInputFieldFocused())
             return;
 
-        bool controlPressed = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
-        if (Input.GetKeyDown(KeyCode.P) && !IsPointerOverEditorControl())
+        if (editor.IsInputActionPressed("PickPlacement"))
         {
+            if (IsPointerOverEditorControl())
+            {
+                editor.ReportPickBlockedByEditorControl();
+                return;
+            }
+
             editor.TryPickAtCursor();
             return;
         }
 
-        if (controlPressed && Input.GetKeyDown(KeyCode.C))
+        if (editor.IsInputActionPressed("PlacePreview"))
+        {
+            if (!IsPointerOverEditorControl())
+                editor.TryPlacePreviewAtCursor();
+            return;
+        }
+
+        bool controlPressed = editor.IsInputActionHeld("LeftControl")
+            || editor.IsInputActionHeld("RightControl");
+
+        if (controlPressed && editor.IsInputActionPressed("CopyPlacement"))
         {
             editor.TryCopySelected();
             return;
         }
 
-        if (controlPressed && Input.GetKeyDown(KeyCode.V))
+        if (controlPressed && editor.IsInputActionPressed("PastePlacement"))
         {
             editor.TryPasteAtCursor();
             return;
         }
 
-        if (Input.GetMouseButtonDown(0) && !IsPointerOverEditorControl())
+        if (editor.IsInputActionPressed("SelectPlacement") && !IsPointerOverEditorControl())
+        {
             editor.TrySelectAtCursor();
+        }
     }
 
     private bool IsPointerOverEditorControl()
@@ -229,16 +247,23 @@ internal class EditorWidget : MonoBehaviour
         string locked = selectedPlacement == null
             ? "—"
             : selectedPlacement.IsLocked ? "yes" : "no";
-        string report = editor.ReportSurface == null ? "" : editor.ReportSurface.UiText;
-        _statusText.text = string.Format(
-            "Room: {0}\nSession: {1}   Selected: {2}   Locked: {3}\nDependencies: {4}   Preview: {5}\n{6}",
+        ApplyReportSurface reportSurface = editor.ReportSurface;
+        string report = reportSurface == null
+            ? ""
+            : reportSurface.UiText;
+        string status = string.Format(
+            "Room: {0}   Session: {1}\nSelected: {2}   Locked: {3}\nDependencies: {4}   Preview: {5}\nClipboard: {6}   Last: {7}",
             room,
             state,
             selected,
             locked,
             dependency,
             editor.PreviewStatus,
-            report ?? "");
+            editor.ClipboardStatus,
+            string.IsNullOrEmpty(report) ? "—" : report);
+        if (reportSurface != null && !string.IsNullOrEmpty(reportSurface.ActionableMessage))
+            status += "\n" + reportSurface.ActionableMessage;
+        _statusText.text = status;
     }
 
     private static bool IsInputFieldFocused()

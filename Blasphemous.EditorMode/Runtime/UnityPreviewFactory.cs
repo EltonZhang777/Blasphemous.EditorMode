@@ -1,5 +1,6 @@
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Editing;
+using Blasphemous.ModdingAPI;
 using Blasphemous.Framework.Levels;
 using Blasphemous.Framework.Levels.Modifiers;
 using System;
@@ -65,6 +66,26 @@ internal static class UnityPreviewFactory
 
             IsolateGameplay(previewObject);
             root.SetActive(true);
+            Camera camera = Camera.main;
+            foreach (Renderer renderer in previewObject.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null)
+                    continue;
+
+                bool cameraIncludesLayer = camera != null
+                    && (camera.cullingMask & (1 << renderer.gameObject.layer)) != 0;
+                ModLog.Debug(
+                    "[DIAG] PREVIEW_RENDERER type=" + metadata.Type
+                    + " renderer=" + renderer.name
+                    + " active=" + renderer.gameObject.activeInHierarchy
+                    + " enabled=" + renderer.enabled
+                    + " layer=" + renderer.gameObject.layer
+                    + " cameraIncludesLayer=" + cameraIncludesLayer
+                    + " camera=" + (camera == null ? "<none>" : camera.name)
+                    + " screenPosition=" + (camera == null ? "<none>" : camera.WorldToScreenPoint(renderer.bounds.center).ToString())
+                    + " worldPosition=" + renderer.bounds.center
+                    + " bounds=" + renderer.bounds);
+            }
             return new PreviewInstance(
                 metadata,
                 () => UnityEngine.Object.Destroy(root),
@@ -87,6 +108,29 @@ internal static class UnityPreviewFactory
         {
             if (behaviour != null)
                 behaviour.enabled = false;
+        }
+
+        Renderer[] renderers = previewObject.GetComponentsInChildren<Renderer>(true);
+        if (renderers.Length == 0)
+        {
+            throw new InvalidOperationException("Creator preview has no Renderer: " + previewObject.name);
+        }
+
+        foreach (Renderer renderer in renderers)
+        {
+            if (renderer != null)
+            {
+                renderer.enabled = true;
+                // Unity ignores enabled Renderers beneath inactive GameObjects.
+                for (Transform node = renderer.transform; node != null; node = node.parent)
+                {
+                    node.gameObject.SetActive(true);
+                    if (node == previewObject.transform)
+                    {
+                        break;
+                    }
+                }
+            }
         }
 
         foreach (Collider collider in previewObject.GetComponentsInChildren<Collider>(true))
