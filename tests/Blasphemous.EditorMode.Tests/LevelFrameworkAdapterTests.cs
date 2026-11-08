@@ -102,6 +102,23 @@ public sealed class LevelFrameworkAdapterTests
     }
 
     [Fact]
+    public void Import_missing_room_file_returns_empty_document()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            "editor-mode-missing-" + Guid.NewGuid().ToString("N"),
+            "D03Z02S06.json");
+
+        FrameworkFileResult imported = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
+
+        Assert.True(imported.IsValid, Messages(imported.Diagnostics));
+        Assert.Null(imported.OriginalText);
+        Assert.Empty(imported.Document.Additions);
+        Assert.Empty(imported.Document.Modifications);
+        Assert.Empty(imported.Document.Deletions);
+    }
+
+    [Fact]
     public void Export_validates_before_replace_and_keeps_previous_version_backup()
     {
         string directory = Path.Combine(Path.GetTempPath(), "editor-mode-export-" + Guid.NewGuid().ToString("N"));

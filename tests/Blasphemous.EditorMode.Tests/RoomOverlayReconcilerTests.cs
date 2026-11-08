@@ -46,6 +46,42 @@ public sealed class RoomOverlayReconcilerTests
     }
 
     [Fact]
+    public void Failed_import_preserves_current_session_and_projection()
+    {
+        string path = "D03Z02S06.json";
+        string source = DocumentWithPlacement();
+        FrameworkCodecResult parsed = LevelFrameworkAdapter.Parse(source);
+        Assert.True(parsed.IsValid);
+        var file = new FrameworkFileResult(path, source, parsed.Document, parsed.Diagnostics);
+        var factory = new FakeFactory();
+        var reconciler = new RoomOverlayReconciler(
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        RoomIdentity room = CreateRoom("D03Z02S06", "D03Z02S06_LOGIC");
+
+        RoomOverlayReconcileResult initial = reconciler.Apply(room, file);
+        Assert.True(initial.Succeeded, initial.StatusMessage);
+        var unreadable = new FrameworkFileResult(
+            path,
+            null,
+            null,
+            new[]
+            {
+                new FrameworkDiagnostic(
+                    FrameworkDiagnosticSeverity.Error,
+                    path,
+                    "Level Export file could not be read.")
+            });
+        RoomOverlayReconcileResult failed = reconciler.Apply(room, unreadable);
+
+        Assert.False(failed.Succeeded);
+        Assert.Same(initial.Session, reconciler.CurrentSession);
+        Assert.Same(initial.Manager, reconciler.Manager);
+        Assert.Single(factory.Created);
+        Assert.True(factory.Created[0].IsAlive);
+    }
+
+    [Fact]
     public void Round_trip_comparer_covers_scope_identity_transform_properties_and_ownership()
     {
         string directory = MakeDirectory();

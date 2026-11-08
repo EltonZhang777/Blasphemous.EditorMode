@@ -616,9 +616,7 @@ internal class EditorMode : BlasMod
             return false;
 
         string path = RoomExportPath(room);
-        FrameworkFileResult file = File.Exists(path)
-            ? LevelFrameworkAdapter.ImportFile(path, room.ExportFileKey)
-            : LevelFrameworkAdapter.EmptyFile(path);
+        FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, room.ExportFileKey);
         RoomOverlayReconcileResult result = _overlayReconciler.Apply(room, file);
         PublishReport("Room import", result.Report);
         if (!result.Succeeded)

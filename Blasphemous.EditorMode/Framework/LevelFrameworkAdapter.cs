@@ -306,6 +306,14 @@ internal static class LevelFrameworkAdapter
         {
             originalText = File.ReadAllText(path);
         }
+        catch (FileNotFoundException)
+        {
+            return EmptyFile(path);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return EmptyFile(path);
+        }
         catch (Exception exception)
         {
             AddError(diagnostics, path, "Level Export file could not be read: " + exception.Message);
