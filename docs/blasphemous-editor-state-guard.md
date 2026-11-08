@@ -12,9 +12,10 @@ target. The snapshot covers:
 - player controller, damage area, invulnerability, and both collision flags;
 - cinematic state, which rejects activation instead of being modified.
 
-Activation failure attempts an immediate restore. Exit retries one failed
-restore before reporting an error. Room unload calls the same exit path before
-the lifecycle bridge clears the room.
+Activation failure attempts an immediate restore, retries once, and retains the
+snapshot if both attempts fail so the next exit attempt can retry. Exit retries
+one failed restore before reporting an error. Room unload calls the same exit
+path before the lifecycle bridge clears the room.
 
 Pure guard coverage is automated. In-game entry/exit and failure-injection
 smoke verification remain pending because this migration run skips real-game

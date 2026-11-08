@@ -120,10 +120,12 @@ internal sealed class EditorModeGuard
         catch (Exception exception)
         {
             error = "Editor Mode activation failed: " + exception.Message;
-            if (originalState != null)
-                error = AppendRestoreError(error, TryRestore(originalState));
-            _originalState = null;
-            IsActive = false;
+            Exception restoreException = originalState == null ? null : TryRestore(originalState);
+            if (restoreException != null)
+                restoreException = TryRestore(originalState);
+            error = AppendRestoreError(error, restoreException);
+            _originalState = restoreException == null ? null : originalState;
+            IsActive = restoreException != null;
             return false;
         }
     }

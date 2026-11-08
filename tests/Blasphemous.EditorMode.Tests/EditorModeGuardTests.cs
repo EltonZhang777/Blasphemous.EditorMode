@@ -55,6 +55,23 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
+    public void Failed_entry_keeps_original_snapshot_when_rollback_also_fails()
+    {
+        var state = new TestState { ThrowOnApplyNumbers = new[] { 1, 2, 3 } };
+        var guard = CreateGuard(state);
+        string error;
+
+        Assert.False(guard.TryEnter(true, true, CreateSnapshot(), out error));
+        Assert.Contains("Restore failed", error);
+        Assert.True(guard.IsActive);
+
+        state.ThrowOnApplyNumbers = System.Array.Empty<int>();
+        Assert.True(guard.TryExit(out error), error);
+        Assert.False(guard.IsActive);
+        Assert.Same(state.Original, state.Current);
+    }
+
+    [Fact]
     public void Cinematic_state_rejects_entry_without_mutation()
     {
         var state = new TestState { Current = CreateSnapshot(cinematicMode: true) };
@@ -75,9 +92,10 @@ public sealed class EditorModeGuardTests
             snapshot =>
             {
                 state.Applies++;
-                if (state.Applies == state.ThrowOnApplyNumber)
-                    throw new System.InvalidOperationException("injected apply failure");
                 state.Current = snapshot;
+                if (state.Applies == state.ThrowOnApplyNumber
+                    || System.Array.IndexOf(state.ThrowOnApplyNumbers, state.Applies) >= 0)
+                    throw new System.InvalidOperationException("injected apply failure");
             });
     }
 
@@ -117,6 +135,7 @@ public sealed class EditorModeGuardTests
         internal readonly EditorRuntimeState Original = CreateSnapshot(0.75f, false, true, false, false, false, false, true, false, true, false, false, 2);
         internal EditorRuntimeState Current;
         internal int ThrowOnApplyNumber;
+        internal int[] ThrowOnApplyNumbers = System.Array.Empty<int>();
         internal int Applies;
 
         internal TestState()
