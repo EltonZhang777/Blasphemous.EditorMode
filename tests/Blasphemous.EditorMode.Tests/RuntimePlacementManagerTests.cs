@@ -138,6 +138,49 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
+    public void Runtime_apply_failures_restore_previous_runtime_and_session_values()
+    {
+        var creator = new CreatorMetadata(
+            "limited",
+            "Limited",
+            "Test",
+            CreatorOrigin.Architect,
+            "scene",
+            "path",
+            TransformCapabilities.Position,
+            new[] { new CreatorPropertyDefinition("count", CreatorPropertyType.Integer) },
+            true);
+        LevelEditSession session = CreateSession();
+        var factory = new FakeFactory();
+        var manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { creator }),
+            factory);
+        var report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(creator.Type, PlacementTransform.Default, null, report, out placement));
+        Assert.True(manager.TrySetProperty(placement.Id, "count", "42", report));
+
+        FakeHandle handle = factory.Created[0];
+        handle.FailNextApplyAfterMutation = true;
+        Assert.False(manager.TrySetProperty(placement.Id, "count", "7", report));
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Contains("count=42", placement.Properties);
+        Assert.DoesNotContain("count=7", placement.Properties);
+        Assert.Contains("count=42", handle.AppliedPlacement.Properties);
+        Assert.DoesNotContain("count=7", handle.AppliedPlacement.Properties);
+
+        PlacementTransform moved = new PlacementTransform(1f, 2f, 0f, 0f, 0f, 0f, 1f, 1f, 1f);
+        handle.FailNextApplyAfterMutation = true;
+        Assert.False(manager.TryMove(placement.Id, moved, report));
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Equal(PlacementTransform.Default, placement.Transform);
+        Assert.Equal(PlacementTransform.Default, handle.AppliedPlacement.Transform);
+        Assert.Contains(report.Entries, x => x.Code == "RUNTIME_APPLY_FAILED");
+        Assert.DoesNotContain(report.Entries, x => x.Code == "RUNTIME_ROLLBACK_FAILED");
+    }
+
+    [Fact]
     public void Copy_pick_and_paste_preserve_data_but_remap_the_id()
     {
         LevelEditSession session = CreateSession();
@@ -298,7 +341,7 @@ public sealed class RuntimePlacementManagerTests
 
         public IRuntimePlacementHandle Create(PlacementRecord placement)
         {
-            var handle = new FakeHandle(placement.Id, ReturnOriginal);
+            var handle = new FakeHandle(placement.Id, ReturnOriginal, placement);
             Created.Add(handle);
             return handle;
         }
@@ -306,11 +349,12 @@ public sealed class RuntimePlacementManagerTests
 
     private sealed class FakeHandle : IRuntimePlacementHandle
     {
-        internal FakeHandle(string placementId, bool original)
+        internal FakeHandle(string placementId, bool original, PlacementRecord appliedPlacement = null)
         {
             PlacementId = placementId;
             IsOriginal = original;
             IsAlive = true;
+            AppliedPlacement = appliedPlacement;
         }
 
         public string PlacementId { get; }
@@ -318,6 +362,8 @@ public sealed class RuntimePlacementManagerTests
         public bool IsAlive { get; private set; }
         internal int ApplyCount { get; private set; }
         internal int DestroyCount { get; private set; }
+        internal bool FailNextApplyAfterMutation;
+        internal PlacementRecord AppliedPlacement { get; private set; }
 
         public bool TryApply(PlacementRecord placement, out string error)
         {
@@ -329,6 +375,14 @@ public sealed class RuntimePlacementManagerTests
             }
 
             ApplyCount++;
+            AppliedPlacement = placement;
+            if (FailNextApplyAfterMutation)
+            {
+                FailNextApplyAfterMutation = false;
+                error = "injected apply failure after partial mutation";
+                return false;
+            }
+
             return true;
         }
 

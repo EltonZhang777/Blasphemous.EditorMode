@@ -507,13 +507,14 @@ internal sealed class RuntimePlacementManager
         string error;
         if (!handle.TryApply(changed, out error))
         {
+            RestoreRuntime(handle, current, report);
             report.Error("RUNTIME_APPLY_FAILED", id, error ?? "Runtime projection rejected the transform.");
             return false;
         }
 
         if (!_session.TryReplacePlacement(changed, report))
         {
-            handle.TryApply(current, out _);
+            RestoreRuntime(handle, current, report);
             return false;
         }
 
@@ -578,13 +579,14 @@ internal sealed class RuntimePlacementManager
         PlacementRecord changed = current.WithProperties(properties);
         if (!handle.TryApply(changed, out error))
         {
+            RestoreRuntime(handle, current, report);
             report.Error("RUNTIME_APPLY_FAILED", id, error ?? "Runtime projection rejected the property.");
             return false;
         }
 
         if (!_session.TryReplacePlacement(changed, report))
         {
-            handle.TryApply(current, out _);
+            RestoreRuntime(handle, current, report);
             return false;
         }
 
@@ -807,6 +809,15 @@ internal sealed class RuntimePlacementManager
             change.Key.TryApply(change.Value, out _);
         foreach (KeyValuePair<string, IRuntimePlacementHandle> projection in created)
             projection.Value.TryDestroy(out _);
+    }
+
+    private static void RestoreRuntime(
+        IRuntimePlacementHandle handle,
+        PlacementRecord placement,
+        ApplyReport report)
+    {
+        if (!handle.TryApply(placement, out string error))
+            report.Error("RUNTIME_ROLLBACK_FAILED", placement.Id, error ?? "Runtime projection could not be restored.");
     }
 
     private sealed class PlacementManagerSnapshot
