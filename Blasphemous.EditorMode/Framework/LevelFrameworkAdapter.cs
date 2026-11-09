@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.IO.IsolatedStorage;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Blasphemous.EditorMode.Framework;
@@ -306,22 +308,40 @@ internal static class LevelFrameworkAdapter
         {
             originalText = File.ReadAllText(path);
         }
-        catch (FileNotFoundException)
-        {
-            return EmptyFile(path);
-        }
-        catch (DirectoryNotFoundException)
-        {
-            return EmptyFile(path);
-        }
         catch (Exception exception)
         {
-            AddError(diagnostics, path, "Level Export file could not be read: " + exception.Message);
+            int hresult = Marshal.GetHRForException(exception);
+            if (IsMissingFileException(exception, path, hresult))
+                return EmptyFile(path);
+
+            AddError(
+                diagnostics,
+                path,
+                "Level Export file could not be read (" + exception.GetType().FullName +
+                ", HRESULT 0x" + hresult.ToString("X8") + "): " + exception.Message);
             return new FrameworkFileResult(path, null, null, diagnostics);
         }
 
         FrameworkCodecResult parsed = Parse(originalText);
         return new FrameworkFileResult(path, originalText, parsed.Document, parsed.Diagnostics);
+    }
+
+    internal static bool IsMissingFileHResult(int hresult)
+    {
+        return hresult == unchecked((int)0x80070002) ||
+            hresult == unchecked((int)0x80070003);
+    }
+
+    internal static bool IsMissingFileException(Exception exception, string path, int hresult)
+    {
+        if (IsMissingFileHResult(hresult))
+            return true;
+
+        var isolatedStorageException = exception as IsolatedStorageException;
+        return isolatedStorageException != null &&
+            isolatedStorageException.Message.IndexOf(
+                "Could not find file \"" + path + "\"",
+                StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     /// <summary>Creates an empty room-scoped file result when no export exists yet.</summary>

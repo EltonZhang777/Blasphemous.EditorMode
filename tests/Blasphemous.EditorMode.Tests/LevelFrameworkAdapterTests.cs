@@ -1,6 +1,7 @@
 using Blasphemous.EditorMode.Framework;
 using System;
 using System.IO;
+using System.IO.IsolatedStorage;
 using Xunit;
 
 namespace Blasphemous.EditorMode.Tests;
@@ -116,6 +117,26 @@ public sealed class LevelFrameworkAdapterTests
         Assert.Empty(imported.Document.Additions);
         Assert.Empty(imported.Document.Modifications);
         Assert.Empty(imported.Document.Deletions);
+    }
+
+    [Fact]
+    public void Missing_file_hresult_codes_are_distinguished_from_access_denied()
+    {
+        Assert.True(LevelFrameworkAdapter.IsMissingFileHResult(unchecked((int)0x80070002)));
+        Assert.True(LevelFrameworkAdapter.IsMissingFileHResult(unchecked((int)0x80070003)));
+        Assert.False(LevelFrameworkAdapter.IsMissingFileHResult(unchecked((int)0x80070005)));
+    }
+
+    [Fact]
+    public void Mono_isolated_storage_missing_file_is_treated_as_empty_but_access_error_is_not()
+    {
+        const string path = @"C:\Modding\levels\Editor Mode\D01Z02S01.json";
+        const int monoExceptionHresult = unchecked((int)0x80131500);
+        var missing = new IsolatedStorageException("Could not find file \"" + path + "\".");
+        var accessDenied = new IsolatedStorageException("Access to the path is denied.");
+
+        Assert.True(LevelFrameworkAdapter.IsMissingFileException(missing, path, monoExceptionHresult));
+        Assert.False(LevelFrameworkAdapter.IsMissingFileException(accessDenied, path, monoExceptionHresult));
     }
 
     [Fact]
