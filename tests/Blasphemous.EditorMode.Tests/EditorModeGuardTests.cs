@@ -42,6 +42,76 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
+    public void Resume_restores_player_runtime_and_exit_preserves_live_gameplay_state()
+    {
+        var state = new TestState
+        {
+            Current = CreateSnapshot(0.75f, false, false, true, true, true, true, false, true, true)
+        };
+        var guard = CreateGuard(state);
+        string error;
+        EditorRuntimeState editorState = CreateSnapshot(0f, true, true, false, false, false, false, true, false, false, false, true, 0);
+
+        Assert.True(guard.TryEnter(true, true, editorState, out error), error);
+        state.Current = CreateSnapshot(1f, false, true, false, false, false, false, true, false, false, false, true, 0);
+
+        Assert.True(guard.TryResumeGameplay(out error), error);
+        Assert.True(state.Current.PlayerControlEnabled);
+        Assert.True(state.Current.DamageAreaEnabled);
+        Assert.False(state.Current.Invulnerable);
+        Assert.True(state.Current.CollisionEnabled);
+        Assert.True(state.Current.Collision2DEnabled);
+        Assert.True(state.Current.EditorInputBlocked);
+        Assert.False(state.Current.HudVisible);
+        Assert.True(state.Current.CursorVisible);
+
+        state.Current = CreateSnapshot(1f, false, true, false, false, true, false, true, true, true, false, true, 0);
+        Assert.True(guard.TryResumeGameplay(out error), error);
+        Assert.False(state.Current.DamageAreaEnabled);
+        Assert.True(state.Current.Invulnerable);
+
+        Assert.True(guard.TryExit(out error), error);
+        Assert.False(guard.IsActive);
+        Assert.False(state.Current.EditorInputBlocked);
+        Assert.True(state.Current.HudVisible);
+        Assert.True(state.Current.PlayerControlEnabled);
+        Assert.False(state.Current.DamageAreaEnabled);
+        Assert.True(state.Current.Invulnerable);
+        Assert.True(state.Current.CollisionEnabled);
+        Assert.True(state.Current.Collision2DEnabled);
+    }
+
+    [Fact]
+    public void Failed_resume_restores_editor_state_and_can_be_retried()
+    {
+        var state = new TestState
+        {
+            Current = CreateSnapshot(0.75f, false, false, true, true, true, true, false, true, true)
+        };
+        var guard = CreateGuard(state);
+        string error;
+        EditorRuntimeState editorState = CreateSnapshot(0f, true, true, false, false, false, false, true, false, false, false, true, 0);
+        Assert.True(guard.TryEnter(true, true, editorState, out error), error);
+        state.Current = CreateSnapshot(1f, false, true, false, false, false, false, true, false, false, false, true, 0);
+        state.ThrowOnApplyNumber = state.Applies + 1;
+
+        Assert.False(guard.TryResumeGameplay(out error));
+        Assert.Contains("resume failed", error);
+        Assert.True(guard.IsActive);
+        Assert.False(state.Current.PlayerControlEnabled);
+        Assert.False(state.Current.DamageAreaEnabled);
+        Assert.True(state.Current.Invulnerable);
+        Assert.False(state.Current.CollisionEnabled);
+
+        state.ThrowOnApplyNumber = 0;
+        Assert.True(guard.TryResumeGameplay(out error), error);
+        Assert.True(state.Current.PlayerControlEnabled);
+        Assert.True(state.Current.DamageAreaEnabled);
+        Assert.False(state.Current.Invulnerable);
+        Assert.True(state.Current.CollisionEnabled);
+    }
+
+    [Fact]
     public void Failed_entry_rolls_back_and_remains_inactive()
     {
         var state = new TestState { ThrowOnApplyNumber = 1 };

@@ -42,6 +42,17 @@ internal class EditorMode : BlasMod
         }
     }
 
+    internal bool TryResumeGameplay(out string error)
+    {
+        if (_editorGuard == null)
+        {
+            error = "Editor Mode state guard is not ready.";
+            return false;
+        }
+
+        return _editorGuard.TryResumeGameplay(out error);
+    }
+
     private static bool _isStartingEditorWidget = false;
     private BlasphemousLifecycleBridge _lifecycleBridge;
     private EditorModeGuard _editorGuard;

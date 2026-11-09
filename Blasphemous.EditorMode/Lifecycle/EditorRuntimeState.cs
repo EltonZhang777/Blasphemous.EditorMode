@@ -48,6 +48,27 @@ internal sealed class EditorRuntimeState
     internal bool CinematicMode { get; }
     internal bool CursorVisible { get; }
     internal int CursorLockState { get; }
+
+    internal EditorRuntimeState WithPlayerRuntimeFrom(EditorRuntimeState source)
+    {
+        if (source == null)
+            throw new ArgumentNullException(nameof(source));
+
+        return new EditorRuntimeState(
+            TimeScale,
+            Paused,
+            EditorInputBlocked,
+            HudVisible,
+            HudDebugVisible,
+            source.PlayerControlEnabled,
+            source.DamageAreaEnabled,
+            source.Invulnerable,
+            source.CollisionEnabled,
+            source.Collision2DEnabled,
+            CinematicMode,
+            CursorVisible,
+            CursorLockState);
+    }
 }
 
 /// <summary>Restores a captured runtime snapshot when Editor Mode exits.</summary>
@@ -56,6 +77,7 @@ internal sealed class EditorModeGuard
     private readonly Func<EditorRuntimeState> _capture;
     private readonly Action<EditorRuntimeState> _apply;
     private EditorRuntimeState _originalState;
+    private bool _gameplayResumed;
 
     internal EditorModeGuard(Func<EditorRuntimeState> capture, Action<EditorRuntimeState> apply)
     {
@@ -113,6 +135,7 @@ internal sealed class EditorModeGuard
             }
 
             _originalState = originalState;
+            _gameplayResumed = false;
             _apply(editorState);
             IsActive = true;
             return true;
@@ -125,7 +148,45 @@ internal sealed class EditorModeGuard
                 restoreException = TryRestore(originalState);
             error = AppendRestoreError(error, restoreException);
             _originalState = restoreException == null ? null : originalState;
+            _gameplayResumed = false;
             IsActive = restoreException != null;
+            return false;
+        }
+    }
+
+    internal bool TryResumeGameplay(out string error)
+    {
+        error = null;
+        if (!IsActive)
+        {
+            error = "Editor Mode is not active.";
+            return false;
+        }
+
+        if (_gameplayResumed)
+            return true;
+
+        EditorRuntimeState current = null;
+        try
+        {
+            current = _capture();
+            if (current == null)
+            {
+                error = "Editor Mode could not capture the resumed game state.";
+                return false;
+            }
+
+            _apply(current.WithPlayerRuntimeFrom(_originalState));
+            _gameplayResumed = true;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = "Editor Mode resume failed: " + exception.Message;
+            Exception restoreException = current == null ? null : TryRestore(current);
+            if (restoreException != null)
+                restoreException = TryRestore(current);
+            error = AppendRestoreError(error, restoreException);
             return false;
         }
     }
@@ -138,8 +199,17 @@ internal sealed class EditorModeGuard
 
         try
         {
+            if (_gameplayResumed)
+            {
+                EditorRuntimeState current = _capture();
+                if (current == null)
+                    throw new InvalidOperationException("Editor Mode could not capture the active player state.");
+                _originalState = _originalState.WithPlayerRuntimeFrom(current);
+            }
+
             _apply(_originalState);
             _originalState = null;
+            _gameplayResumed = false;
             IsActive = false;
             return true;
         }
@@ -149,6 +219,7 @@ internal sealed class EditorModeGuard
             if (retryException == null)
             {
                 _originalState = null;
+                _gameplayResumed = false;
                 IsActive = false;
                 error = "Editor Mode exit recovered after: " + exception.Message;
                 return true;

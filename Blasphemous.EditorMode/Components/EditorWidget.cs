@@ -4,6 +4,7 @@ using Blasphemous.EditorMode.Editing;
 using Blasphemous.ModdingAPI;
 using Blasphemous.Framework.UI;
 using Framework.Managers;
+using Gameplay.UI;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -109,6 +110,7 @@ internal class EditorWidget : MonoBehaviour
     {
         EnsureUiInput();
         Refresh();
+        RefreshFreezeButton();
     }
 
     private void OnDisable()
@@ -651,18 +653,44 @@ internal class EditorWidget : MonoBehaviour
 
     private void OnFreezeGameButtonClicked()
     {
-        if (Core.Logic == null)
+        var logic = Core.Logic;
+        if (logic == null)
             return;
 
-        if (Core.Logic.IsPaused)
+        bool paused = UIController.instance != null
+            ? UIController.instance.Paused
+            : logic.IsPaused;
+        if (paused)
         {
             ModLog.Info("Resuming game...");
-            Core.Logic.ResumeGame();
+            logic.ResumeGame();
+            EditorMode editor = Main.EditorMode;
+            string error = null;
+            if (editor == null || !editor.TryResumeGameplay(out error))
+            {
+                logic.PauseGame();
+                ModLog.Error(error ?? "Editor Mode is unavailable while resuming gameplay.");
+            }
         }
         else
         {
             ModLog.Info("Pausing game...");
-            Core.Logic.PauseGame();
+            logic.PauseGame();
         }
+
+        RefreshFreezeButton();
+    }
+
+    private void RefreshFreezeButton()
+    {
+        if (freezeGameButtonObj == null || Core.Logic == null)
+            return;
+
+        bool paused = UIController.instance != null
+            ? UIController.instance.Paused
+            : Core.Logic.IsPaused;
+        Text label = freezeGameButtonObj.GetComponentInChildren<Text>();
+        if (label != null)
+            label.text = paused ? "Resume" : "Freeze";
     }
 }
