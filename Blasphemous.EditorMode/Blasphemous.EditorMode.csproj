@@ -47,8 +47,8 @@
     </PropertyGroup>
 
     <!-- Export to dev folder -->
-    <Copy SourceFiles="@(Resources)" DestinationFolder="$(DevFolder)\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(PluginDll)" DestinationFolder="$(DevFolder)\plugins" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(Resources)" DestinationFolder="$(DevFolder)\%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'$(DisableDevelopmentDeployment)' != 'true'" />
+    <Copy SourceFiles="@(PluginDll)" DestinationFolder="$(DevFolder)\plugins" SkipUnchangedFiles="true" Condition="'$(DisableDevelopmentDeployment)' != 'true'" />
 
     <!-- Export to publish folder -->
     <RemoveDir Directories="$(PublishFolder)" />
