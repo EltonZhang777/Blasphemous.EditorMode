@@ -376,10 +376,11 @@ internal static class LevelFrameworkAdapter
         string directory = Path.GetDirectoryName(fullPath);
         string temporaryPath = fullPath + ".tmp-" + Guid.NewGuid().ToString("N");
         string backupPath = fullPath + ".prev";
+        string mainRollbackPath = fullPath + ".rollback-" + Guid.NewGuid().ToString("N");
         string backupTemporaryPath = backupPath + ".tmp-" + Guid.NewGuid().ToString("N");
         string backupRollbackPath = backupPath + ".rollback-" + Guid.NewGuid().ToString("N");
         string exportedBackupPath = null;
-        bool preserveBackupTemporary = false;
+        bool preserveMainRollback = false;
         bool preserveBackupRollback = false;
         try
         {
@@ -395,43 +396,42 @@ internal static class LevelFrameworkAdapter
             }
             else if (File.Exists(fullPath))
             {
-                File.Replace(temporaryPath, fullPath, backupPath, true);
-                exportedBackupPath = backupPath;
+                File.Replace(temporaryPath, fullPath, mainRollbackPath, true);
+                exportedBackupPath = mainRollbackPath;
                 try
                 {
-                    JToken previousDocument = JToken.Parse(File.ReadAllText(backupPath));
+                    JToken previousDocument = JToken.Parse(File.ReadAllText(mainRollbackPath));
                     File.WriteAllText(
                         backupTemporaryPath,
                         previousDocument.ToString(Formatting.Indented),
                         new UTF8Encoding(false));
-                    File.Replace(backupTemporaryPath, backupPath, backupRollbackPath, true);
+                    if (File.Exists(backupPath))
+                        File.Replace(backupTemporaryPath, backupPath, backupRollbackPath, true);
+                    else
+                        File.Move(backupTemporaryPath, backupPath);
+                    exportedBackupPath = backupPath;
                 }
                 catch (Exception exception)
                 {
-                    string warning = "Export succeeded, but the previous JSON backup could not be formatted: " + exception.Message;
-                    string recoveryPath = File.Exists(backupRollbackPath)
-                        ? backupRollbackPath
-                        : backupTemporaryPath;
-                    if (!File.Exists(backupPath) && File.Exists(recoveryPath))
+                    string warning = "Export succeeded, but the previous JSON backup could not be formatted or committed: " + exception.Message;
+                    if (File.Exists(backupRollbackPath))
                     {
                         try
                         {
-                            File.Move(recoveryPath, backupPath);
+                            if (File.Exists(backupPath))
+                                File.Delete(backupPath);
+                            File.Move(backupRollbackPath, backupPath);
                         }
                         catch (Exception restoreException)
                         {
-                            exportedBackupPath = recoveryPath;
-                            preserveBackupRollback = recoveryPath == backupRollbackPath;
-                            preserveBackupTemporary = recoveryPath == backupTemporaryPath;
-                            warning += " Backup recovery failed: " + restoreException.Message;
+                            preserveBackupRollback = File.Exists(backupRollbackPath);
+                            warning += " The earlier backup could not be restored; inspect " + backupRollbackPath + ": " + restoreException.Message;
                         }
                     }
 
-                    if (File.Exists(backupPath))
-                        exportedBackupPath = backupPath;
-                    else if (exportedBackupPath == null || !File.Exists(exportedBackupPath))
-                        exportedBackupPath = null;
-                    AddWarning(diagnostics, exportedBackupPath ?? backupPath, warning);
+                    exportedBackupPath = mainRollbackPath;
+                    preserveMainRollback = true;
+                    AddWarning(diagnostics, mainRollbackPath, warning + " The previous room file remains recoverable at " + mainRollbackPath + ".");
                 }
             }
             else
@@ -439,8 +439,45 @@ internal static class LevelFrameworkAdapter
         }
         catch (Exception exception)
         {
-            if (!File.Exists(fullPath) && File.Exists(backupPath))
-                exportedBackupPath = backupPath;
+            if (File.Exists(mainRollbackPath))
+            {
+                bool restorePrevious = !File.Exists(fullPath);
+                if (!restorePrevious)
+                {
+                    try
+                    {
+                        restorePrevious = !Parse(File.ReadAllText(fullPath)).IsValid;
+                    }
+                    catch
+                    {
+                        restorePrevious = true;
+                    }
+                }
+
+                if (restorePrevious)
+                {
+                    try
+                    {
+                        if (File.Exists(fullPath))
+                            File.Delete(fullPath);
+                        File.Move(mainRollbackPath, fullPath);
+                    }
+                    catch (Exception restoreException)
+                    {
+                        exportedBackupPath = mainRollbackPath;
+                        preserveMainRollback = true;
+                        AddError(diagnostics, mainRollbackPath, "The previous Level Export could not be restored; recover it from " + mainRollbackPath + ": " + restoreException.Message);
+                    }
+                }
+
+                if (File.Exists(mainRollbackPath))
+                {
+                    exportedBackupPath = mainRollbackPath;
+                    preserveMainRollback = true;
+                    AddWarning(diagnostics, mainRollbackPath, "The previous Level Export was retained at this recovery path because replacement state is uncertain.");
+                }
+            }
+
             AddError(diagnostics, path, "Atomic Level Export failed; inspect the source and backup files: " + exception.Message);
         }
         finally
@@ -457,7 +494,18 @@ internal static class LevelFrameworkAdapter
 
             try
             {
-                if (!preserveBackupTemporary && File.Exists(backupTemporaryPath))
+                if (!preserveMainRollback && File.Exists(mainRollbackPath))
+                    File.Delete(mainRollbackPath);
+            }
+            catch (Exception exception)
+            {
+                exportedBackupPath = mainRollbackPath;
+                AddWarning(diagnostics, mainRollbackPath, "Temporary main-file backup cleanup failed; previous data remains recoverable: " + exception.Message);
+            }
+
+            try
+            {
+                if (File.Exists(backupTemporaryPath))
                     File.Delete(backupTemporaryPath);
             }
             catch (Exception exception)

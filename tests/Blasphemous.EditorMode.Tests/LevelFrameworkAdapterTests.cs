@@ -4,6 +4,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.IO;
 using System.IO.IsolatedStorage;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace Blasphemous.EditorMode.Tests;
@@ -175,6 +176,78 @@ public sealed class LevelFrameworkAdapterTests
             Assert.Equal(backup, exported.BackupPath);
             Assert.Equal(JToken.Parse(oldSource).ToString(Formatting.Indented), File.ReadAllText(backup));
             Assert.Contains("bell-1", File.ReadAllText(path));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void Backup_format_failure_preserves_existing_backup_and_original_level()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "editor-mode-export-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        string backup = path + ".prev";
+        const string oldSource = "not-json";
+        const string previousBackup = "{\"older\":true}";
+        var document = new FrameworkLevelEdit(
+            new FrameworkObjectData[0],
+            new FrameworkObjectData[0],
+            new FrameworkObjectData[0]);
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, oldSource);
+            File.WriteAllText(backup, previousBackup);
+
+            FrameworkExportResult exported = LevelFrameworkAdapter.ExportFile(path, "D03Z02S06", document);
+
+            Assert.True(exported.Succeeded, Messages(exported.Diagnostics));
+            Assert.NotEqual(backup, exported.BackupPath);
+            Assert.Equal(previousBackup, File.ReadAllText(backup));
+            Assert.Equal(oldSource, File.ReadAllText(exported.BackupPath));
+            Assert.True(LevelFrameworkAdapter.Parse(File.ReadAllText(path)).IsValid);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void Failed_main_replace_preserves_existing_level_and_previous_backup()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return;
+
+        string directory = Path.Combine(Path.GetTempPath(), "editor-mode-export-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        string backup = path + ".prev";
+        const string oldSource = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        const string previousBackup = "{\"older\":true}";
+        var document = new FrameworkLevelEdit(
+            new FrameworkObjectData[0],
+            new FrameworkObjectData[0],
+            new FrameworkObjectData[0]);
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, oldSource);
+            File.WriteAllText(backup, previousBackup);
+
+            FrameworkExportResult exported;
+            using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                exported = LevelFrameworkAdapter.ExportFile(path, "D03Z02S06", document);
+
+            Assert.False(exported.Succeeded);
+            Assert.Null(exported.BackupPath);
+            Assert.Equal(oldSource, File.ReadAllText(path));
+            Assert.Equal(previousBackup, File.ReadAllText(backup));
         }
         finally
         {

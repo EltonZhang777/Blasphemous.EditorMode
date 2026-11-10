@@ -8,6 +8,7 @@ internal sealed class ApplyReportSurface
     internal ApplyReport LastReport { get; private set; }
     internal string UiText { get; private set; }
     internal string ActionableMessage { get; private set; }
+    internal bool HasActionableMessage { get { return !string.IsNullOrEmpty(ActionableMessage); } }
 
     internal void Publish(string operation, ApplyReport report)
     {

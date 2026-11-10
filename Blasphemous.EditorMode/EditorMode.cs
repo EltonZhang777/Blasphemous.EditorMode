@@ -211,7 +211,10 @@ internal class EditorMode : BlasMod
             return;
         }
 
-        if (Session == null || PlacementManager == null)
+        bool reportOnlyEntry = _roomPreparation == null
+            && ReportSurface != null
+            && ReportSurface.HasActionableMessage;
+        if ((Session == null || PlacementManager == null) && !reportOnlyEntry)
         {
             _lifecycleBridge.EndEditing();
             ModLog.Warn("Editor Mode activation rejected: Room Overlay session is not ready.");

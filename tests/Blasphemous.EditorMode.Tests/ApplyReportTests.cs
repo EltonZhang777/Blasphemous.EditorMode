@@ -46,6 +46,20 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
+    public void A_failed_room_import_exposes_an_actionable_recovery_report()
+    {
+        var surface = new ApplyReportSurface();
+        Assert.False(surface.HasActionableMessage);
+
+        var report = new ApplyReport();
+        report.Error("JSON_SYNTAX", "room.json", "Malformed JSON.");
+        surface.Publish("Room import", report);
+
+        Assert.True(surface.HasActionableMessage);
+        Assert.Contains("JSON_SYNTAX", surface.ActionableMessage);
+    }
+
+    [Fact]
     public void Failed_edit_flow_returns_to_the_previous_safe_state_after_recovery()
     {
         var report = new ApplyReport();
