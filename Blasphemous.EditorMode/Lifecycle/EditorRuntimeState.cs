@@ -49,6 +49,26 @@ internal sealed class EditorRuntimeState
     internal bool CursorVisible { get; }
     internal int CursorLockState { get; }
 
+    internal void RestorePauseAndTimeScale(bool currentlyPaused, Action pause, Action resume, Action<float> setTimeScale)
+    {
+        bool resumed = false;
+        if (currentlyPaused != Paused)
+        {
+            if (Paused)
+                pause();
+            else
+            {
+                resume();
+                resumed = true;
+            }
+        }
+
+        if (Paused)
+            setTimeScale(TimeScale);
+        else if (!resumed)
+            setTimeScale(1f);
+    }
+
     internal EditorRuntimeState WithPlayerRuntimeFrom(EditorRuntimeState source)
     {
         if (source == null)

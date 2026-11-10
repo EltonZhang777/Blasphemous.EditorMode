@@ -40,14 +40,20 @@ internal static class BlasphemousEditorRuntimeState
         var logic = Core.Logic;
         if (logic != null)
         {
-            if (state.Paused && !logic.IsPaused)
-                logic.PauseGame();
-            else if (!state.Paused && logic.IsPaused)
-                logic.ResumeGame();
-
-            if (logic.CurrentLevelConfig != null)
-                logic.CurrentLevelConfig.TimeScale = state.TimeScale;
+            state.RestorePauseAndTimeScale(
+                logic.IsPaused,
+                logic.PauseGame,
+                logic.ResumeGame,
+                timeScale =>
+                {
+                    if (logic.CurrentLevelConfig != null)
+                        logic.CurrentLevelConfig.TimeScale = timeScale;
+                    else
+                        Time.timeScale = timeScale;
+                });
         }
+        else
+            Time.timeScale = state.Paused ? state.TimeScale : 1f;
 
         if (Core.Input != null)
             Core.Input.SetBlocker(InputBlocker, state.EditorInputBlocked);

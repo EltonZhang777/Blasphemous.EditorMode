@@ -6,6 +6,55 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class EditorModeGuardTests
 {
     [Fact]
+    public void Restoring_unpaused_snapshot_keeps_native_resume_scale_after_editor_pause()
+    {
+        EditorRuntimeState state = CreateSnapshot(0.1f, paused: false);
+        bool currentlyPaused = true;
+        float currentTimeScale = 0f;
+
+        state.RestorePauseAndTimeScale(
+            currentlyPaused,
+            () => { currentlyPaused = true; currentTimeScale = 0f; },
+            () => { currentlyPaused = false; currentTimeScale = 1f; },
+            _ => throw new System.InvalidOperationException("Native resume scale must be preserved."));
+
+        Assert.False(currentlyPaused);
+        Assert.Equal(1f, currentTimeScale);
+    }
+
+    [Fact]
+    public void Restoring_unpaused_snapshot_clears_slow_motion_without_pause_transition()
+    {
+        EditorRuntimeState state = CreateSnapshot(0.1f, paused: false);
+        float currentTimeScale = 0.1f;
+
+        state.RestorePauseAndTimeScale(
+            currentlyPaused: false,
+            pause: () => throw new System.InvalidOperationException(),
+            resume: () => throw new System.InvalidOperationException(),
+            setTimeScale: timeScale => currentTimeScale = timeScale);
+
+        Assert.Equal(1f, currentTimeScale);
+    }
+
+    [Fact]
+    public void Restoring_a_paused_state_keeps_its_captured_time_scale()
+    {
+        EditorRuntimeState state = CreateSnapshot(0.2f, paused: true);
+        bool currentlyPaused = false;
+        float currentTimeScale = 1f;
+
+        state.RestorePauseAndTimeScale(
+            currentlyPaused,
+            () => { currentlyPaused = true; currentTimeScale = 0.8f; },
+            () => { currentlyPaused = false; currentTimeScale = 1f; },
+            timeScale => currentTimeScale = timeScale);
+
+        Assert.True(currentlyPaused);
+        Assert.Equal(0.2f, currentTimeScale);
+    }
+
+    [Fact]
     public void Entry_requires_debug_gate_and_compatible_room()
     {
         var state = new TestState();
