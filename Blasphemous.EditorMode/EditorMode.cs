@@ -133,13 +133,13 @@ internal class EditorMode : BlasMod
         if (initializer == null)
             return;
 
-        if (initializer.LevelEffectsStore == null)
+        if (initializer.GetComponentInChildren<LevelEffectsStore>() == null)
         {
             var report = new ApplyReport();
             report.Error(
-                "ROOM_EFFECTS_STORE_NOT_READY",
+                "ROOM_EFFECTS_STORE_MISSING",
                 activeScene.name,
-                "The active room's LevelInitializer has not initialized its LevelEffectsStore; its context was not refreshed.");
+                "The active room has no LevelEffectsStore component; its context was not refreshed.");
             PublishReport("Room context refresh", report);
             return;
         }
