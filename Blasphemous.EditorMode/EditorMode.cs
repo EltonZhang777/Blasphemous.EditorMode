@@ -6,6 +6,7 @@ using Blasphemous.EditorMode.Framework;
 using Blasphemous.EditorMode.Lifecycle;
 using Blasphemous.EditorMode.Runtime;
 using Blasphemous.ModdingAPI;
+using Framework.Managers;
 using Gameplay.UI;
 using Blasphemous.Framework.UI;
 using System.Collections;
@@ -96,6 +97,32 @@ internal class EditorMode : BlasMod
     protected override void OnLevelPreloaded(string oldLevel, string newLevel)
     {
         _lifecycleBridge.OnLevelPreloaded(oldLevel, newLevel);
+        RefreshCurrentLevelConfig();
+    }
+
+    private static void RefreshCurrentLevelConfig()
+    {
+        var logic = Core.Logic;
+        if (logic == null)
+            return;
+
+        Scene activeScene = SceneManager.GetActiveScene();
+        if (!activeScene.IsValid() || !activeScene.isLoaded)
+            return;
+
+        LevelInitializer initializer = null;
+        foreach (GameObject root in activeScene.GetRootGameObjects())
+        {
+            initializer = root.GetComponentInChildren<LevelInitializer>(true);
+            if (initializer != null)
+                break;
+        }
+
+        if (initializer == null || logic.CurrentLevelConfig == initializer)
+            return;
+
+        logic.SetCurrentLevelConfig(initializer);
+        ModLog.Warn("Refreshed the active room context before spawning: " + activeScene.name);
     }
 
     protected override void OnLevelLoaded(string oldLevel, string newLevel)
