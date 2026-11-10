@@ -113,13 +113,22 @@ internal class EditorMode : BlasMod
         LevelInitializer initializer = null;
         foreach (GameObject root in activeScene.GetRootGameObjects())
         {
-            initializer = root.GetComponentInChildren<LevelInitializer>(true);
-            if (initializer != null)
-                break;
+            LevelInitializer candidate = root.GetComponentInChildren<LevelInitializer>();
+            if (candidate == null || !candidate.isActiveAndEnabled)
+                continue;
+
+            initializer = candidate;
+            break;
         }
 
         if (initializer == null || logic.CurrentLevelConfig == initializer)
             return;
+
+        if (initializer.LevelEffectsStore == null)
+        {
+            ModLog.Warn("Skipped refreshing the active room context before its effects store was initialized: " + activeScene.name);
+            return;
+        }
 
         logic.SetCurrentLevelConfig(initializer);
         ModLog.Warn("Refreshed the active room context before spawning: " + activeScene.name);

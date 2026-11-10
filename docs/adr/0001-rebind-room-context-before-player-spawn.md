@@ -1,3 +1,3 @@
 # Rebind the room context before player spawn
 
-The game's player effects cache room-owned services during spawn, while a room transition replaces those services. Editor Mode therefore checks the active logic scene during the ModdingAPI preloaded callback and updates the current room reference only when it is stale; this repairs the context before player and enemy components cache it, instead of swallowing their later null-reference failures.
+The game's player effects cache room-owned services during spawn, while a room transition replaces those services. The ModdingAPI preloaded callback can observe a stale current-room reference, so Editor Mode may refresh it only from the active scene's `LevelInitializer` after its `LevelEffectsStore` is available; if that service is not ready, the game remains responsible for publishing the initialized context. Do not suppress later null-reference failures.
