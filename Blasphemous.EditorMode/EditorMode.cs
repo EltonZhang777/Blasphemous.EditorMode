@@ -130,19 +130,22 @@ internal class EditorMode : BlasMod
             break;
         }
 
-        if (initializer == null || logic.CurrentLevelConfig == initializer)
+        if (initializer == null)
             return;
 
-        if (initializer.GetComponentInChildren<LevelEffectsStore>() == null)
+        if (initializer.LevelEffectsStore == null)
         {
             var report = new ApplyReport();
             report.Error(
-                "ROOM_EFFECTS_STORE_MISSING",
+                "ROOM_EFFECTS_STORE_NOT_READY",
                 activeScene.name,
-                "The active room has no LevelEffectsStore component; its context was not refreshed.");
+                "The active room's LevelInitializer has not initialized its LevelEffectsStore; its context was not refreshed.");
             PublishReport("Room context refresh", report);
             return;
         }
+
+        if (logic.CurrentLevelConfig == initializer)
+            return;
 
         logic.SetCurrentLevelConfig(initializer);
         ModLog.Warn("Refreshed the active room context before spawning: " + activeScene.name);
