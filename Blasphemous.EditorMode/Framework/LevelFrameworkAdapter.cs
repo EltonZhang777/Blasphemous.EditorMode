@@ -376,6 +376,11 @@ internal static class LevelFrameworkAdapter
         string directory = Path.GetDirectoryName(fullPath);
         string temporaryPath = fullPath + ".tmp-" + Guid.NewGuid().ToString("N");
         string backupPath = fullPath + ".prev";
+        string backupTemporaryPath = backupPath + ".tmp-" + Guid.NewGuid().ToString("N");
+        string backupRollbackPath = backupPath + ".rollback-" + Guid.NewGuid().ToString("N");
+        string exportedBackupPath = null;
+        bool preserveBackupTemporary = false;
+        bool preserveBackupRollback = false;
         try
         {
             if (!Directory.Exists(directory))
@@ -387,23 +392,56 @@ internal static class LevelFrameworkAdapter
             if (!temporaryValidation.IsValid)
             {
                 diagnostics.AddRange(temporaryValidation.Diagnostics);
-                return new FrameworkExportResult(path, null, diagnostics);
             }
-
-            if (File.Exists(fullPath))
+            else if (File.Exists(fullPath))
+            {
                 File.Replace(temporaryPath, fullPath, backupPath, true);
+                exportedBackupPath = backupPath;
+                try
+                {
+                    JToken previousDocument = JToken.Parse(File.ReadAllText(backupPath));
+                    File.WriteAllText(
+                        backupTemporaryPath,
+                        previousDocument.ToString(Formatting.Indented),
+                        new UTF8Encoding(false));
+                    File.Replace(backupTemporaryPath, backupPath, backupRollbackPath, true);
+                }
+                catch (Exception exception)
+                {
+                    string warning = "Export succeeded, but the previous JSON backup could not be formatted: " + exception.Message;
+                    string recoveryPath = File.Exists(backupRollbackPath)
+                        ? backupRollbackPath
+                        : backupTemporaryPath;
+                    if (!File.Exists(backupPath) && File.Exists(recoveryPath))
+                    {
+                        try
+                        {
+                            File.Move(recoveryPath, backupPath);
+                        }
+                        catch (Exception restoreException)
+                        {
+                            exportedBackupPath = recoveryPath;
+                            preserveBackupRollback = recoveryPath == backupRollbackPath;
+                            preserveBackupTemporary = recoveryPath == backupTemporaryPath;
+                            warning += " Backup recovery failed: " + restoreException.Message;
+                        }
+                    }
+
+                    if (File.Exists(backupPath))
+                        exportedBackupPath = backupPath;
+                    else if (exportedBackupPath == null || !File.Exists(exportedBackupPath))
+                        exportedBackupPath = null;
+                    AddWarning(diagnostics, exportedBackupPath ?? backupPath, warning);
+                }
+            }
             else
                 File.Move(temporaryPath, fullPath);
-
-            return new FrameworkExportResult(
-                path,
-                File.Exists(backupPath) ? backupPath : null,
-                diagnostics);
         }
         catch (Exception exception)
         {
-            AddError(diagnostics, path, "Atomic Level Export failed; source file was preserved: " + exception.Message);
-            return new FrameworkExportResult(path, null, diagnostics);
+            if (!File.Exists(fullPath) && File.Exists(backupPath))
+                exportedBackupPath = backupPath;
+            AddError(diagnostics, path, "Atomic Level Export failed; inspect the source and backup files: " + exception.Message);
         }
         finally
         {
@@ -416,7 +454,29 @@ internal static class LevelFrameworkAdapter
             {
                 AddWarning(diagnostics, temporaryPath, "Temporary export cleanup failed: " + exception.Message);
             }
+
+            try
+            {
+                if (!preserveBackupTemporary && File.Exists(backupTemporaryPath))
+                    File.Delete(backupTemporaryPath);
+            }
+            catch (Exception exception)
+            {
+                AddWarning(diagnostics, backupTemporaryPath, "Temporary backup cleanup failed: " + exception.Message);
+            }
+
+            try
+            {
+                if (!preserveBackupRollback && File.Exists(backupRollbackPath))
+                    File.Delete(backupRollbackPath);
+            }
+            catch (Exception exception)
+            {
+                AddWarning(diagnostics, backupRollbackPath, "Temporary backup rollback cleanup failed: " + exception.Message);
+            }
         }
+
+        return new FrameworkExportResult(path, exportedBackupPath, diagnostics);
     }
 
     private static List<FrameworkObjectData> ReadArray(

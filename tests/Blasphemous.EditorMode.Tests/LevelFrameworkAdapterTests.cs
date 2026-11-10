@@ -1,4 +1,6 @@
 using Blasphemous.EditorMode.Framework;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.IO;
 using System.IO.IsolatedStorage;
@@ -145,7 +147,7 @@ public sealed class LevelFrameworkAdapterTests
         string directory = Path.Combine(Path.GetTempPath(), "editor-mode-export-" + Guid.NewGuid().ToString("N"));
         string path = Path.Combine(directory, "D03Z02S06.json");
         string backup = path + ".prev";
-        const string oldSource = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        const string oldSource = "{\"additions\":[],\"modifications\":[],\"deletions\":[],\"futureData\":{\"retained\":true}}";
         var document = new FrameworkLevelEdit(
             new[]
             {
@@ -171,7 +173,7 @@ public sealed class LevelFrameworkAdapterTests
             FrameworkExportResult exported = LevelFrameworkAdapter.ExportFile(path, "D03Z02S06", document);
             Assert.True(exported.Succeeded, Messages(exported.Diagnostics));
             Assert.Equal(backup, exported.BackupPath);
-            Assert.Equal(oldSource, File.ReadAllText(backup));
+            Assert.Equal(JToken.Parse(oldSource).ToString(Formatting.Indented), File.ReadAllText(backup));
             Assert.Contains("bell-1", File.ReadAllText(path));
         }
         finally
