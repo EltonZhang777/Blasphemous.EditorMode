@@ -33,16 +33,16 @@ public sealed class ApplyReportTests
         report.Applied();
         report.Warning("TEST_WARNING", "item[1]", "visible warning");
         var surface = new ApplyReportSurface();
-        var logs = new List<string>();
-        var publisher = new ApplyReportPublisher(surface, logs.Add);
+        var logs = new List<(ApplySeverity Severity, string Message)>();
+        var publisher = new ApplyReportPublisher(surface, (severity, message) => logs.Add((severity, message)));
 
         publisher.Publish("import", report);
 
         Assert.Same(report, surface.LastReport);
         Assert.Equal(report.ToSummary("import"), surface.UiText);
         Assert.Contains("partial", surface.UiText);
-        Assert.Contains(logs, x => x == surface.UiText);
-        Assert.Contains(logs, x => x.Contains("TEST_WARNING"));
+        Assert.Contains(logs, x => x.Severity == ApplySeverity.Warning && x.Message == surface.UiText);
+        Assert.Contains(logs, x => x.Severity == ApplySeverity.Warning && x.Message.Contains("TEST_WARNING"));
     }
 
     [Fact]

@@ -7,6 +7,7 @@ using Blasphemous.EditorMode.Lifecycle;
 using Blasphemous.EditorMode.Runtime;
 using Blasphemous.ModdingAPI;
 using Framework.Managers;
+using Gameplay.GameControllers.Environment;
 using Gameplay.UI;
 using Blasphemous.Framework.UI;
 using System.Collections;
@@ -71,7 +72,15 @@ internal class EditorMode : BlasMod
     {
         _reportPublisher = new ApplyReportPublisher(
             new ApplyReportSurface(),
-            message => ModLog.Info(message));
+            (severity, message) =>
+            {
+                if (severity == ApplySeverity.Error)
+                    ModLog.Error(message);
+                else if (severity == ApplySeverity.Warning)
+                    ModLog.Warn(message);
+                else
+                    ModLog.Info(message);
+            });
         _editorGuard = new EditorModeGuard(
             BlasphemousEditorRuntimeState.Capture,
             BlasphemousEditorRuntimeState.Apply);
@@ -100,7 +109,7 @@ internal class EditorMode : BlasMod
         RefreshCurrentLevelConfig();
     }
 
-    private static void RefreshCurrentLevelConfig()
+    private void RefreshCurrentLevelConfig()
     {
         var logic = Core.Logic;
         if (logic == null)
@@ -124,9 +133,14 @@ internal class EditorMode : BlasMod
         if (initializer == null || logic.CurrentLevelConfig == initializer)
             return;
 
-        if (initializer.LevelEffectsStore == null)
+        if (initializer.GetComponentInChildren<LevelEffectsStore>() == null)
         {
-            ModLog.Warn("Skipped refreshing the active room context before its effects store was initialized: " + activeScene.name);
+            var report = new ApplyReport();
+            report.Error(
+                "ROOM_EFFECTS_STORE_MISSING",
+                activeScene.name,
+                "The active room has no LevelEffectsStore component; its context was not refreshed.");
+            PublishReport("Room context refresh", report);
             return;
         }
 

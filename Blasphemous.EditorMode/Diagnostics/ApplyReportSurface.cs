@@ -41,9 +41,9 @@ internal sealed class ApplyReportSurface
 internal sealed class ApplyReportPublisher
 {
     private readonly ApplyReportSurface _surface;
-    private readonly Action<string> _log;
+    private readonly Action<ApplySeverity, string> _log;
 
-    internal ApplyReportPublisher(ApplyReportSurface surface, Action<string> log)
+    internal ApplyReportPublisher(ApplyReportSurface surface, Action<ApplySeverity, string> log)
     {
         _surface = surface ?? throw new ArgumentNullException(nameof(surface));
         _log = log;
@@ -57,10 +57,12 @@ internal sealed class ApplyReportPublisher
         if (_log == null)
             return;
 
-        _log(_surface.UiText);
+        _log(
+            report.HasErrors ? ApplySeverity.Error : report.IsPartial ? ApplySeverity.Warning : ApplySeverity.Info,
+            _surface.UiText);
         foreach (ApplyReportEntry entry in report.Entries)
         {
-            _log(string.Format(
+            _log(entry.Severity, string.Format(
                 "[{0}] {1} {2}: {3}",
                 entry.Severity,
                 entry.Code,
