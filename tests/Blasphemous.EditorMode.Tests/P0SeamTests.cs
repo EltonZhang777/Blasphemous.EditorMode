@@ -24,13 +24,13 @@ public sealed class P0SeamTests
             File.WriteAllText(path, InitialDocument());
             RoomIdentity room = CreateRoom();
             FrameworkFileResult source = LevelFrameworkAdapter.ImportFile(path, room.ExportFileKey);
-            var catalog = ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron });
-            var factory = new FakeFactory();
-            var reconciler = new RoomOverlayReconciler(catalog, factory);
+            ContentCatalog catalog = ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron });
+            FakeFactory factory = new FakeFactory();
+            RoomOverlayReconciler reconciler = new RoomOverlayReconciler(catalog, factory);
             RoomOverlayReconcileResult first = reconciler.Apply(room, source);
             Assert.True(first.Succeeded, first.StatusMessage);
 
-            var report = new ApplyReport();
+            ApplyReport report = new ApplyReport();
             PlacementRecord authored = first.Session.Placements[0];
             Assert.True(first.Manager.TrySelect(authored.Id, report, out _));
             Assert.True(first.Manager.TryMove(
@@ -45,11 +45,11 @@ public sealed class P0SeamTests
             LevelEditSessionExportResult exported = first.Session.Export(path);
             Assert.True(exported.Succeeded, exported.StatusMessage);
             FrameworkFileResult reloadedFile = LevelFrameworkAdapter.ImportFile(path, room.ExportFileKey);
-            var reloadedReconciler = new RoomOverlayReconciler(
+            RoomOverlayReconciler reloadedReconciler = new RoomOverlayReconciler(
                 catalog,
                 new FakeFactory());
             RoomOverlayReconcileResult reloaded = reloadedReconciler.Apply(room, reloadedFile);
-            var compareReport = new ApplyReport();
+            ApplyReport compareReport = new ApplyReport();
 
             Assert.True(reloaded.Succeeded, reloaded.StatusMessage);
             Assert.True(

@@ -54,7 +54,7 @@ internal sealed class ContentCatalog
         Func<CreatorMetadata, PreviewInstance> previewFactory)
     {
         _byType = new Dictionary<string, CreatorMetadata>(StringComparer.OrdinalIgnoreCase);
-        var entries = new List<CreatorMetadata>();
+        List<CreatorMetadata> entries = new List<CreatorMetadata>();
         foreach (CreatorMetadata metadata in available ?? new CreatorMetadata[0])
         {
             if (metadata == null || !metadata.IsSupported || _byType.ContainsKey(metadata.Type))

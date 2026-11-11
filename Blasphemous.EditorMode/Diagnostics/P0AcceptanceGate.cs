@@ -39,7 +39,7 @@ internal static class P0AcceptanceGate
         if (evidence == null)
             throw new ArgumentNullException(nameof(evidence));
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         Check(report, "SEAM", evidence.SeamPassed, "LevelEditSession import/edit/undo/redo/export/re-import seam");
         Check(report, "DEPENDENCY", evidence.DependencySafetyPassed, "dependency absence and version safety");
         Check(report, "ROOM_SAFETY", evidence.RoomSafetyPassed, "room identity and lifecycle safety");

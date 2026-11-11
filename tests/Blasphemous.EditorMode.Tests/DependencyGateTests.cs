@@ -8,7 +8,7 @@ public sealed class DependencyGateTests
     [Fact]
     public void Compatible_dependencies_enable_editor_mode()
     {
-        var result = DependencyGate.Evaluate(
+        DependencyGateResult result = DependencyGate.Evaluate(
             new[] { Requirement("Blasphemous.ModdingAPI", "3.0.1") },
             new[] { Installed("Blasphemous.ModdingAPI", "3.0.1") });
 
@@ -20,11 +20,11 @@ public sealed class DependencyGateTests
     [Fact]
     public void Missing_dependency_disables_editor_mode_with_actionable_diagnostic()
     {
-        var result = DependencyGate.Evaluate(
+        DependencyGateResult result = DependencyGate.Evaluate(
             new[] { Requirement("Blasphemous.Framework.Levels", "0.2.0") },
             Array.Empty<InstalledDependency>());
 
-        var diagnostic = Assert.Single(result.Diagnostics);
+        DependencyDiagnostic diagnostic = Assert.Single(result.Diagnostics);
         Assert.False(result.IsCompatible);
         Assert.Equal(DependencyFailureReason.Missing, diagnostic.Reason);
         Assert.Contains("Blasphemous.Framework.Levels", diagnostic.Message);
@@ -35,11 +35,11 @@ public sealed class DependencyGateTests
     [Fact]
     public void Older_dependency_version_disables_editor_mode_with_required_and_actual_versions()
     {
-        var result = DependencyGate.Evaluate(
+        DependencyGateResult result = DependencyGate.Evaluate(
             new[] { Requirement("Blasphemous.ModdingAPI", "3.0.1") },
             new[] { Installed("Blasphemous.ModdingAPI", "2.4.1") });
 
-        var diagnostic = Assert.Single(result.Diagnostics);
+        DependencyDiagnostic diagnostic = Assert.Single(result.Diagnostics);
         Assert.False(result.IsCompatible);
         Assert.Equal(DependencyFailureReason.VersionTooLow, diagnostic.Reason);
         Assert.Equal(new Version(3, 0, 1), diagnostic.RequiredVersion);

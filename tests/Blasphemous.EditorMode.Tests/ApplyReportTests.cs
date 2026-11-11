@@ -11,7 +11,7 @@ public sealed class ApplyReportTests
     [Fact]
     public void Framework_and_dependency_failures_receive_actionable_codes()
     {
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         report.MergeFrameworkDiagnostics(LevelFrameworkAdapter.Parse("not-json").Diagnostics);
         report.MergeFrameworkDiagnostics(LevelFrameworkAdapter.Parse("{\"additions\":[]}").Diagnostics);
         report.MergeDependencyDiagnostics(
@@ -29,12 +29,12 @@ public sealed class ApplyReportTests
     [Fact]
     public void The_same_report_is_published_to_ui_and_log_surfaces()
     {
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         report.Applied();
         report.Warning("TEST_WARNING", "item[1]", "visible warning");
-        var surface = new ApplyReportSurface();
-        var logs = new List<(ApplySeverity Severity, string Message)>();
-        var publisher = new ApplyReportPublisher(surface, (severity, message) => logs.Add((severity, message)));
+        ApplyReportSurface surface = new ApplyReportSurface();
+        List<(ApplySeverity Severity, string Message)> logs = new List<(ApplySeverity Severity, string Message)>();
+        ApplyReportPublisher publisher = new ApplyReportPublisher(surface, (severity, message) => logs.Add((severity, message)));
 
         publisher.Publish("import", report);
 
@@ -48,10 +48,10 @@ public sealed class ApplyReportTests
     [Fact]
     public void A_failed_room_import_exposes_an_actionable_recovery_report()
     {
-        var surface = new ApplyReportSurface();
+        ApplyReportSurface surface = new ApplyReportSurface();
         Assert.False(surface.HasActionableMessage);
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         report.Error("JSON_SYNTAX", "room.json", "Malformed JSON.");
         surface.Publish("Room import", report);
 
@@ -62,8 +62,8 @@ public sealed class ApplyReportTests
     [Fact]
     public void Failed_edit_flow_returns_to_the_previous_safe_state_after_recovery()
     {
-        var report = new ApplyReport();
-        var recovery = new EditorFlowRecovery(EditorFlowState.Editing);
+        ApplyReport report = new ApplyReport();
+        EditorFlowRecovery recovery = new EditorFlowRecovery(EditorFlowState.Editing);
 
         Assert.False(recovery.Run("property", () => false, () => true, report));
         Assert.Equal(EditorFlowState.Editing, recovery.State);
@@ -73,8 +73,8 @@ public sealed class ApplyReportTests
     [Fact]
     public void Failed_recovery_reduces_state_to_room_loaded()
     {
-        var report = new ApplyReport();
-        var recovery = new EditorFlowRecovery(EditorFlowState.Editing);
+        ApplyReport report = new ApplyReport();
+        EditorFlowRecovery recovery = new EditorFlowRecovery(EditorFlowState.Editing);
 
         Assert.False(recovery.Run("export", () => { throw new InvalidOperationException("write"); }, () => false, report));
         Assert.Equal(EditorFlowState.RoomLoaded, recovery.State);

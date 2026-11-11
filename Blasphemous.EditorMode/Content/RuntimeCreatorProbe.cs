@@ -23,7 +23,7 @@ internal static class RuntimeCreatorProbe
             }
 
             object creators = creatorsProperty.GetValue(null, null);
-            var registeredTypes = new List<string>();
+            List<string> registeredTypes = new List<string>();
             foreach (object entry in (IEnumerable)creators)
             {
                 PropertyInfo keyProperty = entry.GetType().GetProperty("Key");

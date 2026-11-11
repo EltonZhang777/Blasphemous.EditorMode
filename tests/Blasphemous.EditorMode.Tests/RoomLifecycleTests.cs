@@ -27,7 +27,7 @@ public sealed class RoomLifecycleTests
 
         Assert.False(RoomIdentity.TryCreate("MainMenu", "MainMenu", out identity, out error));
         Assert.Contains("not a Room Overlay", error);
-        var bridge = new BlasphemousLifecycleBridge(null, null);
+        BlasphemousLifecycleBridge bridge = new BlasphemousLifecycleBridge(null, null);
         Assert.False(bridge.OnLevelLoaded("MainMenu", "MainMenu"));
         Assert.Null(bridge.CurrentRoom);
         Assert.False(RoomIdentity.TryCreate("D03Z02S06", "D04Z01S01_LOGIC", out identity, out error));
@@ -39,7 +39,7 @@ public sealed class RoomLifecycleTests
     {
         int loaded = 0;
         int unloaded = 0;
-        var bridge = new BlasphemousLifecycleBridge(
+        BlasphemousLifecycleBridge bridge = new BlasphemousLifecycleBridge(
             room => loaded++,
             room => unloaded++);
 
@@ -63,7 +63,7 @@ public sealed class RoomLifecycleTests
     [Fact]
     public void Invalid_loaded_scene_faults_without_creating_a_room()
     {
-        var bridge = new BlasphemousLifecycleBridge(null, null);
+        BlasphemousLifecycleBridge bridge = new BlasphemousLifecycleBridge(null, null);
 
         Assert.False(bridge.OnLevelLoaded("D03Z02S06", "D04Z01S01_LOGIC"));
         Assert.Equal(RoomLifecycleState.Faulted, bridge.State);
@@ -73,7 +73,7 @@ public sealed class RoomLifecycleTests
     [Fact]
     public void Editing_is_only_allowed_for_a_loaded_room_and_repeated_load_keeps_it()
     {
-        var bridge = new BlasphemousLifecycleBridge(null, null);
+        BlasphemousLifecycleBridge bridge = new BlasphemousLifecycleBridge(null, null);
         bridge.OnLevelLoaded("D03Z02S06", "D03Z02S06_LOGIC");
 
         Assert.True(bridge.TryBeginEditing());

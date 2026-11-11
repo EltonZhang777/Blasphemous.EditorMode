@@ -1,4 +1,7 @@
+using CreativeSpore.SmartColliders;
 using Framework.Managers;
+using Gameplay.GameControllers.Penitent;
+using Gameplay.GameControllers.Penitent.Movement;
 using UnityEngine;
 
 namespace Blasphemous.EditorMode.Lifecycle;
@@ -10,12 +13,12 @@ internal static class BlasphemousEditorRuntimeState
 
     internal static EditorRuntimeState Capture()
     {
-        var logic = Core.Logic;
-        var input = Core.Input;
-        var ui = Core.UI;
-        var penitent = logic == null ? null : logic.Penitent;
-        var physics = penitent == null ? null : penitent.Physics;
-        var collider = physics == null ? null : physics.Collider;
+        LogicManager logic = Core.Logic;
+        InputManager input = Core.Input;
+        UIManager ui = Core.UI;
+        Penitent penitent = logic == null ? null : logic.Penitent;
+        PhysicsSwitcher physics = penitent == null ? null : penitent.Physics;
+        SmartPlatformCollider collider = physics == null ? null : physics.Collider;
 
         return new EditorRuntimeState(
             logic == null || logic.CurrentLevelConfig == null
@@ -37,7 +40,7 @@ internal static class BlasphemousEditorRuntimeState
 
     internal static void Apply(EditorRuntimeState state)
     {
-        var logic = Core.Logic;
+        LogicManager logic = Core.Logic;
         if (logic != null)
         {
             state.RestorePauseAndTimeScale(
@@ -67,7 +70,7 @@ internal static class BlasphemousEditorRuntimeState
         Cursor.lockState = (CursorLockMode)state.CursorLockState;
         Cursor.visible = state.CursorVisible;
 
-        var penitent = logic == null ? null : logic.Penitent;
+        Penitent penitent = logic == null ? null : logic.Penitent;
         if (penitent == null)
             return;
 

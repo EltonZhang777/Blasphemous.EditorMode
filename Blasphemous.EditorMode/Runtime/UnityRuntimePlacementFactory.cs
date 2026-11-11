@@ -6,6 +6,7 @@ using Blasphemous.Framework.Levels.Modifiers;
 using Framework.Managers;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections;
 using System.Reflection;
 using Tools.Level.Layout;
 using UnityEngine;
@@ -50,7 +51,7 @@ internal sealed class UnityRuntimePlacementFactory :
         try
         {
             clone = UnityEngine.Object.Instantiate(creator.Loader.Result, holder);
-            var handle = new UnityRuntimePlacementHandle(
+            UnityRuntimePlacementHandle handle = new UnityRuntimePlacementHandle(
                 placement.Id,
                 placement.Type,
                 clone,
@@ -104,7 +105,7 @@ internal sealed class UnityRuntimePlacementFactory :
                 || !string.Equals(marker.Type, placement.Type, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            var adopted = new UnityRuntimePlacementHandle(
+            UnityRuntimePlacementHandle adopted = new UnityRuntimePlacementHandle(
                 placement.Id,
                 placement.Type,
                 marker.gameObject,
@@ -368,7 +369,7 @@ internal static class RuntimeObjectData
 {
     internal static ObjectData Create(PlacementRecord placement)
     {
-        var json = new JObject
+        JObject json = new JObject
         {
             ["type"] = placement.Type,
             ["id"] = placement.Id,
@@ -416,7 +417,7 @@ internal static class RuntimeCreatorRegistry
                 return false;
             }
 
-            var entries = property.GetValue(null, null) as System.Collections.IEnumerable;
+            IEnumerable entries = property.GetValue(null, null) as System.Collections.IEnumerable;
             if (entries == null)
             {
                 error = "Level Framework creator registry returned no entries.";

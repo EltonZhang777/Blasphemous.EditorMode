@@ -111,7 +111,7 @@ internal class EditorMode : BlasMod
 
     private void RefreshCurrentLevelConfig()
     {
-        var logic = Core.Logic;
+        LogicManager logic = Core.Logic;
         if (logic == null)
             return;
 
@@ -135,7 +135,7 @@ internal class EditorMode : BlasMod
 
         if (initializer.GetComponentInChildren<LevelEffectsStore>() == null)
         {
-            var report = new ApplyReport();
+            ApplyReport report = new ApplyReport();
             report.Error(
                 "ROOM_EFFECTS_STORE_MISSING",
                 activeScene.name,
@@ -287,7 +287,7 @@ internal class EditorMode : BlasMod
     {
         if (Session == null || _lifecycleBridge.CurrentRoom == null)
         {
-            var report = new ApplyReport();
+            ApplyReport report = new ApplyReport();
             report.Error("ROOM_REQUIRED", "export", "No editable Room Overlay is loaded.");
             PublishReport("Level export", report);
             return null;
@@ -303,7 +303,7 @@ internal class EditorMode : BlasMod
         RoomIdentity room = _lifecycleBridge.CurrentRoom;
         if (room == null || _overlayReconciler == null)
         {
-            var report = new ApplyReport();
+            ApplyReport report = new ApplyReport();
             report.Error("ROOM_REQUIRED", "import", "No editable Room Overlay is loaded.");
             PublishReport("Level import", report);
             return false;
@@ -317,13 +317,13 @@ internal class EditorMode : BlasMod
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null)
         {
-            var unavailable = new ApplyReport();
+            ApplyReport unavailable = new ApplyReport();
             unavailable.Error("PLACE_NOT_READY", "placement", "Placement editing is not ready.");
             PublishReport("Place", unavailable);
             return false;
         }
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         Vector3 position = CursorWorldPosition();
         LogCursorPosition("CURSOR_PLACE", position);
         PlacementRecord placement;
@@ -351,7 +351,7 @@ internal class EditorMode : BlasMod
         if (_preview != null)
             return TryPlaceAtCursor(_preview.Metadata.Type);
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         report.Warning("PLACE_NO_PREVIEW", "preview", "Select a catalog entry and create a preview before placing it.");
         PublishReport("Place", report);
         return false;
@@ -373,7 +373,7 @@ internal class EditorMode : BlasMod
         if (manager == null || manager.Selected == null)
             return false;
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         bool result = manager.TryDelete(manager.Selected.Id, report);
         PublishReport("Delete", report);
         return result;
@@ -385,7 +385,7 @@ internal class EditorMode : BlasMod
         if (manager == null || manager.Selected == null)
             return false;
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         bool result = manager.TrySetLocked(
             manager.Selected.Id,
             !manager.Selected.IsLocked,
@@ -400,7 +400,7 @@ internal class EditorMode : BlasMod
         if (manager == null || manager.Selected == null)
             return false;
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         PlacementRecord ignored;
         bool result = manager.TryCopy(manager.Selected.Id, report, out ignored);
         PublishReport("Copy", report);
@@ -462,7 +462,7 @@ internal class EditorMode : BlasMod
         if (manager == null)
             return false;
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         PlacementRecord clipboard = manager.Clipboard;
         if (clipboard == null)
         {
@@ -501,13 +501,13 @@ internal class EditorMode : BlasMod
         string error;
         if (!Catalog.TryCreatePreview(type, out _preview, out error))
         {
-            var report = new ApplyReport();
+            ApplyReport report = new ApplyReport();
             report.Error("PREVIEW_FAILED", type ?? "<null>", error);
             PublishReport("Preview", report);
             return false;
         }
 
-        var success = new ApplyReport();
+        ApplyReport success = new ApplyReport();
         success.Info(
             "PREVIEW_CREATED",
             type,
@@ -528,7 +528,7 @@ internal class EditorMode : BlasMod
             return;
 
         DisposePreview();
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         report.Info("PREVIEW_DISPOSED", "preview", "Isolated preview discarded.");
         PublishReport("Preview", report);
     }
@@ -539,7 +539,7 @@ internal class EditorMode : BlasMod
         if (manager == null || manager.Selected == null)
             return false;
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         if (values == null || values.Length != 9)
         {
             report.Error("TRANSFORM_INVALID", manager.Selected.Id, "Exactly nine transform values are required.");
@@ -547,7 +547,7 @@ internal class EditorMode : BlasMod
             return false;
         }
 
-        var parsed = new float[values.Length];
+        float[] parsed = new float[values.Length];
         for (int index = 0; index < values.Length; index++)
         {
             if (!float.TryParse(values[index], NumberStyles.Float, CultureInfo.InvariantCulture, out parsed[index])
@@ -577,7 +577,7 @@ internal class EditorMode : BlasMod
         if (manager == null || manager.Selected == null)
             return false;
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         bool result = manager.TrySetProperty(manager.Selected.Id, key, value, report);
         PublishReport("Property", report);
         return result;
@@ -630,7 +630,7 @@ internal class EditorMode : BlasMod
         if (manager == null)
             return false;
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         bool result = command(manager, report);
         PublishReport(operation, report);
         return result;
@@ -704,7 +704,7 @@ internal class EditorMode : BlasMod
         if (_overlayReconciler == null)
             return;
 
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         if (!_overlayReconciler.TryClear(report) && report.Entries.Count > 0)
             PublishReport("Room cleanup", report);
     }

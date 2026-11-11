@@ -43,7 +43,7 @@ internal sealed class CreatorPropertyDefinition
     {
         if (string.IsNullOrEmpty(key) || key.Trim().Length == 0)
             throw new ArgumentException("Property key is required.", nameof(key));
-        var values = new List<string>(allowedValues ?? new string[0]);
+        List<string> values = new List<string>(allowedValues ?? new string[0]);
         if (type == CreatorPropertyType.Enum && values.Count == 0)
             throw new ArgumentException("Enum properties require allowed values.", nameof(allowedValues));
 
@@ -250,7 +250,7 @@ internal sealed class CreatorMetadata
     private static List<string> GetPropertyKeys(
         IEnumerable<CreatorPropertyDefinition> definitions)
     {
-        var keys = new List<string>();
+        List<string> keys = new List<string>();
         foreach (CreatorPropertyDefinition definition in definitions)
             keys.Add(definition.Key);
         return keys;

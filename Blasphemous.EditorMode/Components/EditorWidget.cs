@@ -197,9 +197,9 @@ internal class EditorWidget : MonoBehaviour
         if (eventSystem == null)
             return false;
 
-        var pointer = new PointerEventData(eventSystem);
+        PointerEventData pointer = new PointerEventData(eventSystem);
         pointer.position = Input.mousePosition;
-        var raycastResults = new List<RaycastResult>();
+        List<RaycastResult> raycastResults = new List<RaycastResult>();
         eventSystem.RaycastAll(pointer, raycastResults);
 
         foreach (RaycastResult result in raycastResults)
@@ -278,7 +278,7 @@ internal class EditorWidget : MonoBehaviour
 
     private InputField[] CreateTransformFields(string group, float x)
     {
-        var fields = new InputField[3];
+        InputField[] fields = new InputField[3];
         string[] axes = { "X", "Y", "Z" };
         for (int index = 0; index < fields.Length; index++)
         {
@@ -341,7 +341,7 @@ internal class EditorWidget : MonoBehaviour
         if (Main.EditorMode == null)
             return;
 
-        var values = new string[9];
+        string[] values = new string[9];
         CopyFieldValues(_positionFields, values, 0);
         CopyFieldValues(_rotationFields, values, 3);
         CopyFieldValues(_scaleFields, values, 6);
@@ -653,7 +653,7 @@ internal class EditorWidget : MonoBehaviour
 
     private void OnFreezeGameButtonClicked()
     {
-        var logic = Core.Logic;
+        LogicManager logic = Core.Logic;
         if (logic == null)
             return;
 

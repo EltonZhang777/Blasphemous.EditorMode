@@ -135,8 +135,8 @@ public sealed class LevelFrameworkAdapterTests
     {
         const string path = @"C:\Modding\levels\Editor Mode\D01Z02S01.json";
         const int monoExceptionHresult = unchecked((int)0x80131500);
-        var missing = new IsolatedStorageException("Could not find file \"" + path + "\".");
-        var accessDenied = new IsolatedStorageException("Access to the path is denied.");
+        IsolatedStorageException missing = new IsolatedStorageException("Could not find file \"" + path + "\".");
+        IsolatedStorageException accessDenied = new IsolatedStorageException("Access to the path is denied.");
 
         Assert.True(LevelFrameworkAdapter.IsMissingFileException(missing, path, monoExceptionHresult));
         Assert.False(LevelFrameworkAdapter.IsMissingFileException(accessDenied, path, monoExceptionHresult));
@@ -149,7 +149,7 @@ public sealed class LevelFrameworkAdapterTests
         string path = Path.Combine(directory, "D03Z02S06.json");
         string backup = path + ".prev";
         const string oldSource = "{\"additions\":[],\"modifications\":[],\"deletions\":[],\"futureData\":{\"retained\":true}}";
-        var document = new FrameworkLevelEdit(
+        FrameworkLevelEdit document = new FrameworkLevelEdit(
             new[]
             {
                 new FrameworkObjectData(
@@ -192,7 +192,7 @@ public sealed class LevelFrameworkAdapterTests
         string backup = path + ".prev";
         const string oldSource = "not-json";
         const string previousBackup = "{\"older\":true}";
-        var document = new FrameworkLevelEdit(
+        FrameworkLevelEdit document = new FrameworkLevelEdit(
             new FrameworkObjectData[0],
             new FrameworkObjectData[0],
             new FrameworkObjectData[0]);
@@ -229,7 +229,7 @@ public sealed class LevelFrameworkAdapterTests
         string backup = path + ".prev";
         const string oldSource = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
         const string previousBackup = "{\"older\":true}";
-        var document = new FrameworkLevelEdit(
+        FrameworkLevelEdit document = new FrameworkLevelEdit(
             new FrameworkObjectData[0],
             new FrameworkObjectData[0],
             new FrameworkObjectData[0]);
@@ -263,7 +263,7 @@ public sealed class LevelFrameworkAdapterTests
 
     private static string Messages(System.Collections.Generic.IEnumerable<FrameworkDiagnostic> diagnostics)
     {
-        var messages = new System.Collections.Generic.List<string>();
+        List<string> messages = new System.Collections.Generic.List<string>();
         foreach (FrameworkDiagnostic diagnostic in diagnostics)
             messages.Add(diagnostic.Message);
         return string.Join("; ", messages.ToArray());

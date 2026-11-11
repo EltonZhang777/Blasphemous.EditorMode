@@ -51,13 +51,13 @@ internal sealed class RoomOverlayReconciler
 
     internal RoomOverlayReconcileResult Apply(RoomIdentity room, FrameworkFileResult file)
     {
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         LevelEditSessionImportResult imported = LevelEditSession.Import(room, file, _catalog.Entries);
         report.Merge(imported.Report);
         if (!imported.Succeeded)
             return new RoomOverlayReconcileResult(room, null, null, report);
 
-        var next = new RuntimePlacementManager(imported.Session, _catalog, _factory);
+        RuntimePlacementManager next = new RuntimePlacementManager(imported.Session, _catalog, _factory);
         foreach (PlacementRecord placement in imported.Session.Placements)
         {
             if (next.TryProjectExisting(placement, report))
@@ -129,7 +129,7 @@ internal static class RoomOverlayComparer
             return false;
         }
 
-        var actualById = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, PlacementRecord> actualById = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
         foreach (PlacementRecord placement in actual.Placements)
             actualById[placement.Id] = placement;
 
@@ -161,8 +161,8 @@ internal static class RoomOverlayComparer
         IEnumerable<string> expected,
         IEnumerable<string> actual)
     {
-        var left = new List<string>(expected);
-        var right = new List<string>(actual);
+        List<string> left = new List<string>(expected);
+        List<string> right = new List<string>(actual);
         if (left.Count != right.Count)
             return false;
         for (int index = 0; index < left.Count; index++)

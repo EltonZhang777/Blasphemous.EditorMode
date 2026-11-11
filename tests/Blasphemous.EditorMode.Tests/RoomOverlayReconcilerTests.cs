@@ -22,8 +22,8 @@ public sealed class RoomOverlayReconcilerTests
             Directory.CreateDirectory(directory);
             File.WriteAllText(path, DocumentWithPlacement());
             FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
-            var factory = new FakeFactory();
-            var reconciler = new RoomOverlayReconciler(
+            FakeFactory factory = new FakeFactory();
+            RoomOverlayReconciler reconciler = new RoomOverlayReconciler(
                 ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
                 factory);
             RoomIdentity room = CreateRoom("D03Z02S06", "D03Z02S06_LOGIC");
@@ -52,16 +52,16 @@ public sealed class RoomOverlayReconcilerTests
         string source = DocumentWithPlacement();
         FrameworkCodecResult parsed = LevelFrameworkAdapter.Parse(source);
         Assert.True(parsed.IsValid);
-        var file = new FrameworkFileResult(path, source, parsed.Document, parsed.Diagnostics);
-        var factory = new FakeFactory();
-        var reconciler = new RoomOverlayReconciler(
+        FrameworkFileResult file = new FrameworkFileResult(path, source, parsed.Document, parsed.Diagnostics);
+        FakeFactory factory = new FakeFactory();
+        RoomOverlayReconciler reconciler = new RoomOverlayReconciler(
             ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
             factory);
         RoomIdentity room = CreateRoom("D03Z02S06", "D03Z02S06_LOGIC");
 
         RoomOverlayReconcileResult initial = reconciler.Apply(room, file);
         Assert.True(initial.Succeeded, initial.StatusMessage);
-        var unreadable = new FrameworkFileResult(
+        FrameworkFileResult unreadable = new FrameworkFileResult(
             path,
             null,
             null,
@@ -100,7 +100,7 @@ public sealed class RoomOverlayReconcilerTests
                 room,
                 file,
                 new[] { BaseCreatorCatalog.BellIron });
-            var report = new ApplyReport();
+            ApplyReport report = new ApplyReport();
 
             Assert.True(RoomOverlayComparer.Matches(expected.Session, actual.Session, report), report.ToSummary("compare"));
 
@@ -131,14 +131,14 @@ public sealed class RoomOverlayReconcilerTests
             Directory.CreateDirectory(directory);
             File.WriteAllText(path, DocumentWithPlacement());
             FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
-            var factory = new FakeFactory();
-            var reconciler = new RoomOverlayReconciler(
+            FakeFactory factory = new FakeFactory();
+            RoomOverlayReconciler reconciler = new RoomOverlayReconciler(
                 ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
                 factory);
             RoomOverlayReconcileResult result = reconciler.Apply(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 file);
-            var report = new ApplyReport();
+            ApplyReport report = new ApplyReport();
 
             Assert.True(reconciler.TryClear(report));
             Assert.Null(reconciler.Manager);
@@ -161,14 +161,14 @@ public sealed class RoomOverlayReconcilerTests
             Directory.CreateDirectory(directory);
             File.WriteAllText(path, DocumentWithPlacement());
             FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
-            var factory = new FakeFactory();
-            var reconciler = new RoomOverlayReconciler(
+            FakeFactory factory = new FakeFactory();
+            RoomOverlayReconciler reconciler = new RoomOverlayReconciler(
                 ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
                 factory);
             RoomOverlayReconcileResult result = reconciler.Apply(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 file);
-            var report = new ApplyReport();
+            ApplyReport report = new ApplyReport();
 
             Assert.True(result.Succeeded, result.StatusMessage);
             PlacementRecord placement;
@@ -221,7 +221,7 @@ public sealed class RoomOverlayReconcilerTests
 
         public IRuntimePlacementHandle Create(PlacementRecord placement)
         {
-            var handle = new FakeHandle(placement.Id);
+            FakeHandle handle = new FakeHandle(placement.Id);
             Created.Add(handle);
             return handle;
         }

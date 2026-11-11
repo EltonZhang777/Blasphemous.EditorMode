@@ -141,12 +141,12 @@ public sealed class LevelEditSessionTests
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 file,
                 new[] { BaseCreatorCatalog.BellIron });
-            var factory = new TestFactory();
-            var manager = new RuntimePlacementManager(
+            TestFactory factory = new TestFactory();
+            RuntimePlacementManager manager = new RuntimePlacementManager(
                 imported.Session,
                 ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
                 factory);
-            var report = new ApplyReport();
+            ApplyReport report = new ApplyReport();
             PlacementRecord placement;
             Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out placement));
             Assert.True(manager.TryDelete(placement.Id, report));

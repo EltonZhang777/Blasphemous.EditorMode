@@ -215,7 +215,7 @@ internal static class LevelFrameworkAdapter
 
     internal static FrameworkCodecResult Parse(string json)
     {
-        var diagnostics = new List<FrameworkDiagnostic>();
+        List<FrameworkDiagnostic> diagnostics = new List<FrameworkDiagnostic>();
         if (string.IsNullOrEmpty(json) || json.Trim().Length == 0)
         {
             AddError(diagnostics, "$", "JSON document is empty.");
@@ -246,20 +246,20 @@ internal static class LevelFrameworkAdapter
             }
         }
 
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        var additions = ReadArray(
+        HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+        List<FrameworkObjectData> additions = ReadArray(
             root,
             LevelFrameworkContract.AdditionsField,
             FrameworkOperation.Addition,
             ids,
             diagnostics);
-        var modifications = ReadArray(
+        List<FrameworkObjectData> modifications = ReadArray(
             root,
             LevelFrameworkContract.ModificationsField,
             FrameworkOperation.Modification,
             ids,
             diagnostics);
-        var deletions = ReadArray(
+        List<FrameworkObjectData> deletions = ReadArray(
             root,
             LevelFrameworkContract.DeletionsField,
             FrameworkOperation.Deletion,
@@ -274,7 +274,7 @@ internal static class LevelFrameworkAdapter
 
     internal static FrameworkCodecResult Serialize(FrameworkLevelEdit document)
     {
-        var diagnostics = new List<FrameworkDiagnostic>();
+        List<FrameworkDiagnostic> diagnostics = new List<FrameworkDiagnostic>();
         if (document == null)
         {
             AddError(diagnostics, "$", "Level Export document is required.");
@@ -299,7 +299,7 @@ internal static class LevelFrameworkAdapter
     /// <summary>Reads a room-scoped canonical JSON without modifying its source file.</summary>
     internal static FrameworkFileResult ImportFile(string path, string expectedRoomKey)
     {
-        var diagnostics = new List<FrameworkDiagnostic>();
+        List<FrameworkDiagnostic> diagnostics = new List<FrameworkDiagnostic>();
         if (!ValidateRoomFilePath(path, expectedRoomKey, diagnostics))
             return new FrameworkFileResult(path, null, null, diagnostics);
 
@@ -337,7 +337,7 @@ internal static class LevelFrameworkAdapter
         if (IsMissingFileHResult(hresult))
             return true;
 
-        var isolatedStorageException = exception as IsolatedStorageException;
+        IsolatedStorageException isolatedStorageException = exception as IsolatedStorageException;
         return isolatedStorageException != null &&
             isolatedStorageException.Message.IndexOf(
                 "Could not find file \"" + path + "\"",
@@ -363,7 +363,7 @@ internal static class LevelFrameworkAdapter
         string expectedRoomKey,
         FrameworkLevelEdit document)
     {
-        var diagnostics = new List<FrameworkDiagnostic>();
+        List<FrameworkDiagnostic> diagnostics = new List<FrameworkDiagnostic>();
         if (!ValidateRoomFilePath(path, expectedRoomKey, diagnostics))
             return new FrameworkExportResult(path, null, diagnostics);
 
@@ -534,7 +534,7 @@ internal static class LevelFrameworkAdapter
         HashSet<string> ids,
         List<FrameworkDiagnostic> diagnostics)
     {
-        var result = new List<FrameworkObjectData>();
+        List<FrameworkObjectData> result = new List<FrameworkObjectData>();
         JToken token = root[arrayName];
         if (token == null)
         {
@@ -878,7 +878,7 @@ internal static class LevelFrameworkAdapter
 
     private static JObject BuildJson(FrameworkLevelEdit document)
     {
-        var root = new JObject();
+        JObject root = new JObject();
         root[LevelFrameworkContract.AdditionsField] = BuildArray(document.Additions, FrameworkOperation.Addition);
         root[LevelFrameworkContract.ModificationsField] = BuildArray(document.Modifications, FrameworkOperation.Modification);
         root[LevelFrameworkContract.DeletionsField] = BuildArray(document.Deletions, FrameworkOperation.Deletion);
@@ -889,7 +889,7 @@ internal static class LevelFrameworkAdapter
         IEnumerable<FrameworkObjectData> entries,
         FrameworkOperation operation)
     {
-        var array = new JArray();
+        JArray array = new JArray();
         foreach (FrameworkObjectData entry in entries)
             array.Add(BuildObject(entry, operation));
         return array;
@@ -900,7 +900,7 @@ internal static class LevelFrameworkAdapter
         if (entry == null)
             throw new InvalidOperationException("ObjectData entry cannot be null.");
 
-        var result = new JObject();
+        JObject result = new JObject();
         if (operation == FrameworkOperation.Deletion)
         {
             result[LevelFrameworkContract.SceneField] = entry.Scene;
@@ -921,7 +921,7 @@ internal static class LevelFrameworkAdapter
         result[LevelFrameworkContract.ScaleField] = BuildVector(entry.Scale);
         result[LevelFrameworkContract.ConditionField] = entry.Condition;
 
-        var properties = new JArray();
+        JArray properties = new JArray();
         foreach (string property in entry.Properties)
             properties.Add(property);
         result[LevelFrameworkContract.PropertiesField] = properties;
@@ -933,7 +933,7 @@ internal static class LevelFrameworkAdapter
         if (vector == null)
             throw new InvalidOperationException("Transform vector cannot be null.");
 
-        var result = new JObject();
+        JObject result = new JObject();
         result["x"] = vector.X;
         result["y"] = vector.Y;
         result["z"] = vector.Z;
