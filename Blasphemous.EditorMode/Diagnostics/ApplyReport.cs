@@ -40,7 +40,7 @@ internal sealed class ApplyReportEntry
 /// <summary>Shared report surface for nonfatal editor operations.</summary>
 internal sealed class ApplyReport
 {
-    private readonly List<ApplyReportEntry> _entries = new List<ApplyReportEntry>();
+    private readonly List<ApplyReportEntry> _entries = [];
 
     internal ReadOnlyCollection<ApplyReportEntry> Entries
     {
@@ -91,7 +91,7 @@ internal sealed class ApplyReport
 
     internal void MergeFrameworkDiagnostics(IEnumerable<FrameworkDiagnostic> diagnostics)
     {
-        foreach (FrameworkDiagnostic diagnostic in diagnostics ?? new FrameworkDiagnostic[0])
+        foreach (FrameworkDiagnostic diagnostic in diagnostics ?? [])
         {
             string code = ClassifyFrameworkDiagnostic(diagnostic.Message);
             if (diagnostic.Severity == FrameworkDiagnosticSeverity.Error)
@@ -113,7 +113,7 @@ internal sealed class ApplyReport
 
     internal void MergeDependencyDiagnostics(IEnumerable<DependencyDiagnostic> diagnostics)
     {
-        foreach (DependencyDiagnostic diagnostic in diagnostics ?? new DependencyDiagnostic[0])
+        foreach (DependencyDiagnostic diagnostic in diagnostics ?? [])
         {
             Error(
                 diagnostic.Reason == DependencyFailureReason.Missing

@@ -47,8 +47,8 @@ internal sealed class CreatorProbeResult
     internal static CreatorProbeResult RegistryUnavailable(string message)
     {
         return new CreatorProbeResult(
-            new CreatorMetadata[0],
-            new[] { new CreatorProbeDiagnostic("<registry>", CreatorProbeFailure.RegistryUnavailable, message) },
+            [],
+            [new CreatorProbeDiagnostic("<registry>", CreatorProbeFailure.RegistryUnavailable, message)],
             message);
     }
 }
@@ -63,15 +63,15 @@ internal static class CreatorProbe
         if (catalog == null)
             throw new ArgumentNullException(nameof(catalog));
 
-        HashSet<string> registered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string type in registeredTypes ?? new string[0])
+        HashSet<string> registered = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string type in registeredTypes ?? [])
         {
             if (!string.IsNullOrEmpty(type) && type.Trim().Length > 0)
                 registered.Add(type);
         }
 
-        List<CreatorMetadata> available = new List<CreatorMetadata>();
-        List<CreatorProbeDiagnostic> diagnostics = new List<CreatorProbeDiagnostic>();
+        List<CreatorMetadata> available = [];
+        List<CreatorProbeDiagnostic> diagnostics = [];
         foreach (CreatorMetadata metadata in catalog)
         {
             if (metadata == null)

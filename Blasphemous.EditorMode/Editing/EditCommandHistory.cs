@@ -14,8 +14,8 @@ internal interface IReversibleEditCommand
 /// <summary>Undo/redo stack with redo invalidation after a new command.</summary>
 internal sealed class EditCommandHistory
 {
-    private readonly Stack<IReversibleEditCommand> _undo = new Stack<IReversibleEditCommand>();
-    private readonly Stack<IReversibleEditCommand> _redo = new Stack<IReversibleEditCommand>();
+    private readonly Stack<IReversibleEditCommand> _undo = new();
+    private readonly Stack<IReversibleEditCommand> _redo = new();
 
     internal int UndoCount { get { return _undo.Count; } }
     internal int RedoCount { get { return _redo.Count; } }

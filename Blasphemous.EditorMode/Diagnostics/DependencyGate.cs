@@ -124,23 +124,21 @@ public static class DependencyGate
             throw new ArgumentNullException(nameof(requirements));
         }
 
-        Dictionary<string, InstalledDependency> installedById = new Dictionary<string, InstalledDependency>(StringComparer.OrdinalIgnoreCase);
-        foreach (InstalledDependency dependency in installedDependencies ?? Enumerable.Empty<InstalledDependency>())
+        Dictionary<string, InstalledDependency> installedById = new(StringComparer.OrdinalIgnoreCase);
+        foreach (InstalledDependency dependency in installedDependencies ?? [])
         {
-            InstalledDependency existing;
-            if (!installedById.TryGetValue(dependency.Id, out existing)
+            if (!installedById.TryGetValue(dependency.Id, out InstalledDependency existing)
                 || dependency.Version.CompareTo(existing.Version) > 0)
             {
                 installedById[dependency.Id] = dependency;
             }
         }
 
-        List<DependencyDiagnostic> diagnostics = new List<DependencyDiagnostic>();
-        List<string> report = new List<string>();
+        List<DependencyDiagnostic> diagnostics = [];
+        List<string> report = [];
         foreach (DependencyRequirement requirement in requirements)
         {
-            InstalledDependency installed;
-            if (!installedById.TryGetValue(requirement.Id, out installed))
+            if (!installedById.TryGetValue(requirement.Id, out InstalledDependency installed))
             {
                 diagnostics.Add(new DependencyDiagnostic(
                     requirement.Id,
@@ -181,6 +179,6 @@ public static class DependencyGate
         return new DependencyGateResult(
             isCompatible,
             diagnostics,
-            string.Format("{0}: {1}", prefix, string.Join("; ", report.ToArray())));
+            string.Format("{0}: {1}", prefix, string.Join("; ", [.. report])));
     }
 }

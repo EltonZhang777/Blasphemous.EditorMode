@@ -28,12 +28,10 @@ internal sealed class ApplyReportSurface
                 break;
             }
 
-            if (warningMessage == null)
-                warningMessage = message;
+            warningMessage ??= message;
         }
 
-        if (ActionableMessage == null)
-            ActionableMessage = warningMessage;
+        ActionableMessage ??= warningMessage;
     }
 }
 

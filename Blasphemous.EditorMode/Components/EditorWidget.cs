@@ -1,16 +1,16 @@
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
-using Blasphemous.ModdingAPI;
 using Blasphemous.Framework.UI;
+using Blasphemous.ModdingAPI;
 using Framework.Managers;
 using Gameplay.UI;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.Events;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace Blasphemous.EditorMode.Components;
@@ -43,13 +43,11 @@ internal class EditorWidget : MonoBehaviour
     private void Awake()
     {
         _root = GetComponent<RectTransform>();
-        _root = _root ?? gameObject.AddComponent<RectTransform>();
+        _root ??= gameObject.AddComponent<RectTransform>();
         _root.sizeDelta = new Vector2(640f, 420f);
         _canvas = GetComponentInParent<Canvas>();
 
-        Image background = gameObject.GetComponent<Image>();
-        if (background == null)
-            background = gameObject.AddComponent<Image>();
+        Image background = gameObject.GetComponent<Image>() ?? gameObject.AddComponent<Image>();
         background.color = new Color(0f, 0f, 0f, 0.78f);
         background.raycastTarget = true;
 
@@ -115,8 +113,7 @@ internal class EditorWidget : MonoBehaviour
 
     private void OnDisable()
     {
-        if (_canvasRaycaster != null)
-            _canvasRaycaster.enabled = !_addedCanvasRaycaster && _canvasRaycasterWasEnabled;
+        _canvasRaycaster?.enabled = !_addedCanvasRaycaster && _canvasRaycasterWasEnabled;
 
         if (_standaloneInputModuleWasAdded && _standaloneInputModule != null)
         {
@@ -128,16 +125,14 @@ internal class EditorWidget : MonoBehaviour
         {
             for (int i = 0; i < _inputModulesBeforeEditor.Length; i++)
             {
-                if (_inputModulesBeforeEditor[i] != null)
-                    _inputModulesBeforeEditor[i].enabled = _inputModulesWereEnabled[i];
+                _inputModulesBeforeEditor[i]?.enabled = _inputModulesWereEnabled[i];
             }
         }
 
         _inputModulesBeforeEditor = null;
         _inputModulesWereEnabled = null;
         _standaloneInputModule = null;
-        if (_fallbackEventSystem != null)
-            _fallbackEventSystem.SetActive(false);
+        _fallbackEventSystem?.SetActive(false);
     }
 
     private void Update()
@@ -197,9 +192,11 @@ internal class EditorWidget : MonoBehaviour
         if (eventSystem == null)
             return false;
 
-        PointerEventData pointer = new PointerEventData(eventSystem);
-        pointer.position = Input.mousePosition;
-        List<RaycastResult> raycastResults = new List<RaycastResult>();
+        PointerEventData pointer = new(eventSystem)
+        {
+            position = Input.mousePosition
+        };
+        List<RaycastResult> raycastResults = [];
         eventSystem.RaycastAll(pointer, raycastResults);
 
         foreach (RaycastResult result in raycastResults)
@@ -233,10 +230,8 @@ internal class EditorWidget : MonoBehaviour
         string selected = editor.PlacementManager == null || editor.PlacementManager.Selected == null
             ? "<none>"
             : editor.PlacementManager.Selected.Id;
-        PlacementRecord selectedPlacement = editor.PlacementManager == null
-            ? null
-            : editor.PlacementManager.Selected;
-        string selectedPlacementId = selectedPlacement == null ? null : selectedPlacement.Id;
+        PlacementRecord selectedPlacement = editor.PlacementManager?.Selected;
+        string selectedPlacementId = selectedPlacement?.Id;
         if (!string.Equals(_selectedId, selectedPlacementId, StringComparison.OrdinalIgnoreCase))
         {
             _selectedId = selectedPlacementId;
@@ -270,16 +265,14 @@ internal class EditorWidget : MonoBehaviour
 
     private static bool IsInputFieldFocused()
     {
-        GameObject selected = EventSystem.current == null
-            ? null
-            : EventSystem.current.currentSelectedGameObject;
+        GameObject selected = EventSystem.current?.currentSelectedGameObject;
         return selected != null && selected.GetComponentInParent<InputField>() != null;
     }
 
     private InputField[] CreateTransformFields(string group, float x)
     {
         InputField[] fields = new InputField[3];
-        string[] axes = { "X", "Y", "Z" };
+        string[] axes = ["X", "Y", "Z"];
         for (int index = 0; index < fields.Length; index++)
         {
             fields[index] = CreateInputField(
@@ -303,28 +296,25 @@ internal class EditorWidget : MonoBehaviour
 
         SetFieldValues(
             _positionFields,
-            new[]
-            {
+            [
                 placement.Transform.PositionX.ToString("R", CultureInfo.InvariantCulture),
                 placement.Transform.PositionY.ToString("R", CultureInfo.InvariantCulture),
                 placement.Transform.PositionZ.ToString("R", CultureInfo.InvariantCulture)
-            });
+            ]);
         SetFieldValues(
             _rotationFields,
-            new[]
-            {
+            [
                 placement.Transform.RotationX.ToString("R", CultureInfo.InvariantCulture),
                 placement.Transform.RotationY.ToString("R", CultureInfo.InvariantCulture),
                 placement.Transform.RotationZ.ToString("R", CultureInfo.InvariantCulture)
-            });
+            ]);
         SetFieldValues(
             _scaleFields,
-            new[]
-            {
+            [
                 placement.Transform.ScaleX.ToString("R", CultureInfo.InvariantCulture),
                 placement.Transform.ScaleY.ToString("R", CultureInfo.InvariantCulture),
                 placement.Transform.ScaleZ.ToString("R", CultureInfo.InvariantCulture)
-            });
+            ]);
     }
 
     private static void SetFieldValues(InputField[] fields, string[] values)
@@ -374,8 +364,7 @@ internal class EditorWidget : MonoBehaviour
             return;
         }
 
-        CreatorMetadata metadata;
-        if (editor.Catalog == null || !editor.Catalog.TryGet(placement.Type, out metadata)
+        if (editor.Catalog == null || !editor.Catalog.TryGet(placement.Type, out CreatorMetadata metadata)
             || metadata.PropertyDefinitions.Count == 0)
         {
             CreateText(
@@ -562,9 +551,11 @@ internal class EditorWidget : MonoBehaviour
         TextAnchor alignment,
         Transform parent = null)
     {
-        GameObject obj = new GameObject(name);
-        obj.layer = LayerMask.NameToLayer("UI");
-        obj.transform.SetParent(parent == null ? transform : parent, false);
+        GameObject obj = new(name)
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
+        obj.transform.SetParent(parent ?? transform, false);
         RectTransform rect = obj.AddComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0.5f);
         rect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -582,8 +573,10 @@ internal class EditorWidget : MonoBehaviour
 
     private InputField CreateInputField(string name, Vector2 position, Transform parent)
     {
-        GameObject obj = new GameObject(name);
-        obj.layer = LayerMask.NameToLayer("UI");
+        GameObject obj = new(name)
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
         obj.transform.SetParent(parent, false);
         RectTransform rect = obj.AddComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -611,9 +604,11 @@ internal class EditorWidget : MonoBehaviour
         UnityAction action,
         Transform parent = null)
     {
-        GameObject obj = new GameObject(name);
-        obj.layer = LayerMask.NameToLayer("UI");
-        obj.transform.SetParent(parent == null ? transform : parent, false);
+        GameObject obj = new(name)
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
+        obj.transform.SetParent(parent ?? transform, false);
         RectTransform rect = obj.AddComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0.5f);
         rect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -634,8 +629,10 @@ internal class EditorWidget : MonoBehaviour
 
     private static Text CreateChildText(Transform parent, string contents)
     {
-        GameObject textObject = new GameObject("Label");
-        textObject.layer = LayerMask.NameToLayer("UI");
+        GameObject textObject = new("Label")
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
         textObject.transform.SetParent(parent, false);
         RectTransform rect = textObject.AddComponent<RectTransform>();
         rect.anchorMin = Vector2.zero;
@@ -690,7 +687,6 @@ internal class EditorWidget : MonoBehaviour
             ? UIController.instance.Paused
             : Core.Logic.IsPaused;
         Text label = freezeGameButtonObj.GetComponentInChildren<Text>();
-        if (label != null)
-            label.text = paused ? "Resume" : "Freeze";
+        label?.text = paused ? "Resume" : "Freeze";
     }
 }

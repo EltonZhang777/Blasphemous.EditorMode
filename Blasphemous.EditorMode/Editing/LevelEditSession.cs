@@ -79,9 +79,9 @@ internal sealed class LevelEditSession
         Room = room;
         ImportedDocument = importedDocument;
         OriginalSourceText = sourceText;
-        _placements = new List<PlacementRecord>(placements ?? new PlacementRecord[0]);
+        _placements = [.. placements ?? []];
         _preservedAdditionIds = new HashSet<string>(
-            preservedAdditionIds ?? new string[0],
+            preservedAdditionIds ?? [],
             StringComparer.OrdinalIgnoreCase);
         State = state;
         LastReport = report;
@@ -103,7 +103,7 @@ internal sealed class LevelEditSession
         FrameworkFileResult file,
         IEnumerable<CreatorMetadata> supportedCreators)
     {
-        ApplyReport report = new ApplyReport();
+        ApplyReport report = new();
         if (room == null)
         {
             report.Error("ROOM_REQUIRED", "$", "Current Room Identity is required.");
@@ -139,15 +139,15 @@ internal sealed class LevelEditSession
         }
 
         report.MergeFrameworkDiagnostics(file.Diagnostics);
-        Dictionary<string, CreatorMetadata> creators = new Dictionary<string, CreatorMetadata>(StringComparer.OrdinalIgnoreCase);
-        foreach (CreatorMetadata creator in supportedCreators ?? new CreatorMetadata[0])
+        Dictionary<string, CreatorMetadata> creators = new(StringComparer.OrdinalIgnoreCase);
+        foreach (CreatorMetadata creator in supportedCreators ?? [])
         {
             if (creator != null && creator.IsSupported && !creators.ContainsKey(creator.Type))
                 creators.Add(creator.Type, creator);
         }
 
-        List<PlacementRecord> placements = new List<PlacementRecord>();
-        HashSet<string> ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<PlacementRecord> placements = [];
+        HashSet<string> ids = new(StringComparer.OrdinalIgnoreCase);
         foreach (FrameworkObjectData data in file.Document.Additions)
         {
             if (data.PreserveOriginalAddition)
@@ -176,8 +176,7 @@ internal sealed class LevelEditSession
                 continue;
             }
 
-            CreatorMetadata creator;
-            if (!creators.TryGetValue(data.Type, out creator))
+            if (!creators.TryGetValue(data.Type, out CreatorMetadata creator))
             {
                 report.Error(
                     "CREATOR_UNSUPPORTED",
@@ -202,7 +201,7 @@ internal sealed class LevelEditSession
             report.Applied();
         }
 
-        HashSet<string> preservedAdditionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> preservedAdditionIds = new(StringComparer.OrdinalIgnoreCase);
         foreach (FrameworkObjectData data in file.Document.Additions)
         {
             if (!ids.Contains(data.Id))
@@ -220,7 +219,7 @@ internal sealed class LevelEditSession
         LevelEditSessionState state = report.IsPartial
             ? LevelEditSessionState.Partial
             : LevelEditSessionState.Clean;
-        LevelEditSession session = new LevelEditSession(
+        LevelEditSession session = new(
             room,
             file.Document,
             file.OriginalText,
@@ -333,21 +332,21 @@ internal sealed class LevelEditSession
         ApplyReport report)
     {
         _placements.Clear();
-        _placements.AddRange(placements ?? new PlacementRecord[0]);
+        _placements.AddRange(placements ?? []);
         SetState(state, report);
     }
 
     internal FrameworkLevelEdit BuildExportDocument()
     {
-        List<FrameworkObjectData> additions = new List<FrameworkObjectData>();
-        Dictionary<string, PlacementRecord> currentById = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
+        List<FrameworkObjectData> additions = [];
+        Dictionary<string, PlacementRecord> currentById = new(StringComparer.OrdinalIgnoreCase);
         foreach (PlacementRecord placement in _placements)
         {
             if (placement.Ownership == PlacementOwnership.ArchitectOwned)
                 currentById.Add(placement.Id, placement);
         }
 
-        HashSet<string> importedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> importedIds = new(StringComparer.OrdinalIgnoreCase);
         foreach (FrameworkObjectData sourceAddition in ImportedDocument.Additions)
         {
             importedIds.Add(sourceAddition.Id);
@@ -358,8 +357,7 @@ internal sealed class LevelEditSession
                 continue;
             }
 
-            PlacementRecord placement;
-            if (currentById.TryGetValue(sourceAddition.Id, out placement))
+            if (currentById.TryGetValue(sourceAddition.Id, out PlacementRecord placement))
                 additions.Add(placement.ToFrameworkData());
         }
 
@@ -380,7 +378,7 @@ internal sealed class LevelEditSession
 
     internal LevelEditSessionExportResult Export(string path)
     {
-        ApplyReport report = new ApplyReport();
+        ApplyReport report = new();
         if (State == LevelEditSessionState.Failed)
         {
             report.Error("EXPORT_SESSION_FAILED", path, "A failed session cannot be exported.");
@@ -425,7 +423,7 @@ internal sealed class LevelEditSession
 
     private static bool HasFatalFrameworkDiagnostic(IEnumerable<FrameworkDiagnostic> diagnostics)
     {
-        foreach (FrameworkDiagnostic diagnostic in diagnostics ?? new FrameworkDiagnostic[0])
+        foreach (FrameworkDiagnostic diagnostic in diagnostics ?? [])
         {
             if (diagnostic.Severity != FrameworkDiagnosticSeverity.Error)
                 continue;

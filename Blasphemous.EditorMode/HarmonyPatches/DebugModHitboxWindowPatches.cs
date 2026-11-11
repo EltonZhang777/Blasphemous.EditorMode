@@ -1,8 +1,8 @@
+using Blasphemous.EditorMode.Components;
+using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using Blasphemous.EditorMode.Components;
-using HarmonyLib;
 using UnityEngine;
 
 namespace Blasphemous.EditorMode.HarmonyPatches;

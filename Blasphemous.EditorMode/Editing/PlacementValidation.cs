@@ -51,8 +51,7 @@ internal static class PlacementValidation
 
         foreach (string property in placement.Properties)
         {
-            string error;
-            if (!creator.TryValidateProperty(property, out error))
+            if (!creator.TryValidateProperty(property, out string error))
             {
                 report.Error(
                     "PROPERTY_UNSUPPORTED",
@@ -97,7 +96,7 @@ internal static class PlacementValidation
                 "validation",
                 creator.Type,
                 transform,
-                new string[0],
+                [],
                 PlacementOwnership.ArchitectOwned),
             creator,
             report);

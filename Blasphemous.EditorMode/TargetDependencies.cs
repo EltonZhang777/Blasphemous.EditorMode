@@ -15,9 +15,9 @@ internal static class TargetDependencies
     internal const string UiFrameworkMinimumVersion = "0.2.0";
 
     internal static readonly DependencyRequirement[] Required =
-    {
-        new DependencyRequirement(ModdingApiId, new Version(3, 0, 1)),
-        new DependencyRequirement(LevelFrameworkId, new Version(0, 2, 0)),
-        new DependencyRequirement(UiFrameworkId, new Version(0, 2, 0))
-    };
+    [
+        new(ModdingApiId, new Version(3, 0, 1)),
+        new(LevelFrameworkId, new Version(0, 2, 0)),
+        new(UiFrameworkId, new Version(0, 2, 0))
+    ];
 }

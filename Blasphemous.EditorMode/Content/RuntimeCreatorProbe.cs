@@ -1,8 +1,8 @@
+using Blasphemous.Framework.Levels;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
-using Blasphemous.Framework.Levels;
 
 namespace Blasphemous.EditorMode.Content;
 
@@ -23,7 +23,7 @@ internal static class RuntimeCreatorProbe
             }
 
             object creators = creatorsProperty.GetValue(null, null);
-            List<string> registeredTypes = new List<string>();
+            List<string> registeredTypes = [];
             foreach (object entry in (IEnumerable)creators)
             {
                 PropertyInfo keyProperty = entry.GetType().GetProperty("Key");

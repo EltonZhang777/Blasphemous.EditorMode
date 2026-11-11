@@ -71,7 +71,7 @@ internal sealed class FrameworkObjectData
         Scale = scale ?? FrameworkVector.One;
         Condition = condition ?? string.Empty;
         Properties = new ReadOnlyCollection<string>(
-            new List<string>(properties ?? new string[0]));
+            [.. properties ?? []]);
         OriginalAddition = originalAddition;
         PreserveOriginalAddition = preserveOriginalAddition;
     }
@@ -90,8 +90,7 @@ internal sealed class FrameworkObjectData
 
     internal static FrameworkObjectData PreservedAddition(JToken originalAddition)
     {
-        JObject objectAddition = originalAddition as JObject;
-        JToken idToken = objectAddition == null ? null : objectAddition[LevelFrameworkContract.IdField];
+        JToken idToken = originalAddition is not JObject objectAddition ? null : objectAddition[LevelFrameworkContract.IdField];
         string id = idToken != null && idToken.Type == JTokenType.String
             ? idToken.Value<string>()
             : string.Empty;
@@ -104,8 +103,8 @@ internal sealed class FrameworkObjectData
             FrameworkVector.Zero,
             FrameworkVector.One,
             string.Empty,
-            new string[0],
-            originalAddition == null ? null : originalAddition.DeepClone(),
+            [],
+            originalAddition?.DeepClone(),
             true);
     }
 
@@ -146,7 +145,7 @@ internal sealed class FrameworkLevelEdit
         IEnumerable<FrameworkObjectData> values)
     {
         return new ReadOnlyCollection<FrameworkObjectData>(
-            new List<FrameworkObjectData>(values ?? new FrameworkObjectData[0]));
+            [.. values ?? []]);
     }
 }
 
@@ -160,7 +159,7 @@ internal sealed class FrameworkCodecResult
         Document = document;
         CanonicalJson = canonicalJson;
         Diagnostics = new ReadOnlyCollection<FrameworkDiagnostic>(
-            new List<FrameworkDiagnostic>(diagnostics ?? new FrameworkDiagnostic[0]));
+            [.. diagnostics ?? []]);
     }
 
     internal FrameworkLevelEdit Document { get; }
@@ -194,7 +193,7 @@ internal sealed class FrameworkFileResult
         OriginalText = originalText;
         Document = document;
         Diagnostics = new ReadOnlyCollection<FrameworkDiagnostic>(
-            new List<FrameworkDiagnostic>(diagnostics ?? new FrameworkDiagnostic[0]));
+            [.. diagnostics ?? []]);
     }
 
     internal string Path { get; }
@@ -227,7 +226,7 @@ internal sealed class FrameworkExportResult
         Path = path;
         BackupPath = backupPath;
         Diagnostics = new ReadOnlyCollection<FrameworkDiagnostic>(
-            new List<FrameworkDiagnostic>(diagnostics ?? new FrameworkDiagnostic[0]));
+            [.. diagnostics ?? []]);
     }
 
     internal string Path { get; }
@@ -258,7 +257,7 @@ internal static class LevelFrameworkAdapter
 
     internal static FrameworkCodecResult Parse(string json)
     {
-        List<FrameworkDiagnostic> diagnostics = new List<FrameworkDiagnostic>();
+        List<FrameworkDiagnostic> diagnostics = [];
         if (string.IsNullOrEmpty(json) || json.Trim().Length == 0)
         {
             AddError(diagnostics, "$", "JSON document is empty.");
@@ -289,7 +288,7 @@ internal static class LevelFrameworkAdapter
             }
         }
 
-        HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+        HashSet<string> ids = new(StringComparer.Ordinal);
         List<FrameworkObjectData> additions = ReadArray(
             root,
             LevelFrameworkContract.AdditionsField,
@@ -317,7 +316,7 @@ internal static class LevelFrameworkAdapter
 
     internal static FrameworkCodecResult Serialize(FrameworkLevelEdit document)
     {
-        List<FrameworkDiagnostic> diagnostics = new List<FrameworkDiagnostic>();
+        List<FrameworkDiagnostic> diagnostics = [];
         if (document == null)
         {
             AddError(diagnostics, "$", "Level Export document is required.");
@@ -342,7 +341,7 @@ internal static class LevelFrameworkAdapter
     /// <summary>Reads a room-scoped canonical JSON without modifying its source file.</summary>
     internal static FrameworkFileResult ImportFile(string path, string expectedRoomKey)
     {
-        List<FrameworkDiagnostic> diagnostics = new List<FrameworkDiagnostic>();
+        List<FrameworkDiagnostic> diagnostics = [];
         if (!ValidateRoomFilePath(path, expectedRoomKey, diagnostics))
             return new FrameworkFileResult(path, null, null, diagnostics);
 
@@ -380,8 +379,7 @@ internal static class LevelFrameworkAdapter
         if (IsMissingFileHResult(hresult))
             return true;
 
-        IsolatedStorageException isolatedStorageException = exception as IsolatedStorageException;
-        return isolatedStorageException != null &&
+        return exception is IsolatedStorageException isolatedStorageException &&
             isolatedStorageException.Message.IndexOf(
                 "Could not find file \"" + path + "\"",
                 StringComparison.OrdinalIgnoreCase) >= 0;
@@ -394,10 +392,10 @@ internal static class LevelFrameworkAdapter
             path,
             null,
             new FrameworkLevelEdit(
-                new FrameworkObjectData[0],
-                new FrameworkObjectData[0],
-                new FrameworkObjectData[0]),
-            new FrameworkDiagnostic[0]);
+                [],
+                [],
+                []),
+            []);
     }
 
     /// <summary>Validates and atomically writes a room-scoped canonical JSON file.</summary>
@@ -406,7 +404,7 @@ internal static class LevelFrameworkAdapter
         string expectedRoomKey,
         FrameworkLevelEdit document)
     {
-        List<FrameworkDiagnostic> diagnostics = new List<FrameworkDiagnostic>();
+        List<FrameworkDiagnostic> diagnostics = [];
         if (!ValidateRoomFilePath(path, expectedRoomKey, diagnostics))
             return new FrameworkExportResult(path, null, diagnostics);
 
@@ -577,7 +575,7 @@ internal static class LevelFrameworkAdapter
         HashSet<string> ids,
         List<FrameworkDiagnostic> diagnostics)
     {
-        List<FrameworkObjectData> result = new List<FrameworkObjectData>();
+        List<FrameworkObjectData> result = [];
         JToken token = root[arrayName];
         if (token == null)
         {
@@ -595,8 +593,7 @@ internal static class LevelFrameworkAdapter
         for (int index = 0; index < array.Count; index++)
         {
             string location = arrayName + "[" + index + "]";
-            JObject entry = array[index] as JObject;
-            if (entry == null)
+            if (array[index] is not JObject entry)
             {
                 if (operation == FrameworkOperation.Addition)
                 {
@@ -610,8 +607,7 @@ internal static class LevelFrameworkAdapter
                 continue;
             }
 
-            FrameworkObjectData data;
-            if (!TryReadObject(entry, operation, location, diagnostics, out data))
+            if (!TryReadObject(entry, operation, location, diagnostics, out FrameworkObjectData data))
             {
                 if (operation == FrameworkOperation.Addition)
                 {
@@ -683,8 +679,6 @@ internal static class LevelFrameworkAdapter
 
         string scene = null;
         string path = null;
-        string type = null;
-        string id = null;
         bool valid = true;
 
         if (operation == FrameworkOperation.Deletion)
@@ -718,27 +712,22 @@ internal static class LevelFrameworkAdapter
                 DefaultRotation,
                 DefaultScale,
                 string.Empty,
-                new string[0]);
+                []);
             return true;
         }
 
         if (operation == FrameworkOperation.Modification)
             valid &= TryReadRequiredString(entry, LevelFrameworkContract.SceneField, location, diagnostics, out scene);
-        valid &= TryReadRequiredString(entry, LevelFrameworkContract.TypeField, location, diagnostics, out type);
-        valid &= TryReadRequiredString(entry, LevelFrameworkContract.IdField, location, diagnostics, out id);
+        valid &= TryReadRequiredString(entry, LevelFrameworkContract.TypeField, location, diagnostics, out string type);
+        valid &= TryReadRequiredString(entry, LevelFrameworkContract.IdField, location, diagnostics, out string id);
         if (operation == FrameworkOperation.Modification)
             valid &= TryReadRequiredString(entry, LevelFrameworkContract.PathField, location, diagnostics, out path);
 
-        FrameworkVector position;
-        FrameworkVector rotation;
-        FrameworkVector scale;
-        string condition;
-        List<string> properties;
-        valid &= TryReadVector(entry, LevelFrameworkContract.PositionField, DefaultPosition, location, diagnostics, out position);
-        valid &= TryReadVector(entry, LevelFrameworkContract.RotationField, DefaultRotation, location, diagnostics, out rotation);
-        valid &= TryReadVector(entry, LevelFrameworkContract.ScaleField, DefaultScale, location, diagnostics, out scale);
-        valid &= TryReadCondition(entry, operation, location, diagnostics, out condition);
-        valid &= TryReadProperties(entry, location, diagnostics, out properties);
+        valid &= TryReadVector(entry, LevelFrameworkContract.PositionField, DefaultPosition, location, diagnostics, out FrameworkVector position);
+        valid &= TryReadVector(entry, LevelFrameworkContract.RotationField, DefaultRotation, location, diagnostics, out FrameworkVector rotation);
+        valid &= TryReadVector(entry, LevelFrameworkContract.ScaleField, DefaultScale, location, diagnostics, out FrameworkVector scale);
+        valid &= TryReadCondition(entry, operation, location, diagnostics, out string condition);
+        valid &= TryReadProperties(entry, location, diagnostics, out List<string> properties);
 
         if (!valid)
             return false;
@@ -802,8 +791,7 @@ internal static class LevelFrameworkAdapter
         if (token == null)
             return true;
 
-        JObject vector = token as JObject;
-        if (vector == null)
+        if (token is not JObject vector)
         {
             AddError(diagnostics, location + "." + field, "Transform must be an object with numeric axes.");
             return false;
@@ -819,10 +807,9 @@ internal static class LevelFrameworkAdapter
             }
         }
 
-        float x = 0f;
         float y = 0f;
         float z = 0f;
-        bool valid = TryReadAxis(vector, "x", location + "." + field, diagnostics, out x)
+        bool valid = TryReadAxis(vector, "x", location + "." + field, diagnostics, out float x)
             && TryReadAxis(vector, "y", location + "." + field, diagnostics, out y)
             && TryReadAxis(vector, "z", location + "." + field, diagnostics, out z);
         if (!valid)
@@ -939,7 +926,7 @@ internal static class LevelFrameworkAdapter
         List<FrameworkDiagnostic> diagnostics,
         out List<string> properties)
     {
-        properties = new List<string>();
+        properties = [];
         JToken token = entry[LevelFrameworkContract.PropertiesField];
         if (token == null)
             return true;
@@ -978,10 +965,12 @@ internal static class LevelFrameworkAdapter
 
     private static JObject BuildJson(FrameworkLevelEdit document)
     {
-        JObject root = new JObject();
-        root[LevelFrameworkContract.AdditionsField] = BuildArray(document.Additions, FrameworkOperation.Addition);
-        root[LevelFrameworkContract.ModificationsField] = BuildArray(document.Modifications, FrameworkOperation.Modification);
-        root[LevelFrameworkContract.DeletionsField] = BuildArray(document.Deletions, FrameworkOperation.Deletion);
+        JObject root = new()
+        {
+            [LevelFrameworkContract.AdditionsField] = BuildArray(document.Additions, FrameworkOperation.Addition),
+            [LevelFrameworkContract.ModificationsField] = BuildArray(document.Modifications, FrameworkOperation.Modification),
+            [LevelFrameworkContract.DeletionsField] = BuildArray(document.Deletions, FrameworkOperation.Deletion)
+        };
         return root;
     }
 
@@ -989,7 +978,7 @@ internal static class LevelFrameworkAdapter
         IEnumerable<FrameworkObjectData> entries,
         FrameworkOperation operation)
     {
-        JArray array = new JArray();
+        JArray array = [];
         foreach (FrameworkObjectData entry in entries)
         {
             if (operation == FrameworkOperation.Addition
@@ -1012,7 +1001,7 @@ internal static class LevelFrameworkAdapter
         if (entry == null)
             throw new InvalidOperationException("ObjectData entry cannot be null.");
 
-        JObject result = new JObject();
+        JObject result = [];
         if (operation == FrameworkOperation.Deletion)
         {
             result[LevelFrameworkContract.SceneField] = entry.Scene;
@@ -1033,9 +1022,7 @@ internal static class LevelFrameworkAdapter
         result[LevelFrameworkContract.ScaleField] = BuildVector(entry.Scale);
         result[LevelFrameworkContract.ConditionField] = entry.Condition;
 
-        JArray properties = new JArray();
-        foreach (string property in entry.Properties)
-            properties.Add(property);
+        JArray properties = [.. entry.Properties];
         result[LevelFrameworkContract.PropertiesField] = properties;
         return result;
     }
@@ -1045,10 +1032,12 @@ internal static class LevelFrameworkAdapter
         if (vector == null)
             throw new InvalidOperationException("Transform vector cannot be null.");
 
-        JObject result = new JObject();
-        result["x"] = vector.X;
-        result["y"] = vector.Y;
-        result["z"] = vector.Z;
+        JObject result = new()
+        {
+            ["x"] = vector.X,
+            ["y"] = vector.Y,
+            ["z"] = vector.Z
+        };
         return result;
     }
 
@@ -1094,9 +1083,9 @@ internal static class LevelFrameworkAdapter
     {
         return new FrameworkCodecResult(
             new FrameworkLevelEdit(
-                new FrameworkObjectData[0],
-                new FrameworkObjectData[0],
-                new FrameworkObjectData[0]),
+                [],
+                [],
+                []),
             null,
             diagnostics);
     }

@@ -16,9 +16,9 @@ internal static class BlasphemousEditorRuntimeState
         LogicManager logic = Core.Logic;
         InputManager input = Core.Input;
         UIManager ui = Core.UI;
-        Penitent penitent = logic == null ? null : logic.Penitent;
-        PhysicsSwitcher physics = penitent == null ? null : penitent.Physics;
-        SmartPlatformCollider collider = physics == null ? null : physics.Collider;
+        Penitent penitent = logic?.Penitent;
+        PhysicsSwitcher physics = penitent?.Physics;
+        SmartPlatformCollider collider = physics?.Collider;
 
         return new EditorRuntimeState(
             logic == null || logic.CurrentLevelConfig == null
@@ -58,8 +58,7 @@ internal static class BlasphemousEditorRuntimeState
         else
             Time.timeScale = state.Paused ? state.TimeScale : 1f;
 
-        if (Core.Input != null)
-            Core.Input.SetBlocker(InputBlocker, state.EditorInputBlocked);
+        Core.Input?.SetBlocker(InputBlocker, state.EditorInputBlocked);
 
         if (Core.UI != null)
         {
@@ -70,14 +69,12 @@ internal static class BlasphemousEditorRuntimeState
         Cursor.lockState = (CursorLockMode)state.CursorLockState;
         Cursor.visible = state.CursorVisible;
 
-        Penitent penitent = logic == null ? null : logic.Penitent;
+        Penitent penitent = logic?.Penitent;
         if (penitent == null)
             return;
 
-        if (penitent.PlatformCharacterController != null)
-            penitent.PlatformCharacterController.enabled = state.PlayerControlEnabled;
-        if (penitent.DamageArea != null)
-            penitent.DamageArea.enabled = state.DamageAreaEnabled;
+        penitent.PlatformCharacterController?.enabled = state.PlayerControlEnabled;
+        penitent.DamageArea?.enabled = state.DamageAreaEnabled;
         penitent.Status.Invulnerable = state.Invulnerable;
 
         if (penitent.Physics != null)

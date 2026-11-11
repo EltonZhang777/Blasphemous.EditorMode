@@ -1,8 +1,8 @@
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Editing;
-using Blasphemous.ModdingAPI;
 using Blasphemous.Framework.Levels;
 using Blasphemous.Framework.Levels.Modifiers;
+using Blasphemous.ModdingAPI;
 using Framework.Managers;
 using Newtonsoft.Json.Linq;
 using System;
@@ -50,9 +50,7 @@ internal sealed class UnityRuntimePlacementFactory :
         if (placement == null)
             throw new ArgumentNullException(nameof(placement));
 
-        ObjectCreator creator;
-        string error;
-        if (!RuntimeCreatorRegistry.TryGet(placement.Type, out creator, out error))
+        if (!RuntimeCreatorRegistry.TryGet(placement.Type, out ObjectCreator creator, out string error))
             throw new InvalidOperationException(error);
 
         if (creator.Loader == null || creator.Loader.Result == null)
@@ -62,21 +60,17 @@ internal sealed class UnityRuntimePlacementFactory :
                 + "The Framework creator preload has not completed.");
         }
 
-        Transform holder = _holderProvider();
-        if (holder == null)
-            throw new InvalidOperationException("Current LevelInitializer object holder is unavailable.");
-
+        Transform holder = _holderProvider() ?? throw new InvalidOperationException("Current LevelInitializer object holder is unavailable.");
         GameObject clone = null;
         try
         {
             clone = UnityEngine.Object.Instantiate(creator.Loader.Result, holder);
-            UnityRuntimePlacementHandle handle = new UnityRuntimePlacementHandle(
+            UnityRuntimePlacementHandle handle = new(
                 placement.Id,
                 placement.Type,
                 clone,
                 creator);
-            string applyError;
-            if (!handle.TryApply(placement, out applyError))
+            if (!handle.TryApply(placement, out string applyError))
                 throw new InvalidOperationException(applyError ?? "Runtime projection rejected the placement.");
 
             MarkEditorProjection(clone, placement);
@@ -103,8 +97,7 @@ internal sealed class UnityRuntimePlacementFactory :
             return false;
         }
 
-        ObjectCreator creator;
-        if (!RuntimeCreatorRegistry.TryGet(placement.Type, out creator, out error))
+        if (!RuntimeCreatorRegistry.TryGet(placement.Type, out ObjectCreator creator, out error))
             return false;
 
         Transform holder = _adoptionPassActive ? _adoptionPassHolder : _holderProvider();
@@ -116,17 +109,15 @@ internal sealed class UnityRuntimePlacementFactory :
 
         Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> lookup =
             _adoptionPassActive ? _adoptionMarkers : BuildFrameworkMarkerLookup(holder);
-        RuntimePlacementMarker marker;
-        if (!TryTakeMatchingMarker(lookup, holder, placement, out marker))
+        if (!TryTakeMatchingMarker(lookup, holder, placement, out RuntimePlacementMarker marker))
             return false;
 
-        UnityRuntimePlacementHandle adopted = new UnityRuntimePlacementHandle(
+        UnityRuntimePlacementHandle adopted = new(
             placement.Id,
             placement.Type,
             marker.gameObject,
             creator);
-        string applyError;
-        if (!adopted.TryApply(placement, out applyError))
+        if (!adopted.TryApply(placement, out string applyError))
         {
             error = applyError ?? "Framework projection rejected adoption.";
             return false;
@@ -141,7 +132,7 @@ internal sealed class UnityRuntimePlacementFactory :
         Transform holder)
     {
         Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> lookup =
-            new Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>>(
+            new(
                 StringComparer.OrdinalIgnoreCase);
         if (holder == null)
             return lookup;
@@ -156,15 +147,13 @@ internal sealed class UnityRuntimePlacementFactory :
                 || string.IsNullOrEmpty(marker.Type))
                 continue;
 
-            Dictionary<string, Queue<RuntimePlacementMarker>> byType;
-            if (!lookup.TryGetValue(marker.PlacementId, out byType))
+            if (!lookup.TryGetValue(marker.PlacementId, out Dictionary<string, Queue<RuntimePlacementMarker>> byType))
             {
                 byType = new Dictionary<string, Queue<RuntimePlacementMarker>>(StringComparer.OrdinalIgnoreCase);
                 lookup.Add(marker.PlacementId, byType);
             }
 
-            Queue<RuntimePlacementMarker> matchingMarkers;
-            if (!byType.TryGetValue(marker.Type, out matchingMarkers))
+            if (!byType.TryGetValue(marker.Type, out Queue<RuntimePlacementMarker> matchingMarkers))
             {
                 matchingMarkers = new Queue<RuntimePlacementMarker>();
                 byType.Add(marker.Type, matchingMarkers);
@@ -186,10 +175,8 @@ internal sealed class UnityRuntimePlacementFactory :
         if (lookup == null)
             return false;
 
-        Dictionary<string, Queue<RuntimePlacementMarker>> byType;
-        Queue<RuntimePlacementMarker> candidates;
-        if (!lookup.TryGetValue(placement.Id, out byType)
-            || !byType.TryGetValue(placement.Type, out candidates))
+        if (!lookup.TryGetValue(placement.Id, out Dictionary<string, Queue<RuntimePlacementMarker>> byType)
+            || !byType.TryGetValue(placement.Type, out Queue<RuntimePlacementMarker> candidates))
             return false;
 
         while (candidates.Count > 0)
@@ -300,8 +287,7 @@ internal sealed class UnityRuntimePlacementFactory :
         if (marker == null)
             return false;
 
-        ObjectCreator creator;
-        if (!RuntimeCreatorRegistry.TryGet(marker.Type, out creator, out error))
+        if (!RuntimeCreatorRegistry.TryGet(marker.Type, out ObjectCreator creator, out error))
             return false;
 
         handle = new UnityRuntimePlacementHandle(
@@ -314,9 +300,7 @@ internal sealed class UnityRuntimePlacementFactory :
 
     private static void MarkEditorProjection(GameObject obj, PlacementRecord placement)
     {
-        RuntimePlacementMarker marker = obj.GetComponent<RuntimePlacementMarker>();
-        if (marker == null)
-            marker = obj.AddComponent<RuntimePlacementMarker>();
+        RuntimePlacementMarker marker = obj.GetComponent<RuntimePlacementMarker>() ?? obj.AddComponent<RuntimePlacementMarker>();
         marker.PlacementId = placement.Id;
         marker.Type = placement.Type;
         marker.Source = "EditorMode";
@@ -330,9 +314,7 @@ internal sealed class UnityRuntimePlacementFactory :
         Collider2D[] hits = Physics2D.OverlapPointAll(worldPoint);
         foreach (Collider2D hit in hits)
         {
-            RuntimePlacementMarker marker = hit == null
-                ? null
-                : hit.GetComponentInParent<RuntimePlacementMarker>();
+            RuntimePlacementMarker marker = hit?.GetComponentInParent<RuntimePlacementMarker>();
             if (IsSelectableMarker(marker, holder))
                 return marker;
         }
@@ -373,7 +355,7 @@ internal sealed class UnityRuntimePlacementFactory :
     private static Transform FindCurrentObjectHolder()
     {
         LevelInitializer initializer = UnityEngine.Object.FindObjectOfType<LevelInitializer>();
-        return initializer == null ? null : initializer.transform;
+        return initializer?.transform;
     }
 }
 
@@ -382,7 +364,7 @@ internal sealed class UnityRuntimePlacementHandle : IRuntimePlacementHandle
 {
     private readonly string _type;
     private readonly ObjectCreator _creator;
-    private readonly BaseModifier _baseModifier = new BaseModifier();
+    private readonly BaseModifier _baseModifier = new();
     private GameObject _object;
 
     internal UnityRuntimePlacementHandle(
@@ -460,7 +442,7 @@ internal static class RuntimeObjectData
 {
     internal static ObjectData Create(PlacementRecord placement)
     {
-        JObject json = new JObject
+        JObject json = new()
         {
             ["type"] = placement.Type,
             ["id"] = placement.Id,
@@ -508,8 +490,7 @@ internal static class RuntimeCreatorRegistry
                 return false;
             }
 
-            IEnumerable entries = property.GetValue(null, null) as System.Collections.IEnumerable;
-            if (entries == null)
+            if (property.GetValue(null, null) is not System.Collections.IEnumerable entries)
             {
                 error = "Level Framework creator registry returned no entries.";
                 return false;

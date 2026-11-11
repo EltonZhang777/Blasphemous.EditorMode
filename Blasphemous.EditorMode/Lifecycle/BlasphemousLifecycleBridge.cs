@@ -52,9 +52,7 @@ internal sealed class BlasphemousLifecycleBridge
             return false;
         }
 
-        RoomIdentity identity;
-        string error;
-        if (!RoomIdentity.TryCreate(newLevel, activeSceneName, out identity, out error))
+        if (!RoomIdentity.TryCreate(newLevel, activeSceneName, out RoomIdentity identity, out string error))
         {
             ClearCurrentRoom();
             State = RoomLifecycleState.Faulted;
@@ -71,8 +69,7 @@ internal sealed class BlasphemousLifecycleBridge
         ClearCurrentRoom();
         _currentRoom = identity;
         State = RoomLifecycleState.RoomLoaded;
-        if (_roomLoaded != null)
-            _roomLoaded(identity);
+        _roomLoaded?.Invoke(identity);
         return true;
     }
 
@@ -109,8 +106,7 @@ internal sealed class BlasphemousLifecycleBridge
 
         RoomIdentity room = _currentRoom;
         _currentRoom = null;
-        if (_roomUnloaded != null)
-            _roomUnloaded(room);
+        _roomUnloaded?.Invoke(room);
     }
 
     private static bool IsMainMenu(string level)

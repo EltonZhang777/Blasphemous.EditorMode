@@ -50,17 +50,13 @@ internal static class LevelFrameworkContract
     /// <summary>Gets the required fields for one Framework operation.</summary>
     internal static IEnumerable<string> RequiredFields(FrameworkOperation operation)
     {
-        switch (operation)
+        return operation switch
         {
-            case FrameworkOperation.Addition:
-                return AdditionFields;
-            case FrameworkOperation.Modification:
-                return ModificationFields;
-            case FrameworkOperation.Deletion:
-                return DeletionFields;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unknown Framework operation.");
-        }
+            FrameworkOperation.Addition => AdditionFields,
+            FrameworkOperation.Modification => ModificationFields,
+            FrameworkOperation.Deletion => DeletionFields,
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unknown Framework operation."),
+        };
     }
 
     /// <summary>Returns whether a field is part of the canonical ObjectData model.</summary>

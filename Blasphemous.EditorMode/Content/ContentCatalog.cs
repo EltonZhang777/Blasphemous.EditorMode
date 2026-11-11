@@ -37,8 +37,7 @@ internal sealed class PreviewInstance : IDisposable
         Action dispose = _dispose;
         _dispose = null;
         _followCursor = null;
-        if (dispose != null)
-            dispose();
+        dispose?.Invoke();
     }
 }
 
@@ -54,8 +53,8 @@ internal sealed class ContentCatalog
         Func<CreatorMetadata, PreviewInstance> previewFactory)
     {
         _byType = new Dictionary<string, CreatorMetadata>(StringComparer.OrdinalIgnoreCase);
-        List<CreatorMetadata> entries = new List<CreatorMetadata>();
-        foreach (CreatorMetadata metadata in available ?? new CreatorMetadata[0])
+        List<CreatorMetadata> entries = [];
+        foreach (CreatorMetadata metadata in available ?? [])
         {
             if (metadata == null || !metadata.IsSupported || _byType.ContainsKey(metadata.Type))
                 continue;
@@ -66,7 +65,7 @@ internal sealed class ContentCatalog
 
         Entries = new ReadOnlyCollection<CreatorMetadata>(entries);
         Unavailable = new ReadOnlyCollection<CreatorProbeDiagnostic>(
-            new List<CreatorProbeDiagnostic>(unavailable ?? new CreatorProbeDiagnostic[0]));
+            [.. unavailable ?? []]);
         _previewFactory = previewFactory ?? (metadata => new PreviewInstance(metadata, null));
     }
 
@@ -87,7 +86,7 @@ internal sealed class ContentCatalog
         IEnumerable<CreatorMetadata> available,
         Func<CreatorMetadata, PreviewInstance> previewFactory = null)
     {
-        return new ContentCatalog(available, new CreatorProbeDiagnostic[0], previewFactory);
+        return new ContentCatalog(available, [], previewFactory);
     }
 
     internal bool TryGet(string type, out CreatorMetadata metadata)
@@ -117,8 +116,7 @@ internal sealed class ContentCatalog
     {
         preview = null;
         error = null;
-        CreatorMetadata metadata;
-        if (!TryGet(type, out metadata))
+        if (!TryGet(type, out CreatorMetadata metadata))
         {
             error = string.Format("Creator '{0}' is unavailable or unsupported.", type ?? "<null>");
             return false;

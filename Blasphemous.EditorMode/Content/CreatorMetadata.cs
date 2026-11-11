@@ -43,7 +43,7 @@ internal sealed class CreatorPropertyDefinition
     {
         if (string.IsNullOrEmpty(key) || key.Trim().Length == 0)
             throw new ArgumentException("Property key is required.", nameof(key));
-        List<string> values = new List<string>(allowedValues ?? new string[0]);
+        List<string> values = [.. allowedValues ?? []];
         if (type == CreatorPropertyType.Enum && values.Count == 0)
             throw new ArgumentException("Enum properties require allowed values.", nameof(allowedValues));
 
@@ -134,8 +134,7 @@ internal sealed class CreatorPropertyDefinition
             return false;
         }
 
-        string canonical;
-        return TrySerialize(serialized.Substring(prefix.Length), out canonical, out error);
+        return TrySerialize(serialized.Substring(prefix.Length), out _, out error);
     }
 }
 
@@ -195,7 +194,7 @@ internal sealed class CreatorMetadata
         SourcePath = sourcePath;
         TransformCapabilities = transformCapabilities;
         PropertyDefinitions = new ReadOnlyCollection<CreatorPropertyDefinition>(
-            new List<CreatorPropertyDefinition>(propertyDefinitions ?? new CreatorPropertyDefinition[0]));
+            [.. propertyDefinitions ?? []]);
         PropertyKeys = new ReadOnlyCollection<string>(
             GetPropertyKeys(PropertyDefinitions));
         IsSupported = isSupported;
@@ -236,21 +235,21 @@ internal sealed class CreatorMetadata
                 return true;
         }
 
-        error = error ?? "Property key is not supported by this creator.";
+        error ??= "Property key is not supported by this creator.";
         return false;
     }
 
     private static IEnumerable<CreatorPropertyDefinition> CreatePropertyDefinitions(
         IEnumerable<string> propertyKeys)
     {
-        foreach (string key in propertyKeys ?? new string[0])
+        foreach (string key in propertyKeys ?? [])
             yield return new CreatorPropertyDefinition(key, CreatorPropertyType.String);
     }
 
     private static List<string> GetPropertyKeys(
         IEnumerable<CreatorPropertyDefinition> definitions)
     {
-        List<string> keys = new List<string>();
+        List<string> keys = [];
         foreach (CreatorPropertyDefinition definition in definitions)
             keys.Add(definition.Key);
         return keys;
@@ -267,7 +266,7 @@ internal static class BaseCreatorCatalog
 {
     internal const string BellIronType = "bell-iron";
 
-    internal static readonly CreatorMetadata BellIron = new CreatorMetadata(
+    internal static readonly CreatorMetadata BellIron = new(
         BellIronType,
         "Iron Bell",
         "Traps",
@@ -275,10 +274,10 @@ internal static class BaseCreatorCatalog
         "D03Z02S06_LOGIC",
         "TRAPS/TRAP_SHOCK_CHAIN_REACTION",
         TransformCapabilities.Position | TransformCapabilities.Rotation | TransformCapabilities.Scale,
-        new string[0]);
+        []);
 
     private static readonly ReadOnlyCollection<CreatorMetadata> All =
-        new ReadOnlyCollection<CreatorMetadata>(new[] { BellIron });
+        new([BellIron]);
 
     internal static IEnumerable<CreatorMetadata> Entries
     {

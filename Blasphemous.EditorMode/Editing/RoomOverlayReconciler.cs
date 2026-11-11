@@ -51,16 +51,15 @@ internal sealed class RoomOverlayReconciler
 
     internal RoomOverlayReconcileResult Apply(RoomIdentity room, FrameworkFileResult file)
     {
-        ApplyReport report = new ApplyReport();
+        ApplyReport report = new();
         LevelEditSessionImportResult imported = LevelEditSession.Import(room, file, _catalog.Entries);
         report.Merge(imported.Report);
         if (!imported.Succeeded)
             return new RoomOverlayReconcileResult(room, null, null, report);
 
-        RuntimePlacementManager next = new RuntimePlacementManager(imported.Session, _catalog, _factory);
+        RuntimePlacementManager next = new(imported.Session, _catalog, _factory);
         IRuntimePlacementAdoptionPass adoptionPass = _factory as IRuntimePlacementAdoptionPass;
-        if (adoptionPass != null)
-            adoptionPass.BeginAdoptionPass();
+        adoptionPass?.BeginAdoptionPass();
 
         try
         {
@@ -75,8 +74,7 @@ internal sealed class RoomOverlayReconciler
         }
         finally
         {
-            if (adoptionPass != null)
-                adoptionPass.EndAdoptionPass();
+            adoptionPass?.EndAdoptionPass();
         }
 
         if (report.IsPartial)
@@ -141,14 +139,13 @@ internal static class RoomOverlayComparer
             return false;
         }
 
-        Dictionary<string, PlacementRecord> actualById = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, PlacementRecord> actualById = new(StringComparer.OrdinalIgnoreCase);
         foreach (PlacementRecord placement in actual.Placements)
             actualById[placement.Id] = placement;
 
         foreach (PlacementRecord expectedPlacement in expected.Placements)
         {
-            PlacementRecord actualPlacement;
-            if (!actualById.TryGetValue(expectedPlacement.Id, out actualPlacement))
+            if (!actualById.TryGetValue(expectedPlacement.Id, out PlacementRecord actualPlacement))
             {
                 report.Error("ROUND_TRIP_ID", expectedPlacement.Id, "Placement identity was not preserved.");
                 return false;
@@ -173,8 +170,8 @@ internal static class RoomOverlayComparer
         IEnumerable<string> expected,
         IEnumerable<string> actual)
     {
-        List<string> left = new List<string>(expected);
-        List<string> right = new List<string>(actual);
+        List<string> left = [.. expected];
+        List<string> right = [.. actual];
         if (left.Count != right.Count)
             return false;
         for (int index = 0; index < left.Count; index++)

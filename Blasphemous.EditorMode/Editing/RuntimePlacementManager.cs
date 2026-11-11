@@ -49,7 +49,7 @@ internal static class PlacementIdGenerator
     internal static string Next(string type, IEnumerable<string> existingIds)
     {
         string stem = Sanitize(type);
-        HashSet<string> existing = new HashSet<string>(existingIds ?? new string[0], StringComparer.OrdinalIgnoreCase);
+        HashSet<string> existing = new(existingIds ?? [], StringComparer.OrdinalIgnoreCase);
         for (int index = 1; ; index++)
         {
             string candidate = stem + "-" + index;
@@ -90,8 +90,8 @@ internal sealed class RuntimePlacementManager
     private readonly ContentCatalog _catalog;
     private readonly IRuntimePlacementFactory _factory;
     private readonly Dictionary<string, IRuntimePlacementHandle> _projections =
-        new Dictionary<string, IRuntimePlacementHandle>(StringComparer.OrdinalIgnoreCase);
-    private readonly EditCommandHistory _history = new EditCommandHistory();
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly EditCommandHistory _history = new();
     private PlacementManagerSnapshot _initialSnapshot;
 
     internal RuntimePlacementManager(
@@ -112,7 +112,7 @@ internal sealed class RuntimePlacementManager
 
     internal ReadOnlyCollection<string> OwnedPlacementIds
     {
-        get { return new ReadOnlyCollection<string>(new List<string>(_projections.Keys)); }
+        get { return new ReadOnlyCollection<string>([.. _projections.Keys]); }
     }
 
     internal PlacementRecord Selected { get; private set; }
@@ -151,8 +151,7 @@ internal sealed class RuntimePlacementManager
     {
         PlacementManagerSnapshot before = CaptureSnapshot();
         placement = null;
-        CreatorMetadata creator;
-        if (!_catalog.TryGet(type, out creator))
+        if (!_catalog.TryGet(type, out CreatorMetadata creator))
         {
             report.Error("CREATOR_UNSUPPORTED", type, "Creator is unavailable or unsupported.");
             return false;
@@ -188,8 +187,7 @@ internal sealed class RuntimePlacementManager
             return false;
         }
 
-        IRuntimePlacementConditionFilter conditionFilter = _factory as IRuntimePlacementConditionFilter;
-        if (conditionFilter != null
+        if (_factory is IRuntimePlacementConditionFilter conditionFilter
             && !conditionFilter.ShouldProject(placement, out string conditionReason))
         {
             report.Warning(
@@ -242,8 +240,7 @@ internal sealed class RuntimePlacementManager
     internal bool TrySelect(string id, ApplyReport report, out PlacementRecord placement)
     {
         placement = null;
-        IRuntimePlacementHandle handle;
-        if (!_projections.TryGetValue(id, out handle)
+        if (!_projections.TryGetValue(id, out IRuntimePlacementHandle handle)
             || handle == null
             || handle.IsOriginal
             || !handle.IsAlive
@@ -283,12 +280,10 @@ internal sealed class RuntimePlacementManager
             return false;
         }
 
-        IRuntimePlacementConditionFilter conditionFilter = _factory as IRuntimePlacementConditionFilter;
-        if (conditionFilter != null
+        if (_factory is IRuntimePlacementConditionFilter conditionFilter
             && !conditionFilter.ShouldProject(placement, out string conditionReason))
         {
-            IRuntimePlacementHandle inactiveHandle;
-            if (_projections.TryGetValue(placement.Id, out inactiveHandle)
+            if (_projections.TryGetValue(placement.Id, out IRuntimePlacementHandle inactiveHandle)
                 && inactiveHandle != null
                 && inactiveHandle.IsAlive
                 && !inactiveHandle.IsOriginal)
@@ -313,8 +308,7 @@ internal sealed class RuntimePlacementManager
             return true;
         }
 
-        IRuntimePlacementHandle existing;
-        if (_projections.TryGetValue(placement.Id, out existing))
+        if (_projections.TryGetValue(placement.Id, out IRuntimePlacementHandle existing))
         {
             if (existing == null || existing.IsOriginal || !existing.IsAlive)
             {
@@ -333,11 +327,9 @@ internal sealed class RuntimePlacementManager
         }
 
         IRuntimePlacementHandle handle;
-        IRuntimePlacementAdopter adopter = _factory as IRuntimePlacementAdopter;
-        if (adopter != null)
+        if (_factory is IRuntimePlacementAdopter adopter)
         {
-            string adoptionError;
-            if (adopter.TryAdopt(placement, out handle, out adoptionError))
+            if (adopter.TryAdopt(placement, out handle, out string adoptionError))
             {
                 if (handle == null
                     || handle.IsOriginal
@@ -445,8 +437,7 @@ internal sealed class RuntimePlacementManager
     internal bool TrySetLocked(string id, bool locked, ApplyReport report)
     {
         PlacementManagerSnapshot before = CaptureSnapshot();
-        PlacementRecord current;
-        if (!TrySelect(id, report, out current))
+        if (!TrySelect(id, report, out PlacementRecord current))
             return false;
 
         PlacementRecord changed = current.WithLocked(locked);
@@ -494,12 +485,9 @@ internal sealed class RuntimePlacementManager
         ApplyReport report)
     {
         PlacementManagerSnapshot before = CaptureSnapshot();
-        PlacementRecord current;
-        IRuntimePlacementHandle handle;
-        CreatorMetadata creator;
-        if (!TrySelect(id, report, out current)
-            || !_projections.TryGetValue(id, out handle)
-            || !_catalog.TryGet(current.Type, out creator))
+        if (!TrySelect(id, report, out PlacementRecord current)
+            || !_projections.TryGetValue(id, out IRuntimePlacementHandle handle)
+            || !_catalog.TryGet(current.Type, out CreatorMetadata creator))
             return false;
         if (current.IsLocked)
         {
@@ -510,8 +498,7 @@ internal sealed class RuntimePlacementManager
             return false;
 
         PlacementRecord changed = current.WithTransform(transform);
-        string error;
-        if (!handle.TryApply(changed, out error))
+        if (!handle.TryApply(changed, out string error))
         {
             RestoreRuntime(handle, current, report);
             report.Error("RUNTIME_APPLY_FAILED", id, error ?? "Runtime projection rejected the transform.");
@@ -537,12 +524,9 @@ internal sealed class RuntimePlacementManager
         ApplyReport report)
     {
         PlacementManagerSnapshot before = CaptureSnapshot();
-        PlacementRecord current;
-        IRuntimePlacementHandle handle;
-        CreatorMetadata creator;
-        if (!TrySelect(id, report, out current)
-            || !_projections.TryGetValue(id, out handle)
-            || !_catalog.TryGet(current.Type, out creator))
+        if (!TrySelect(id, report, out PlacementRecord current)
+            || !_projections.TryGetValue(id, out IRuntimePlacementHandle handle)
+            || !_catalog.TryGet(current.Type, out CreatorMetadata creator))
             return false;
         if (current.IsLocked)
         {
@@ -550,22 +534,19 @@ internal sealed class RuntimePlacementManager
             return false;
         }
 
-        CreatorPropertyDefinition definition;
-        if (!creator.TryGetProperty(key, out definition))
+        if (!creator.TryGetProperty(key, out CreatorPropertyDefinition definition))
         {
             report.Error("PROPERTY_UNSUPPORTED", id, "Property key '" + key + "' is not supported.");
             return false;
         }
 
-        string serialized;
-        string error;
-        if (!definition.TrySerialize(rawValue, out serialized, out error))
+        if (!definition.TrySerialize(rawValue, out string serialized, out string error))
         {
             report.Error("PROPERTY_INVALID", id, error);
             return false;
         }
 
-        List<string> properties = new List<string>(current.Properties);
+        List<string> properties = [.. current.Properties];
         bool replaced = false;
         string prefix = definition.Key + "=";
         for (int index = 0; index < properties.Count; index++)
@@ -605,12 +586,10 @@ internal sealed class RuntimePlacementManager
     internal bool TryRemove(string id, ApplyReport report)
     {
         PlacementManagerSnapshot before = CaptureSnapshot();
-        IRuntimePlacementHandle handle;
-        PlacementRecord current;
-        if (!_projections.TryGetValue(id, out handle)
+        if (!_projections.TryGetValue(id, out IRuntimePlacementHandle handle)
             || handle == null
             || handle.IsOriginal
-            || !_session.TryGetPlacement(id, out current))
+            || !_session.TryGetPlacement(id, out PlacementRecord current))
         {
             report.Error("OWNERSHIP_REJECTED", id, "Only Architect-owned placements can be removed.");
             return false;
@@ -621,15 +600,13 @@ internal sealed class RuntimePlacementManager
             return false;
         }
 
-        string error;
-        if (!handle.TryDestroy(out error))
+        if (!handle.TryDestroy(out string error))
         {
             report.Error("RUNTIME_REMOVE_FAILED", id, error ?? "Runtime projection rejected removal.");
             return false;
         }
 
-        PlacementRecord removed;
-        if (!_session.TryRemovePlacement(id, report, out removed))
+        if (!_session.TryRemovePlacement(id, report, out _))
             return false;
 
         _projections.Remove(id);
@@ -665,18 +642,17 @@ internal sealed class RuntimePlacementManager
 
     private PlacementManagerSnapshot CaptureSnapshot()
     {
-        Dictionary<string, PlacementRecord> projections = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, PlacementRecord> projections = new(StringComparer.OrdinalIgnoreCase);
         foreach (string id in _projections.Keys)
         {
-            PlacementRecord placement;
-            if (_session.TryGetPlacement(id, out placement))
+            if (_session.TryGetPlacement(id, out PlacementRecord placement))
                 projections[id] = placement;
         }
 
         return new PlacementManagerSnapshot(
             _session.Placements,
             Clipboard,
-            Selected == null ? null : Selected.Id,
+            Selected?.Id,
             _session.State,
             projections);
     }
@@ -691,14 +667,13 @@ internal sealed class RuntimePlacementManager
 
     private bool RestoreSnapshot(PlacementManagerSnapshot snapshot, ApplyReport report)
     {
-        List<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>> applied = new List<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>>();
-        Dictionary<string, IRuntimePlacementHandle> created = new Dictionary<string, IRuntimePlacementHandle>(StringComparer.OrdinalIgnoreCase);
-        List<KeyValuePair<string, PlacementRecord>> destroyed = new List<KeyValuePair<string, PlacementRecord>>();
-        HashSet<string> targetIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        IRuntimePlacementConditionFilter conditionFilter = _factory as IRuntimePlacementConditionFilter;
+        List<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>> applied = [];
+        Dictionary<string, IRuntimePlacementHandle> created = new(StringComparer.OrdinalIgnoreCase);
+        List<KeyValuePair<string, PlacementRecord>> destroyed = [];
+        HashSet<string> targetIds = new(StringComparer.OrdinalIgnoreCase);
         foreach (KeyValuePair<string, PlacementRecord> target in snapshot.Projections)
         {
-            if (conditionFilter != null
+            if (_factory is IRuntimePlacementConditionFilter conditionFilter
                 && !conditionFilter.ShouldProject(target.Value, out string conditionReason))
             {
                 report.Warning(
@@ -717,22 +692,19 @@ internal sealed class RuntimePlacementManager
             if (!targetIds.Contains(target.Key))
                 continue;
 
-            IRuntimePlacementHandle handle;
-            if (_projections.TryGetValue(target.Key, out handle)
+            if (_projections.TryGetValue(target.Key, out IRuntimePlacementHandle handle)
                 && handle != null
                 && !handle.IsOriginal
                 && handle.IsAlive)
             {
-                PlacementRecord previous;
-                if (!_session.TryGetPlacement(target.Key, out previous))
+                if (!_session.TryGetPlacement(target.Key, out PlacementRecord previous))
                 {
                     report.Error("HISTORY_RESTORE_FAILED", target.Key, "Projection has no session Placement.");
                     Rollback(applied, created, destroyed, report);
                     return false;
                 }
 
-                string error;
-                if (!handle.TryApply(target.Value, out error))
+                if (!handle.TryApply(target.Value, out string error))
                 {
                     report.Error("HISTORY_RESTORE_FAILED", target.Key, error ?? "Runtime projection rejected history restore.");
                     Rollback(applied, created, destroyed, report);
@@ -761,8 +733,7 @@ internal sealed class RuntimePlacementManager
             {
                 if (handle != null && !handle.IsOriginal && handle.IsAlive)
                 {
-                    string cleanupError;
-                    if (!handle.TryDestroy(out cleanupError))
+                    if (!handle.TryDestroy(out string cleanupError))
                         report.Error(
                             "HISTORY_ROLLBACK_FAILED",
                             target.Key,
@@ -786,8 +757,7 @@ internal sealed class RuntimePlacementManager
             if (handle == null || !handle.IsAlive || handle.IsOriginal)
                 continue;
 
-            PlacementRecord previous;
-            if (!_session.TryGetPlacement(id, out previous))
+            if (!_session.TryGetPlacement(id, out PlacementRecord previous))
             {
                 report.Error("HISTORY_RESTORE_FAILED", id, "Projection has no session Placement.");
                 Rollback(applied, created, destroyed, report);
@@ -831,8 +801,7 @@ internal sealed class RuntimePlacementManager
         Selected = null;
         if (snapshot.SelectedId != null)
         {
-            PlacementRecord selected;
-            if (_session.TryGetPlacement(snapshot.SelectedId, out selected))
+            if (_session.TryGetPlacement(snapshot.SelectedId, out PlacementRecord selected))
                 Selected = selected;
         }
         report.Applied();
@@ -849,8 +818,7 @@ internal sealed class RuntimePlacementManager
         {
             try
             {
-                string error;
-                if (!change.Key.TryApply(change.Value, out error))
+                if (!change.Key.TryApply(change.Value, out string error))
                     report.Error(
                         "HISTORY_ROLLBACK_FAILED",
                         change.Value.Id,
@@ -866,8 +834,7 @@ internal sealed class RuntimePlacementManager
         {
             try
             {
-                string error;
-                if (!projection.Value.TryDestroy(out error))
+                if (!projection.Value.TryDestroy(out string error))
                     report.Error(
                         "HISTORY_ROLLBACK_FAILED",
                         projection.Key,
@@ -902,8 +869,7 @@ internal sealed class RuntimePlacementManager
                 {
                     try
                     {
-                        string cleanupError;
-                        if (!handle.TryDestroy(out cleanupError))
+                        if (!handle.TryDestroy(out string cleanupError))
                             report.Error(
                                 "HISTORY_ROLLBACK_FAILED",
                                 projection.Key,
@@ -945,7 +911,7 @@ internal sealed class RuntimePlacementManager
             LevelEditSessionState state,
             IDictionary<string, PlacementRecord> projections)
         {
-            Placements = new List<PlacementRecord>(placements ?? new PlacementRecord[0]);
+            Placements = [.. placements ?? []];
             Clipboard = clipboard;
             SelectedId = selectedId;
             State = state;

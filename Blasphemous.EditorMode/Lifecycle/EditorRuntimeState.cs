@@ -221,9 +221,7 @@ internal sealed class EditorModeGuard
         {
             if (_gameplayResumed)
             {
-                EditorRuntimeState current = _capture();
-                if (current == null)
-                    throw new InvalidOperationException("Editor Mode could not capture the active player state.");
+                EditorRuntimeState current = _capture() ?? throw new InvalidOperationException("Editor Mode could not capture the active player state.");
                 _originalState = _originalState.WithPlayerRuntimeFrom(current);
             }
 

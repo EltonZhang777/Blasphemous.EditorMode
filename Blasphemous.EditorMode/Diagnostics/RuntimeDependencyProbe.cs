@@ -11,9 +11,7 @@ internal static class RuntimeDependencyProbe
 {
     internal static IEnumerable<InstalledDependency> ReadInstalled()
     {
-        return Chainloader.PluginInfos.Values
-            .Select(info => new InstalledDependency(info.Metadata.GUID, info.Metadata.Version))
-            .ToList();
+        return [.. Chainloader.PluginInfos.Values.Select(info => new InstalledDependency(info.Metadata.GUID, info.Metadata.Version))];
     }
 
     internal static string DescribeTargetProfile()
@@ -34,8 +32,7 @@ internal static class RuntimeDependencyProbe
         IDictionary<string, InstalledDependency> installed,
         string id)
     {
-        InstalledDependency dependency;
-        return installed.TryGetValue(id, out dependency)
+        return installed.TryGetValue(id, out InstalledDependency dependency)
             ? dependency.Version.ToString()
             : "<missing>";
     }

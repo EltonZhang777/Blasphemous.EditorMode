@@ -6,6 +6,7 @@ using System.Text;
 using UnityEngine;
 
 namespace Blasphemous.EditorMode.Components;
+
 internal class SpriteStorage
 {
     internal Sprite Cursor { get; private set; }

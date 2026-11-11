@@ -1,8 +1,8 @@
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Editing;
-using Blasphemous.ModdingAPI;
 using Blasphemous.Framework.Levels;
 using Blasphemous.Framework.Levels.Modifiers;
+using Blasphemous.ModdingAPI;
 using System;
 using UnityEngine;
 
@@ -19,20 +19,15 @@ internal static class UnityPreviewFactory
         if (metadata == null)
             throw new ArgumentNullException(nameof(metadata));
 
-        ObjectCreator creator;
-        string error;
-        if (!RuntimeCreatorRegistry.TryGet(metadata.Type, out creator, out error))
+        if (!RuntimeCreatorRegistry.TryGet(metadata.Type, out ObjectCreator creator, out string error))
             throw new InvalidOperationException(error);
         if (creator.Loader == null || creator.Loader.Result == null)
             throw new InvalidOperationException(
                 "Creator '" + metadata.Type + "' has no loaded source object.");
 
-        Transform holder = holderProvider == null ? null : holderProvider();
-        if (holder == null)
-            throw new InvalidOperationException("Current LevelInitializer object holder is unavailable.");
-
+        Transform holder = (holderProvider == null ? null : holderProvider()) ?? throw new InvalidOperationException("Current LevelInitializer object holder is unavailable.");
         Vector3 position = positionProvider == null ? Vector3.zero : positionProvider();
-        GameObject root = new GameObject("Editor Preview - " + metadata.Type);
+        GameObject root = new("Editor Preview - " + metadata.Type);
         root.transform.SetParent(holder, false);
         root.SetActive(false);
 
@@ -43,7 +38,7 @@ internal static class UnityPreviewFactory
                 root.transform);
             previewObject.name = metadata.DisplayName + " (Preview)";
 
-            PlacementRecord placement = new PlacementRecord(
+            PlacementRecord placement = new(
                 "preview-" + metadata.Type,
                 metadata.Type,
                 new PlacementTransform(
@@ -56,13 +51,12 @@ internal static class UnityPreviewFactory
                     1f,
                     1f,
                     1f),
-                new string[0],
+                [],
                 PlacementOwnership.ArchitectOwned);
             ObjectData data = RuntimeObjectData.Create(placement);
-            BaseModifier baseModifier = new BaseModifier();
+            BaseModifier baseModifier = new();
             baseModifier.Apply(previewObject, data);
-            if (creator.Modifier != null)
-                creator.Modifier.Apply(previewObject, data);
+            creator.Modifier?.Apply(previewObject, data);
 
             IsolateGameplay(previewObject);
             root.SetActive(true);
@@ -106,8 +100,7 @@ internal static class UnityPreviewFactory
     {
         foreach (Behaviour behaviour in previewObject.GetComponentsInChildren<Behaviour>(true))
         {
-            if (behaviour != null)
-                behaviour.enabled = false;
+            behaviour?.enabled = false;
         }
 
         Renderer[] renderers = previewObject.GetComponentsInChildren<Renderer>(true);
@@ -135,14 +128,12 @@ internal static class UnityPreviewFactory
 
         foreach (Collider collider in previewObject.GetComponentsInChildren<Collider>(true))
         {
-            if (collider != null)
-                collider.enabled = false;
+            collider?.enabled = false;
         }
 
         foreach (Collider2D collider in previewObject.GetComponentsInChildren<Collider2D>(true))
         {
-            if (collider != null)
-                collider.enabled = false;
+            collider?.enabled = false;
         }
 
         foreach (Rigidbody body in previewObject.GetComponentsInChildren<Rigidbody>(true))
@@ -165,8 +156,7 @@ internal static class UnityPreviewFactory
 
         foreach (ParticleSystem particles in previewObject.GetComponentsInChildren<ParticleSystem>(true))
         {
-            if (particles != null)
-                particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            particles?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
         }
     }
 

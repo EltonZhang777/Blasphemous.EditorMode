@@ -138,7 +138,7 @@ internal sealed class PlacementRecord
         Type = type;
         Transform = transform ?? PlacementTransform.Default;
         Properties = new ReadOnlyCollection<string>(
-            new List<string>(properties ?? new string[0]));
+            [.. properties ?? []]);
         Ownership = ownership;
         IsLocked = locked;
         Condition = condition ?? string.Empty;

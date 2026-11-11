@@ -6,13 +6,13 @@ namespace Blasphemous.EditorMode.Lifecycle;
 internal sealed class RoomIdentity : IEquatable<RoomIdentity>
 {
     private static readonly string[] SupportedSceneSuffixes =
-    {
+    [
         "_LOGIC",
         "_DECO",
         "_LAYOUT",
         "_AUDIO",
         "_MAIN"
-    };
+    ];
 
     private RoomIdentity(
         string frameworkLevelKey,
