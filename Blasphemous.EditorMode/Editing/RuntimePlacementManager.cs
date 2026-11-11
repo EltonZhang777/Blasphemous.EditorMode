@@ -687,6 +687,7 @@ internal sealed class RuntimePlacementManager
     {
         var applied = new List<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>>();
         var created = new Dictionary<string, IRuntimePlacementHandle>(StringComparer.OrdinalIgnoreCase);
+        var destroyed = new List<KeyValuePair<string, PlacementRecord>>();
         var targetIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         IRuntimePlacementConditionFilter conditionFilter = _factory as IRuntimePlacementConditionFilter;
         foreach (KeyValuePair<string, PlacementRecord> target in snapshot.Projections)
@@ -720,7 +721,7 @@ internal sealed class RuntimePlacementManager
                 if (!_session.TryGetPlacement(target.Key, out previous))
                 {
                     report.Error("HISTORY_RESTORE_FAILED", target.Key, "Projection has no session Placement.");
-                    Rollback(applied, created);
+                    Rollback(applied, created, destroyed, report);
                     return false;
                 }
 
@@ -728,7 +729,7 @@ internal sealed class RuntimePlacementManager
                 if (!handle.TryApply(target.Value, out error))
                 {
                     report.Error("HISTORY_RESTORE_FAILED", target.Key, error ?? "Runtime projection rejected history restore.");
-                    Rollback(applied, created);
+                    Rollback(applied, created, destroyed, report);
                     return false;
                 }
 
@@ -743,7 +744,7 @@ internal sealed class RuntimePlacementManager
             catch (Exception exception)
             {
                 report.Error("HISTORY_RESTORE_FAILED", target.Key, exception.Message);
-                Rollback(applied, created);
+                Rollback(applied, created, destroyed, report);
                 return false;
             }
 
@@ -753,9 +754,17 @@ internal sealed class RuntimePlacementManager
                 || !string.Equals(handle.PlacementId, target.Key, StringComparison.OrdinalIgnoreCase))
             {
                 if (handle != null && !handle.IsOriginal && handle.IsAlive)
-                    handle.TryDestroy(out _);
+                {
+                    string cleanupError;
+                    if (!handle.TryDestroy(out cleanupError))
+                        report.Error(
+                            "HISTORY_ROLLBACK_FAILED",
+                            target.Key,
+                            cleanupError ?? "Invalid runtime projection could not be removed.");
+                }
+
                 report.Error("HISTORY_RESTORE_FAILED", target.Key, "Runtime factory returned an invalid projection.");
-                Rollback(applied, created);
+                Rollback(applied, created, destroyed, report);
                 return false;
             }
 
@@ -771,13 +780,36 @@ internal sealed class RuntimePlacementManager
             if (handle == null || !handle.IsAlive || handle.IsOriginal)
                 continue;
 
-            string error;
-            if (!handle.TryDestroy(out error))
+            PlacementRecord previous;
+            if (!_session.TryGetPlacement(id, out previous))
             {
-                report.Error("HISTORY_RESTORE_FAILED", id, error ?? "Runtime projection rejected removal.");
-                Rollback(applied, created);
+                report.Error("HISTORY_RESTORE_FAILED", id, "Projection has no session Placement.");
+                Rollback(applied, created, destroyed, report);
                 return false;
             }
+
+            string error;
+            bool destroySucceeded;
+            try
+            {
+                destroySucceeded = handle.TryDestroy(out error);
+            }
+            catch (Exception exception)
+            {
+                error = exception.Message;
+                destroySucceeded = false;
+            }
+
+            if (!destroySucceeded)
+            {
+                report.Error("HISTORY_RESTORE_FAILED", id, error ?? "Runtime projection rejected removal.");
+                if (!handle.IsAlive)
+                    destroyed.Add(new KeyValuePair<string, PlacementRecord>(id, previous));
+                Rollback(applied, created, destroyed, report);
+                return false;
+            }
+
+            destroyed.Add(new KeyValuePair<string, PlacementRecord>(id, previous));
         }
 
         _session.RestorePlacements(snapshot.Placements, snapshot.State, report);
@@ -801,14 +833,92 @@ internal sealed class RuntimePlacementManager
         return true;
     }
 
-    private static void Rollback(
+    private void Rollback(
         IEnumerable<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>> applied,
-        IEnumerable<KeyValuePair<string, IRuntimePlacementHandle>> created)
+        IEnumerable<KeyValuePair<string, IRuntimePlacementHandle>> created,
+        IEnumerable<KeyValuePair<string, PlacementRecord>> destroyed,
+        ApplyReport report)
     {
         foreach (KeyValuePair<IRuntimePlacementHandle, PlacementRecord> change in applied)
-            change.Key.TryApply(change.Value, out _);
+        {
+            try
+            {
+                string error;
+                if (!change.Key.TryApply(change.Value, out error))
+                    report.Error(
+                        "HISTORY_ROLLBACK_FAILED",
+                        change.Value.Id,
+                        error ?? "Runtime projection could not be restored.");
+            }
+            catch (Exception exception)
+            {
+                report.Error("HISTORY_ROLLBACK_FAILED", change.Value.Id, exception.Message);
+            }
+        }
+
         foreach (KeyValuePair<string, IRuntimePlacementHandle> projection in created)
-            projection.Value.TryDestroy(out _);
+        {
+            try
+            {
+                string error;
+                if (!projection.Value.TryDestroy(out error))
+                    report.Error(
+                        "HISTORY_ROLLBACK_FAILED",
+                        projection.Key,
+                        error ?? "Created runtime projection could not be removed.");
+            }
+            catch (Exception exception)
+            {
+                report.Error("HISTORY_ROLLBACK_FAILED", projection.Key, exception.Message);
+            }
+        }
+
+        foreach (KeyValuePair<string, PlacementRecord> projection in destroyed)
+        {
+            IRuntimePlacementHandle handle;
+            try
+            {
+                handle = _factory.Create(projection.Value);
+            }
+            catch (Exception exception)
+            {
+                _projections.Remove(projection.Key);
+                report.Error("HISTORY_ROLLBACK_FAILED", projection.Key, exception.Message);
+                continue;
+            }
+
+            if (handle == null
+                || handle.IsOriginal
+                || !handle.IsAlive
+                || !string.Equals(handle.PlacementId, projection.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                if (handle != null && !handle.IsOriginal && handle.IsAlive)
+                {
+                    try
+                    {
+                        string cleanupError;
+                        if (!handle.TryDestroy(out cleanupError))
+                            report.Error(
+                                "HISTORY_ROLLBACK_FAILED",
+                                projection.Key,
+                                cleanupError ?? "Invalid restored projection could not be removed.");
+                    }
+                    catch (Exception exception)
+                    {
+                        report.Error("HISTORY_ROLLBACK_FAILED", projection.Key, exception.Message);
+                    }
+                }
+
+                _projections.Remove(projection.Key);
+                report.Error(
+                    "HISTORY_ROLLBACK_FAILED",
+                    projection.Key,
+                    "Previously destroyed runtime projection could not be restored.");
+                continue;
+            }
+
+            _projections[projection.Key] = handle;
+        }
     }
 
     private static void RestoreRuntime(

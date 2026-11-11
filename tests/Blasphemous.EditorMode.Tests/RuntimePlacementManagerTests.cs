@@ -307,6 +307,65 @@ public sealed class RuntimePlacementManagerTests
         Assert.Contains(report.Entries, x => x.Code == "SESSION_RESET");
     }
 
+    [Fact]
+    public void Reset_restores_earlier_projections_when_a_later_destroy_fails()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord first;
+        PlacementRecord second;
+
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out first));
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out second));
+        factory.FailDestroyCall = 2;
+
+        Assert.False(manager.TryReset(report));
+
+        Assert.True(report.HasErrors);
+        Assert.Contains(report.Entries, entry => entry.Code == "HISTORY_RESTORE_FAILED");
+        Assert.Equal(LevelEditSessionState.Dirty, session.State);
+        Assert.Equal(2, session.Placements.Count);
+        Assert.Contains(session.Placements, placement => placement.Id == first.Id);
+        Assert.Contains(session.Placements, placement => placement.Id == second.Id);
+        Assert.Equal(2, manager.OwnedPlacementIds.Count);
+        Assert.Contains(factory.Created, handle => handle.PlacementId == first.Id && handle.IsAlive);
+        Assert.Contains(factory.Created, handle => handle.PlacementId == second.Id && handle.IsAlive);
+        Assert.True(manager.History.CanUndo);
+    }
+
+    [Fact]
+    public void Reset_reports_the_placement_when_projection_rollback_fails()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord first;
+        PlacementRecord second;
+
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out first));
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out second));
+        factory.FailDestroyCall = 2;
+        factory.FailCreateCall = 3;
+
+        Assert.False(manager.TryReset(report));
+
+        FakeHandle destroyed = Assert.Single(factory.Created.Where(handle => !handle.IsAlive));
+        Assert.Contains(
+            report.Entries,
+            entry => entry.Code == "HISTORY_ROLLBACK_FAILED" && entry.Location == destroyed.PlacementId);
+        Assert.Equal(LevelEditSessionState.Dirty, session.State);
+        Assert.Equal(2, session.Placements.Count);
+    }
+
     private static LevelEditSession CreateSession()
     {
         FrameworkFileResult file = CreateEmptyFile();
@@ -338,23 +397,49 @@ public sealed class RuntimePlacementManagerTests
     {
         internal bool ReturnOriginal;
         internal readonly List<FakeHandle> Created = new List<FakeHandle>();
+        internal int FailCreateCall;
+        internal int FailDestroyCall;
+        private int _createCallCount;
+        private int _destroyCallCount;
 
         public IRuntimePlacementHandle Create(PlacementRecord placement)
         {
-            var handle = new FakeHandle(placement.Id, ReturnOriginal, placement);
+            _createCallCount++;
+            if (_createCallCount == FailCreateCall)
+                return null;
+
+            FakeHandle handle = new FakeHandle(placement.Id, ReturnOriginal, placement, this);
             Created.Add(handle);
             return handle;
+        }
+
+        internal bool ShouldFailDestroy()
+        {
+            _destroyCallCount++;
+            return _destroyCallCount == FailDestroyCall;
         }
     }
 
     private sealed class FakeHandle : IRuntimePlacementHandle
     {
+        private readonly FakeFactory _factory;
+
         internal FakeHandle(string placementId, bool original, PlacementRecord appliedPlacement = null)
+            : this(placementId, original, appliedPlacement, null)
+        {
+        }
+
+        internal FakeHandle(
+            string placementId,
+            bool original,
+            PlacementRecord appliedPlacement,
+            FakeFactory factory)
         {
             PlacementId = placementId;
             IsOriginal = original;
             IsAlive = true;
             AppliedPlacement = appliedPlacement;
+            _factory = factory;
         }
 
         public string PlacementId { get; }
@@ -396,6 +481,12 @@ public sealed class RuntimePlacementManagerTests
             }
 
             DestroyCount++;
+            if (_factory != null && _factory.ShouldFailDestroy())
+            {
+                error = "injected destroy failure";
+                return false;
+            }
+
             IsAlive = false;
             return true;
         }
