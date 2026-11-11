@@ -59,7 +59,7 @@ internal sealed class FrameworkObjectData
         FrameworkVector scale,
         string condition,
         IEnumerable<string> properties,
-        JObject originalAddition = null,
+        JToken originalAddition = null,
         bool preserveOriginalAddition = false)
     {
         Scene = scene;
@@ -85,8 +85,29 @@ internal sealed class FrameworkObjectData
     internal FrameworkVector Scale { get; }
     internal string Condition { get; }
     internal ReadOnlyCollection<string> Properties { get; }
-    internal JObject OriginalAddition { get; }
+    internal JToken OriginalAddition { get; }
     internal bool PreserveOriginalAddition { get; }
+
+    internal static FrameworkObjectData PreservedAddition(JToken originalAddition)
+    {
+        JObject objectAddition = originalAddition as JObject;
+        JToken idToken = objectAddition == null ? null : objectAddition[LevelFrameworkContract.IdField];
+        string id = idToken != null && idToken.Type == JTokenType.String
+            ? idToken.Value<string>()
+            : string.Empty;
+        return new FrameworkObjectData(
+            null,
+            null,
+            null,
+            id,
+            FrameworkVector.Zero,
+            FrameworkVector.Zero,
+            FrameworkVector.One,
+            string.Empty,
+            new string[0],
+            originalAddition == null ? null : originalAddition.DeepClone(),
+            true);
+    }
 
     internal FrameworkObjectData WithPreservedOriginalAddition()
     {
@@ -577,17 +598,47 @@ internal static class LevelFrameworkAdapter
             JObject entry = array[index] as JObject;
             if (entry == null)
             {
-                AddError(diagnostics, location, "ObjectData entry must be an object.");
+                if (operation == FrameworkOperation.Addition)
+                {
+                    AddError(diagnostics, location, "ObjectData entry must be an object; source entry was retained unchanged.");
+                    result.Add(FrameworkObjectData.PreservedAddition(array[index]));
+                }
+                else
+                {
+                    AddError(diagnostics, location, "ObjectData entry must be an object.");
+                }
                 continue;
             }
 
             FrameworkObjectData data;
             if (!TryReadObject(entry, operation, location, diagnostics, out data))
+            {
+                if (operation == FrameworkOperation.Addition)
+                {
+                    FrameworkObjectData preserved = FrameworkObjectData.PreservedAddition(entry);
+                    if (!string.IsNullOrEmpty(preserved.Id) && !ids.Add(preserved.Id))
+                    {
+                        AddError(
+                            diagnostics,
+                            location + ".id",
+                            "Duplicate object id: " + preserved.Id + "; source addition was retained unchanged.");
+                    }
+                    result.Add(preserved);
+                }
                 continue;
+            }
 
             if (operation != FrameworkOperation.Deletion && !ids.Add(data.Id))
             {
-                AddError(diagnostics, location + ".id", "Duplicate object id: " + data.Id);
+                if (operation == FrameworkOperation.Addition)
+                {
+                    AddError(diagnostics, location + ".id", "Duplicate object id: " + data.Id + "; source addition was retained unchanged.");
+                    result.Add(FrameworkObjectData.PreservedAddition(entry));
+                }
+                else
+                {
+                    AddError(diagnostics, location + ".id", "Duplicate object id: " + data.Id);
+                }
                 continue;
             }
 
@@ -605,11 +656,28 @@ internal static class LevelFrameworkAdapter
         out FrameworkObjectData data)
     {
         data = null;
+        bool preserveOriginalAddition = false;
         foreach (JProperty property in entry.Properties())
         {
             if (!LevelFrameworkContract.IsKnownObjectField(property.Name))
             {
                 AddWarning(diagnostics, location + "." + property.Name, "Unknown field ignored.");
+                if (operation == FrameworkOperation.Addition)
+                {
+                    preserveOriginalAddition = true;
+                }
+            }
+        }
+
+        if (operation == FrameworkOperation.Addition)
+        {
+            foreach (string field in new[] { LevelFrameworkContract.SceneField, LevelFrameworkContract.PathField })
+            {
+                if (entry[field] != null)
+                {
+                    AddWarning(diagnostics, location + "." + field, "Field is unsupported for additions; source entry was retained unchanged.");
+                    preserveOriginalAddition = true;
+                }
             }
         }
 
@@ -669,7 +737,7 @@ internal static class LevelFrameworkAdapter
         valid &= TryReadVector(entry, LevelFrameworkContract.PositionField, DefaultPosition, location, diagnostics, out position);
         valid &= TryReadVector(entry, LevelFrameworkContract.RotationField, DefaultRotation, location, diagnostics, out rotation);
         valid &= TryReadVector(entry, LevelFrameworkContract.ScaleField, DefaultScale, location, diagnostics, out scale);
-        valid &= TryReadCondition(entry, location, diagnostics, out condition);
+        valid &= TryReadCondition(entry, operation, location, diagnostics, out condition);
         valid &= TryReadProperties(entry, location, diagnostics, out properties);
 
         if (!valid)
@@ -685,7 +753,8 @@ internal static class LevelFrameworkAdapter
             scale,
             condition,
             properties,
-            operation == FrameworkOperation.Addition ? (JObject)entry.DeepClone() : null);
+            operation == FrameworkOperation.Addition ? (JToken)entry.DeepClone() : null,
+            preserveOriginalAddition);
         return true;
     }
 
@@ -811,6 +880,7 @@ internal static class LevelFrameworkAdapter
 
     private static bool TryReadCondition(
         JObject entry,
+        FrameworkOperation operation,
         string location,
         List<FrameworkDiagnostic> diagnostics,
         out string condition)
@@ -843,7 +913,14 @@ internal static class LevelFrameworkAdapter
         string kind = condition.Substring(0, colon);
         if (kind != "flag" && kind != "penitence" && kind != "gamemode")
         {
-            AddError(diagnostics, location + ".condition", "Unsupported condition kind: " + kind);
+            if (operation == FrameworkOperation.Addition)
+            {
+                AddWarning(diagnostics, location + ".condition", "Unsupported condition kind: " + kind + "; source addition was retained unchanged.");
+            }
+            else
+            {
+                AddError(diagnostics, location + ".condition", "Unsupported condition kind: " + kind);
+            }
             return false;
         }
 

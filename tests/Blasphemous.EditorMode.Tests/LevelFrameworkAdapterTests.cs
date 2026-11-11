@@ -36,21 +36,70 @@ public sealed class LevelFrameworkAdapterTests
     }
 
     [Fact]
-    public void Invalid_entries_are_skipped_individually_and_reported()
+    public void InvalidAdditionsAreRetainedIndividuallyAndReported()
     {
         const string json = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"same\"},{\"type\":\"bell-iron\",\"id\":\"same\"},{\"type\":\"bell-iron\",\"id\":\"bad-condition\",\"condition\":\"unknown:value\"},{\"type\":\"bell-iron\",\"id\":\"bad-transform\",\"position\":{\"x\":\"not-number\"}},{\"type\":\"bell-iron\",\"id\":\"valid\"}],\"modifications\":[],\"deletions\":[]}";
 
         FrameworkCodecResult result = LevelFrameworkAdapter.Parse(json);
 
         Assert.False(result.IsValid);
-        Assert.Equal(2, result.Document.Additions.Count);
+        Assert.Equal(5, result.Document.Additions.Count);
+        Assert.True(result.Document.Additions[1].PreserveOriginalAddition);
+        Assert.True(result.Document.Additions[2].PreserveOriginalAddition);
+        Assert.True(result.Document.Additions[3].PreserveOriginalAddition);
         Assert.Contains(result.Diagnostics, x => x.Message.Contains("Duplicate object id"));
         Assert.Contains(result.Diagnostics, x => x.Message.Contains("Unsupported condition kind"));
         Assert.Contains(result.Diagnostics, x => x.Message.Contains("must be numeric"));
+        Assert.False(LevelFrameworkAdapter.Serialize(result.Document).IsValid);
     }
 
     [Fact]
-    public void Unknown_fields_are_warned_and_not_emitted_by_canonical_serializer()
+    public void UnparseableAdditionIdsStillParticipateInDuplicateDetection()
+    {
+        const string json = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"same\",\"condition\":\"future:value\"},{\"type\":\"bell-iron\",\"id\":\"same\"}],\"modifications\":[],\"deletions\":[]}";
+
+        FrameworkCodecResult parsed = LevelFrameworkAdapter.Parse(json);
+
+        Assert.False(parsed.IsValid);
+        Assert.Equal(2, parsed.Document.Additions.Count);
+        Assert.True(parsed.Document.Additions[0].PreserveOriginalAddition);
+        Assert.True(parsed.Document.Additions[1].PreserveOriginalAddition);
+        Assert.Contains(parsed.Diagnostics, x => x.Message.Contains("Duplicate object id"));
+    }
+
+    [Fact]
+    public void ExportRejectsDuplicateAdditionIdsWithoutReplacingSource()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "editor-mode-export-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"same\"},{\"type\":\"bell-iron\",\"id\":\"same\"}],\"modifications\":[],\"deletions\":[]}";
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+
+            FrameworkCodecResult parsed = LevelFrameworkAdapter.Parse(source);
+            FrameworkExportResult exported = LevelFrameworkAdapter.ExportFile(
+                path,
+                "D03Z02S06",
+                parsed.Document);
+
+            Assert.False(exported.Succeeded);
+            Assert.Contains(exported.Diagnostics, x => x.Message.Contains("Duplicate object id"));
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void UnknownAdditionFieldsAreRetainedButUnknownTopLevelFieldsAreOmitted()
     {
         const string json = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"bell-1\",\"editorOnly\":true}],\"modifications\":[],\"deletions\":[],\"metadata\":{\"dirty\":true}}";
 
@@ -60,7 +109,7 @@ public sealed class LevelFrameworkAdapterTests
 
         FrameworkCodecResult serialized = LevelFrameworkAdapter.Serialize(parsed.Document);
         Assert.True(serialized.IsValid, Messages(serialized));
-        Assert.DoesNotContain("editorOnly", serialized.CanonicalJson);
+        Assert.Contains("editorOnly", serialized.CanonicalJson);
         Assert.DoesNotContain("metadata", serialized.CanonicalJson);
     }
 
@@ -74,7 +123,11 @@ public sealed class LevelFrameworkAdapterTests
         FrameworkCodecResult condition = LevelFrameworkAdapter.Parse(
             "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"bell\",\"condition\":\"flag:\"}],\"modifications\":[],\"deletions\":[]}");
         Assert.False(condition.IsValid);
+        Assert.True(condition.Document.Additions[0].PreserveOriginalAddition);
         Assert.Contains(condition.Diagnostics, x => x.Message.Contains("Condition value cannot be blank"));
+        FrameworkCodecResult serialized = LevelFrameworkAdapter.Serialize(condition.Document);
+        Assert.False(serialized.IsValid);
+        Assert.Contains("flag:", serialized.CanonicalJson);
     }
 
     [Fact]

@@ -100,6 +100,34 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
+    public void ImportRejectsAnUneditableModificationWithoutCreatingAnExportableSession()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"valid\"}],\"modifications\":[{\"scene\":\"logic\",\"path\":\"Old\",\"type\":\"bell-iron\",\"id\":\"old\",\"condition\":\"future:value\"}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
+
+            LevelEditSessionImportResult result = LevelEditSession.Import(
+                CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
+                file,
+                new[] { BaseCreatorCatalog.BellIron });
+
+            Assert.False(result.Succeeded);
+            Assert.Null(result.Session);
+            Assert.Contains(result.Report.Entries, x => x.Code == "IMPORT_INVALID");
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void Export_emits_active_owned_additions_and_preserves_condition_data()
     {
         string directory = MakeDirectory();
@@ -133,7 +161,7 @@ public sealed class LevelEditSessionTests
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
-        const string source = "{\"additions\":[{\"type\":\"unknown\",\"id\":\"missing\",\"payload\":{\"keep\":true}},{\"type\":\"bell-iron\",\"id\":\"unsupported\",\"properties\":[\"unsupported\"],\"payload\":\"keep\"},{\"type\":\"bell-iron\",\"id\":\"supported\",\"position\":{\"x\":1,\"y\":2,\"z\":3}}],\"modifications\":[],\"deletions\":[]}";
+        const string source = "{\"additions\":[{\"type\":\"unknown\",\"id\":\"missing\",\"payload\":{\"keep\":true}},{\"type\":\"bell-iron\",\"id\":\"unsupported\",\"properties\":[\"unsupported\"]},{\"type\":\"bell-iron\",\"id\":\"unsupported-condition\",\"condition\":\"future:value\"},{\"type\":\"bell-iron\",\"id\":\"supported\",\"position\":{\"x\":1,\"y\":2,\"z\":3}}],\"modifications\":[],\"deletions\":[]}";
         try
         {
             Directory.CreateDirectory(directory);
@@ -148,6 +176,8 @@ public sealed class LevelEditSessionTests
             Assert.Equal(LevelEditSessionState.Partial, imported.State);
             Assert.Contains(imported.Report.Entries, entry => entry.Code == "CREATOR_UNSUPPORTED");
             Assert.Contains(imported.Report.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
+            Assert.Contains(imported.Report.Entries, entry => entry.Code == "ADDITION_UNEDITABLE_PRESERVED");
+            Assert.Single(imported.Session.Placements);
 
             RuntimePlacementManager manager = new RuntimePlacementManager(
                 imported.Session,
@@ -170,6 +200,7 @@ public sealed class LevelEditSessionTests
             JObject exportedJson = JObject.Parse(File.ReadAllText(path));
             Assert.True(JToken.DeepEquals(originalJson["additions"][0], exportedJson["additions"][0]));
             Assert.True(JToken.DeepEquals(originalJson["additions"][1], exportedJson["additions"][1]));
+            Assert.True(JToken.DeepEquals(originalJson["additions"][2], exportedJson["additions"][2]));
 
             FrameworkFileResult reimportedFile = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
             LevelEditSessionImportResult reimported = LevelEditSession.Import(
@@ -177,10 +208,11 @@ public sealed class LevelEditSessionTests
                 reimportedFile,
                 new[] { BaseCreatorCatalog.BellIron });
 
-            Assert.Equal(3, reimportedFile.Document.Additions.Count);
+            Assert.Equal(4, reimportedFile.Document.Additions.Count);
             Assert.Equal(8f, reimported.Session.Placements[0].Transform.PositionX);
             Assert.Contains(reimported.Report.Entries, entry => entry.Code == "CREATOR_UNSUPPORTED");
             Assert.Contains(reimported.Report.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
+            Assert.Contains(reimported.Report.Entries, entry => entry.Code == "ADDITION_UNEDITABLE_PRESERVED");
         }
         finally
         {

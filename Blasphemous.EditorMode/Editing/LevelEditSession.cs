@@ -150,6 +150,32 @@ internal sealed class LevelEditSession
         HashSet<string> ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (FrameworkObjectData data in file.Document.Additions)
         {
+            if (data.PreserveOriginalAddition)
+            {
+                string location = "additions[" + (string.IsNullOrEmpty(data.Id) ? "unknown" : data.Id) + "]";
+                CreatorMetadata originalCreator = null;
+                if (!string.IsNullOrEmpty(data.Type)
+                    && !creators.TryGetValue(data.Type, out originalCreator))
+                {
+                    report.Error(
+                        "CREATOR_UNSUPPORTED",
+                        location,
+                        "Creator '" + data.Type + "' is unavailable in the current profile.");
+                }
+                else
+                {
+                    if (originalCreator != null)
+                    {
+                        PlacementValidation.Validate(data, originalCreator, report);
+                    }
+                    report.Error(
+                        "ADDITION_UNEDITABLE_PRESERVED",
+                        location,
+                        "The source addition cannot be represented by this editor profile and was retained unchanged.");
+                }
+                continue;
+            }
+
             CreatorMetadata creator;
             if (!creators.TryGetValue(data.Type, out creator))
             {
@@ -325,7 +351,8 @@ internal sealed class LevelEditSession
         foreach (FrameworkObjectData sourceAddition in ImportedDocument.Additions)
         {
             importedIds.Add(sourceAddition.Id);
-            if (_preservedAdditionIds.Contains(sourceAddition.Id))
+            if (sourceAddition.PreserveOriginalAddition
+                || _preservedAdditionIds.Contains(sourceAddition.Id))
             {
                 additions.Add(sourceAddition.WithPreservedOriginalAddition());
                 continue;
@@ -378,7 +405,8 @@ internal sealed class LevelEditSession
 
         foreach (FrameworkObjectData addition in ImportedDocument.Additions)
         {
-            if (_preservedAdditionIds.Contains(addition.Id))
+            if (addition.PreserveOriginalAddition
+                || _preservedAdditionIds.Contains(addition.Id))
             {
                 report.Warning(
                     "UNEDITABLE_ADDITION_PRESERVED",
@@ -404,7 +432,9 @@ internal sealed class LevelEditSession
             if (diagnostic.Location == "$"
                 || diagnostic.Location == LevelFrameworkContract.AdditionsField
                 || diagnostic.Location == LevelFrameworkContract.ModificationsField
-                || diagnostic.Location == LevelFrameworkContract.DeletionsField)
+                || diagnostic.Location == LevelFrameworkContract.DeletionsField
+                || diagnostic.Location.StartsWith(LevelFrameworkContract.ModificationsField + "[", StringComparison.Ordinal)
+                || diagnostic.Location.StartsWith(LevelFrameworkContract.DeletionsField + "[", StringComparison.Ordinal))
                 return true;
         }
 
