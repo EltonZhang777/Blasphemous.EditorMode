@@ -58,7 +58,9 @@ internal sealed class FrameworkObjectData
         FrameworkVector rotation,
         FrameworkVector scale,
         string condition,
-        IEnumerable<string> properties)
+        IEnumerable<string> properties,
+        JObject originalAddition = null,
+        bool preserveOriginalAddition = false)
     {
         Scene = scene;
         Path = path;
@@ -70,6 +72,8 @@ internal sealed class FrameworkObjectData
         Condition = condition ?? string.Empty;
         Properties = new ReadOnlyCollection<string>(
             new List<string>(properties ?? new string[0]));
+        OriginalAddition = originalAddition;
+        PreserveOriginalAddition = preserveOriginalAddition;
     }
 
     internal string Scene { get; }
@@ -81,6 +85,24 @@ internal sealed class FrameworkObjectData
     internal FrameworkVector Scale { get; }
     internal string Condition { get; }
     internal ReadOnlyCollection<string> Properties { get; }
+    internal JObject OriginalAddition { get; }
+    internal bool PreserveOriginalAddition { get; }
+
+    internal FrameworkObjectData WithPreservedOriginalAddition()
+    {
+        return new FrameworkObjectData(
+            Scene,
+            Path,
+            Type,
+            Id,
+            Position,
+            Rotation,
+            Scale,
+            Condition,
+            Properties,
+            OriginalAddition,
+            true);
+    }
 }
 
 internal sealed class FrameworkLevelEdit
@@ -662,7 +684,8 @@ internal static class LevelFrameworkAdapter
             rotation,
             scale,
             condition,
-            properties);
+            properties,
+            operation == FrameworkOperation.Addition ? (JObject)entry.DeepClone() : null);
         return true;
     }
 
@@ -891,7 +914,19 @@ internal static class LevelFrameworkAdapter
     {
         var array = new JArray();
         foreach (FrameworkObjectData entry in entries)
-            array.Add(BuildObject(entry, operation));
+        {
+            if (operation == FrameworkOperation.Addition
+                && entry != null
+                && entry.PreserveOriginalAddition
+                && entry.OriginalAddition != null)
+            {
+                array.Add(entry.OriginalAddition.DeepClone());
+            }
+            else
+            {
+                array.Add(BuildObject(entry, operation));
+            }
+        }
         return array;
     }
 

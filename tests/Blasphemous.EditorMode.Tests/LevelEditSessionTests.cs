@@ -3,6 +3,7 @@ using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
 using Blasphemous.EditorMode.Framework;
 using Blasphemous.EditorMode.Lifecycle;
+using Newtonsoft.Json.Linq;
 using System;
 using System.IO;
 using Xunit;
@@ -120,6 +121,66 @@ public sealed class LevelEditSessionTests
             Assert.Contains("authored", File.ReadAllText(path));
             Assert.Contains("flag:opened", File.ReadAllText(path));
             Assert.Equal(LevelEditSessionState.Clean, imported.Session.State);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Export_preserves_uneditable_additions_and_round_trips_supported_edits()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[{\"type\":\"unknown\",\"id\":\"missing\",\"payload\":{\"keep\":true}},{\"type\":\"bell-iron\",\"id\":\"unsupported\",\"properties\":[\"unsupported\"],\"payload\":\"keep\"},{\"type\":\"bell-iron\",\"id\":\"supported\",\"position\":{\"x\":1,\"y\":2,\"z\":3}}],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
+            LevelEditSessionImportResult imported = LevelEditSession.Import(
+                CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
+                file,
+                new[] { BaseCreatorCatalog.BellIron });
+
+            Assert.True(imported.Succeeded, imported.StatusMessage);
+            Assert.Equal(LevelEditSessionState.Partial, imported.State);
+            Assert.Contains(imported.Report.Entries, entry => entry.Code == "CREATOR_UNSUPPORTED");
+            Assert.Contains(imported.Report.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
+
+            RuntimePlacementManager manager = new RuntimePlacementManager(
+                imported.Session,
+                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                new TestFactory());
+            ApplyReport report = new ApplyReport();
+            PlacementRecord supported = imported.Session.Placements[0];
+            Assert.True(manager.TryProjectExisting(supported, report), report.ToSummary("project"));
+            Assert.True(manager.TryMove(
+                supported.Id,
+                new PlacementTransform(8f, 2f, 3f, 0f, 0f, 0f, 1f, 1f, 1f),
+                report), report.ToSummary("move"));
+
+            LevelEditSessionExportResult exported = imported.Session.Export(path);
+
+            Assert.True(exported.Succeeded, exported.StatusMessage);
+            Assert.Equal(LevelEditSessionState.Partial, imported.Session.State);
+            Assert.Contains(exported.Report.Entries, entry => entry.Code == "UNEDITABLE_ADDITION_PRESERVED");
+            JObject originalJson = JObject.Parse(source);
+            JObject exportedJson = JObject.Parse(File.ReadAllText(path));
+            Assert.True(JToken.DeepEquals(originalJson["additions"][0], exportedJson["additions"][0]));
+            Assert.True(JToken.DeepEquals(originalJson["additions"][1], exportedJson["additions"][1]));
+
+            FrameworkFileResult reimportedFile = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
+            LevelEditSessionImportResult reimported = LevelEditSession.Import(
+                CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
+                reimportedFile,
+                new[] { BaseCreatorCatalog.BellIron });
+
+            Assert.Equal(3, reimportedFile.Document.Additions.Count);
+            Assert.Equal(8f, reimported.Session.Placements[0].Transform.PositionX);
+            Assert.Contains(reimported.Report.Entries, entry => entry.Code == "CREATOR_UNSUPPORTED");
+            Assert.Contains(reimported.Report.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
         }
         finally
         {
