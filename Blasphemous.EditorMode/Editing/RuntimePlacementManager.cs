@@ -49,7 +49,7 @@ internal static class PlacementIdGenerator
     internal static string Next(string type, IEnumerable<string> existingIds)
     {
         string stem = Sanitize(type);
-        var existing = new HashSet<string>(existingIds ?? new string[0], StringComparer.OrdinalIgnoreCase);
+        HashSet<string> existing = new HashSet<string>(existingIds ?? new string[0], StringComparer.OrdinalIgnoreCase);
         for (int index = 1; ; index++)
         {
             string candidate = stem + "-" + index;
@@ -63,7 +63,7 @@ internal static class PlacementIdGenerator
         if (string.IsNullOrEmpty(value))
             return "placement";
 
-        var chars = new char[value.Length];
+        char[] chars = new char[value.Length];
         int length = 0;
         foreach (char character in value.ToLowerInvariant())
         {
@@ -565,7 +565,7 @@ internal sealed class RuntimePlacementManager
             return false;
         }
 
-        var properties = new List<string>(current.Properties);
+        List<string> properties = new List<string>(current.Properties);
         bool replaced = false;
         string prefix = definition.Key + "=";
         for (int index = 0; index < properties.Count; index++)
@@ -665,7 +665,7 @@ internal sealed class RuntimePlacementManager
 
     private PlacementManagerSnapshot CaptureSnapshot()
     {
-        var projections = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, PlacementRecord> projections = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
         foreach (string id in _projections.Keys)
         {
             PlacementRecord placement;
@@ -691,10 +691,10 @@ internal sealed class RuntimePlacementManager
 
     private bool RestoreSnapshot(PlacementManagerSnapshot snapshot, ApplyReport report)
     {
-        var applied = new List<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>>();
-        var created = new Dictionary<string, IRuntimePlacementHandle>(StringComparer.OrdinalIgnoreCase);
-        var destroyed = new List<KeyValuePair<string, PlacementRecord>>();
-        var targetIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>> applied = new List<KeyValuePair<IRuntimePlacementHandle, PlacementRecord>>();
+        Dictionary<string, IRuntimePlacementHandle> created = new Dictionary<string, IRuntimePlacementHandle>(StringComparer.OrdinalIgnoreCase);
+        List<KeyValuePair<string, PlacementRecord>> destroyed = new List<KeyValuePair<string, PlacementRecord>>();
+        HashSet<string> targetIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         IRuntimePlacementConditionFilter conditionFilter = _factory as IRuntimePlacementConditionFilter;
         foreach (KeyValuePair<string, PlacementRecord> target in snapshot.Projections)
         {

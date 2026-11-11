@@ -43,7 +43,7 @@ internal static class UnityPreviewFactory
                 root.transform);
             previewObject.name = metadata.DisplayName + " (Preview)";
 
-            var placement = new PlacementRecord(
+            PlacementRecord placement = new PlacementRecord(
                 "preview-" + metadata.Type,
                 metadata.Type,
                 new PlacementTransform(
@@ -59,7 +59,7 @@ internal static class UnityPreviewFactory
                 new string[0],
                 PlacementOwnership.ArchitectOwned);
             ObjectData data = RuntimeObjectData.Create(placement);
-            var baseModifier = new BaseModifier();
+            BaseModifier baseModifier = new BaseModifier();
             baseModifier.Apply(previewObject, data);
             if (creator.Modifier != null)
                 creator.Modifier.Apply(previewObject, data);

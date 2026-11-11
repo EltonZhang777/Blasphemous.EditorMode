@@ -63,15 +63,15 @@ internal static class CreatorProbe
         if (catalog == null)
             throw new ArgumentNullException(nameof(catalog));
 
-        var registered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> registered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string type in registeredTypes ?? new string[0])
         {
             if (!string.IsNullOrEmpty(type) && type.Trim().Length > 0)
                 registered.Add(type);
         }
 
-        var available = new List<CreatorMetadata>();
-        var diagnostics = new List<CreatorProbeDiagnostic>();
+        List<CreatorMetadata> available = new List<CreatorMetadata>();
+        List<CreatorProbeDiagnostic> diagnostics = new List<CreatorProbeDiagnostic>();
         foreach (CreatorMetadata metadata in catalog)
         {
             if (metadata == null)

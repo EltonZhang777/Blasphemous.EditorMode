@@ -6,6 +6,7 @@ using Blasphemous.Framework.Levels.Modifiers;
 using Framework.Managers;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using Tools.Level.Layout;
@@ -69,7 +70,7 @@ internal sealed class UnityRuntimePlacementFactory :
         try
         {
             clone = UnityEngine.Object.Instantiate(creator.Loader.Result, holder);
-            var handle = new UnityRuntimePlacementHandle(
+            UnityRuntimePlacementHandle handle = new UnityRuntimePlacementHandle(
                 placement.Id,
                 placement.Type,
                 clone,
@@ -119,7 +120,7 @@ internal sealed class UnityRuntimePlacementFactory :
         if (!TryTakeMatchingMarker(lookup, holder, placement, out marker))
             return false;
 
-        var adopted = new UnityRuntimePlacementHandle(
+        UnityRuntimePlacementHandle adopted = new UnityRuntimePlacementHandle(
             placement.Id,
             placement.Type,
             marker.gameObject,
@@ -139,8 +140,9 @@ internal sealed class UnityRuntimePlacementFactory :
     private static Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> BuildFrameworkMarkerLookup(
         Transform holder)
     {
-        var lookup = new Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>>(
-            StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> lookup =
+            new Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>>(
+                StringComparer.OrdinalIgnoreCase);
         if (holder == null)
             return lookup;
 
@@ -458,7 +460,7 @@ internal static class RuntimeObjectData
 {
     internal static ObjectData Create(PlacementRecord placement)
     {
-        var json = new JObject
+        JObject json = new JObject
         {
             ["type"] = placement.Type,
             ["id"] = placement.Id,
@@ -506,7 +508,7 @@ internal static class RuntimeCreatorRegistry
                 return false;
             }
 
-            var entries = property.GetValue(null, null) as System.Collections.IEnumerable;
+            IEnumerable entries = property.GetValue(null, null) as System.Collections.IEnumerable;
             if (entries == null)
             {
                 error = "Level Framework creator registry returned no entries.";

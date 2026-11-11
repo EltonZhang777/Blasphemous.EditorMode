@@ -36,7 +36,7 @@ public sealed class CreatorProbeTests
     [Fact]
     public void Unsupported_creator_is_reported_without_throwing()
     {
-        var unsupported = new CreatorMetadata(
+        CreatorMetadata unsupported = new CreatorMetadata(
             "optional-object",
             "Optional object",
             "Optional",

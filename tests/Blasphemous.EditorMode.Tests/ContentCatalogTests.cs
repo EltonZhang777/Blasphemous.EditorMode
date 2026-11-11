@@ -25,7 +25,7 @@ public sealed class ContentCatalogTests
     [Fact]
     public void Missing_or_optional_entries_are_not_placeable_and_remain_diagnosed()
     {
-        var optional = new CreatorMetadata(
+        CreatorMetadata optional = new CreatorMetadata(
             "optional-object",
             "Optional object",
             "Optional",
@@ -71,7 +71,7 @@ public sealed class ContentCatalogTests
     public void Preview_follows_cursor_until_disposed()
     {
         int updates = 0;
-        var preview = new PreviewInstance(BaseCreatorCatalog.BellIron, null, () => updates++);
+        PreviewInstance preview = new PreviewInstance(BaseCreatorCatalog.BellIron, null, () => updates++);
 
         preview.FollowCursor();
         Assert.Equal(1, updates);

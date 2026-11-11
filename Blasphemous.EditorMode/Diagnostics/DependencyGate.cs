@@ -124,8 +124,8 @@ public static class DependencyGate
             throw new ArgumentNullException(nameof(requirements));
         }
 
-        var installedById = new Dictionary<string, InstalledDependency>(StringComparer.OrdinalIgnoreCase);
-        foreach (var dependency in installedDependencies ?? Enumerable.Empty<InstalledDependency>())
+        Dictionary<string, InstalledDependency> installedById = new Dictionary<string, InstalledDependency>(StringComparer.OrdinalIgnoreCase);
+        foreach (InstalledDependency dependency in installedDependencies ?? Enumerable.Empty<InstalledDependency>())
         {
             InstalledDependency existing;
             if (!installedById.TryGetValue(dependency.Id, out existing)
@@ -135,9 +135,9 @@ public static class DependencyGate
             }
         }
 
-        var diagnostics = new List<DependencyDiagnostic>();
-        var report = new List<string>();
-        foreach (var requirement in requirements)
+        List<DependencyDiagnostic> diagnostics = new List<DependencyDiagnostic>();
+        List<string> report = new List<string>();
+        foreach (DependencyRequirement requirement in requirements)
         {
             InstalledDependency installed;
             if (!installedById.TryGetValue(requirement.Id, out installed))
@@ -176,8 +176,8 @@ public static class DependencyGate
             }
         }
 
-        var isCompatible = diagnostics.Count == 0;
-        var prefix = isCompatible ? "Editor Mode dependency gate passed" : "Editor Mode disabled";
+        bool isCompatible = diagnostics.Count == 0;
+        string prefix = isCompatible ? "Editor Mode dependency gate passed" : "Editor Mode disabled";
         return new DependencyGateResult(
             isCompatible,
             diagnostics,

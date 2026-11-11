@@ -103,7 +103,7 @@ internal sealed class LevelEditSession
         FrameworkFileResult file,
         IEnumerable<CreatorMetadata> supportedCreators)
     {
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         if (room == null)
         {
             report.Error("ROOM_REQUIRED", "$", "Current Room Identity is required.");
@@ -139,15 +139,15 @@ internal sealed class LevelEditSession
         }
 
         report.MergeFrameworkDiagnostics(file.Diagnostics);
-        var creators = new Dictionary<string, CreatorMetadata>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, CreatorMetadata> creators = new Dictionary<string, CreatorMetadata>(StringComparer.OrdinalIgnoreCase);
         foreach (CreatorMetadata creator in supportedCreators ?? new CreatorMetadata[0])
         {
             if (creator != null && creator.IsSupported && !creators.ContainsKey(creator.Type))
                 creators.Add(creator.Type, creator);
         }
 
-        var placements = new List<PlacementRecord>();
-        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<PlacementRecord> placements = new List<PlacementRecord>();
+        HashSet<string> ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (FrameworkObjectData data in file.Document.Additions)
         {
             CreatorMetadata creator;
@@ -176,7 +176,7 @@ internal sealed class LevelEditSession
             report.Applied();
         }
 
-        var preservedAdditionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> preservedAdditionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (FrameworkObjectData data in file.Document.Additions)
         {
             if (!ids.Contains(data.Id))
@@ -194,7 +194,7 @@ internal sealed class LevelEditSession
         LevelEditSessionState state = report.IsPartial
             ? LevelEditSessionState.Partial
             : LevelEditSessionState.Clean;
-        var session = new LevelEditSession(
+        LevelEditSession session = new LevelEditSession(
             room,
             file.Document,
             file.OriginalText,
@@ -313,15 +313,15 @@ internal sealed class LevelEditSession
 
     internal FrameworkLevelEdit BuildExportDocument()
     {
-        var additions = new List<FrameworkObjectData>();
-        var currentById = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
+        List<FrameworkObjectData> additions = new List<FrameworkObjectData>();
+        Dictionary<string, PlacementRecord> currentById = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
         foreach (PlacementRecord placement in _placements)
         {
             if (placement.Ownership == PlacementOwnership.ArchitectOwned)
                 currentById.Add(placement.Id, placement);
         }
 
-        var importedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> importedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (FrameworkObjectData sourceAddition in ImportedDocument.Additions)
         {
             importedIds.Add(sourceAddition.Id);
@@ -353,7 +353,7 @@ internal sealed class LevelEditSession
 
     internal LevelEditSessionExportResult Export(string path)
     {
-        var report = new ApplyReport();
+        ApplyReport report = new ApplyReport();
         if (State == LevelEditSessionState.Failed)
         {
             report.Error("EXPORT_SESSION_FAILED", path, "A failed session cannot be exported.");

@@ -57,9 +57,9 @@ public sealed class EditorModeGuardTests
     [Fact]
     public void Entry_requires_debug_gate_and_compatible_room()
     {
-        var state = new TestState();
-        var guard = CreateGuard(state);
-        var target = CreateSnapshot();
+        TestState state = new TestState();
+        EditorModeGuard guard = CreateGuard(state);
+        EditorRuntimeState target = CreateSnapshot();
         string error;
 
         Assert.False(guard.TryEnter(false, true, target, out error));
@@ -73,9 +73,9 @@ public sealed class EditorModeGuardTests
     [Fact]
     public void Exit_restores_every_captured_field()
     {
-        var state = new TestState { Current = CreateSnapshot(1.5f, true, true, false, true, false, false, true, false, true, false, false, 2) };
-        var original = state.Current;
-        var guard = CreateGuard(state);
+        TestState state = new TestState { Current = CreateSnapshot(1.5f, true, true, false, true, false, false, true, false, true, false, false, 2) };
+        EditorRuntimeState original = state.Current;
+        EditorModeGuard guard = CreateGuard(state);
         string error;
 
         Assert.True(guard.TryEnter(true, true, CreateSnapshot(), out error));
@@ -93,11 +93,11 @@ public sealed class EditorModeGuardTests
     [Fact]
     public void Resume_restores_player_runtime_and_exit_preserves_live_gameplay_state()
     {
-        var state = new TestState
+        TestState state = new TestState
         {
             Current = CreateSnapshot(0.75f, false, false, true, true, true, true, false, true, true)
         };
-        var guard = CreateGuard(state);
+        EditorModeGuard guard = CreateGuard(state);
         string error;
         EditorRuntimeState editorState = CreateSnapshot(0f, true, true, false, false, false, false, true, false, false, false, true, 0);
 
@@ -133,11 +133,11 @@ public sealed class EditorModeGuardTests
     [Fact]
     public void Failed_resume_restores_editor_state_and_can_be_retried()
     {
-        var state = new TestState
+        TestState state = new TestState
         {
             Current = CreateSnapshot(0.75f, false, false, true, true, true, true, false, true, true)
         };
-        var guard = CreateGuard(state);
+        EditorModeGuard guard = CreateGuard(state);
         string error;
         EditorRuntimeState editorState = CreateSnapshot(0f, true, true, false, false, false, false, true, false, false, false, true, 0);
         Assert.True(guard.TryEnter(true, true, editorState, out error), error);
@@ -163,8 +163,8 @@ public sealed class EditorModeGuardTests
     [Fact]
     public void Failed_entry_rolls_back_and_remains_inactive()
     {
-        var state = new TestState { ThrowOnApplyNumber = 1 };
-        var guard = CreateGuard(state);
+        TestState state = new TestState { ThrowOnApplyNumber = 1 };
+        EditorModeGuard guard = CreateGuard(state);
         string error;
 
         Assert.False(guard.TryEnter(true, true, CreateSnapshot(), out error));
@@ -176,8 +176,8 @@ public sealed class EditorModeGuardTests
     [Fact]
     public void Failed_entry_keeps_original_snapshot_when_rollback_also_fails()
     {
-        var state = new TestState { ThrowOnApplyNumbers = new[] { 1, 2, 3 } };
-        var guard = CreateGuard(state);
+        TestState state = new TestState { ThrowOnApplyNumbers = new[] { 1, 2, 3 } };
+        EditorModeGuard guard = CreateGuard(state);
         string error;
 
         Assert.False(guard.TryEnter(true, true, CreateSnapshot(), out error));
@@ -193,9 +193,9 @@ public sealed class EditorModeGuardTests
     [Fact]
     public void Cinematic_state_rejects_entry_without_mutation()
     {
-        var state = new TestState { Current = CreateSnapshot(cinematicMode: true) };
-        var original = state.Current;
-        var guard = CreateGuard(state);
+        TestState state = new TestState { Current = CreateSnapshot(cinematicMode: true) };
+        EditorRuntimeState original = state.Current;
+        EditorModeGuard guard = CreateGuard(state);
         string error;
 
         Assert.False(guard.TryEnter(true, true, CreateSnapshot(), out error));
