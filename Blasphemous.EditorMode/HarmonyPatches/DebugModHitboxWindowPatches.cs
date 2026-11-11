@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using Blasphemous.EditorMode.Components;
@@ -8,7 +9,7 @@ namespace Blasphemous.EditorMode.HarmonyPatches;
 
 /// <summary>Lets Editor Mode own the cursor while Debug Mod's hitbox window is suppressed.</summary>
 [HarmonyPatch]
-internal static class DebugModHitboxWindowPatch
+internal static class HitboxWindow_PreserveEditorModeCursor_Patch
 {
     private static IEnumerable<MethodBase> TargetMethods()
     {
@@ -16,7 +17,7 @@ internal static class DebugModHitboxWindowPatch
         if (type == null)
             yield break;
 
-        MethodBase method = AccessTools.Method(type, "OnGUI");
+        MethodBase method = AccessTools.Method(type, "OnGUI", Type.EmptyTypes);
         if (method != null)
             yield return method;
     }
