@@ -37,6 +37,12 @@ internal interface IRuntimePlacementAdopter
         out string error);
 }
 
+internal interface IRuntimePlacementAdoptionPass
+{
+    void BeginAdoptionPass();
+    void EndAdoptionPass();
+}
+
 /// <summary>Creates deterministic, non-conflicting IDs for one session.</summary>
 internal static class PlacementIdGenerator
 {

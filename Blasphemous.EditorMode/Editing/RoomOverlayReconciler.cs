@@ -58,13 +58,25 @@ internal sealed class RoomOverlayReconciler
             return new RoomOverlayReconcileResult(room, null, null, report);
 
         var next = new RuntimePlacementManager(imported.Session, _catalog, _factory);
-        foreach (PlacementRecord placement in imported.Session.Placements)
-        {
-            if (next.TryProjectExisting(placement, report))
-                continue;
+        IRuntimePlacementAdoptionPass adoptionPass = _factory as IRuntimePlacementAdoptionPass;
+        if (adoptionPass != null)
+            adoptionPass.BeginAdoptionPass();
 
-            next.TryClear(report);
-            return new RoomOverlayReconcileResult(room, null, null, report);
+        try
+        {
+            foreach (PlacementRecord placement in imported.Session.Placements)
+            {
+                if (next.TryProjectExisting(placement, report))
+                    continue;
+
+                next.TryClear(report);
+                return new RoomOverlayReconcileResult(room, null, null, report);
+            }
+        }
+        finally
+        {
+            if (adoptionPass != null)
+                adoptionPass.EndAdoptionPass();
         }
 
         if (report.IsPartial)

@@ -6,6 +6,7 @@ using Blasphemous.Framework.Levels.Modifiers;
 using Framework.Managers;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using Tools.Level.Layout;
 using UnityEngine;
@@ -16,13 +17,31 @@ namespace Blasphemous.EditorMode.Runtime;
 internal sealed class UnityRuntimePlacementFactory :
     IRuntimePlacementFactory,
     IRuntimePlacementConditionFilter,
-    IRuntimePlacementAdopter
+    IRuntimePlacementAdopter,
+    IRuntimePlacementAdoptionPass
 {
     private readonly Func<Transform> _holderProvider;
+    private bool _adoptionPassActive;
+    private Transform _adoptionPassHolder;
+    private Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> _adoptionMarkers;
 
     internal UnityRuntimePlacementFactory(Func<Transform> holderProvider)
     {
         _holderProvider = holderProvider ?? FindCurrentObjectHolder;
+    }
+
+    public void BeginAdoptionPass()
+    {
+        _adoptionPassHolder = _holderProvider();
+        _adoptionMarkers = BuildFrameworkMarkerLookup(_adoptionPassHolder);
+        _adoptionPassActive = true;
+    }
+
+    public void EndAdoptionPass()
+    {
+        _adoptionPassActive = false;
+        _adoptionPassHolder = null;
+        _adoptionMarkers = null;
     }
 
     public IRuntimePlacementHandle Create(PlacementRecord placement)
@@ -87,12 +106,43 @@ internal sealed class UnityRuntimePlacementFactory :
         if (!RuntimeCreatorRegistry.TryGet(placement.Type, out creator, out error))
             return false;
 
-        Transform holder = _holderProvider();
+        Transform holder = _adoptionPassActive ? _adoptionPassHolder : _holderProvider();
         if (holder == null)
         {
             error = "Current LevelInitializer object holder is unavailable.";
             return false;
         }
+
+        Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> lookup =
+            _adoptionPassActive ? _adoptionMarkers : BuildFrameworkMarkerLookup(holder);
+        RuntimePlacementMarker marker;
+        if (!TryTakeMatchingMarker(lookup, holder, placement, out marker))
+            return false;
+
+        var adopted = new UnityRuntimePlacementHandle(
+            placement.Id,
+            placement.Type,
+            marker.gameObject,
+            creator);
+        string applyError;
+        if (!adopted.TryApply(placement, out applyError))
+        {
+            error = applyError ?? "Framework projection rejected adoption.";
+            return false;
+        }
+
+        MarkEditorProjection(marker.gameObject, placement);
+        handle = adopted;
+        return true;
+    }
+
+    private static Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> BuildFrameworkMarkerLookup(
+        Transform holder)
+    {
+        var lookup = new Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>>(
+            StringComparer.OrdinalIgnoreCase);
+        if (holder == null)
+            return lookup;
 
         RuntimePlacementMarker[] markers = UnityEngine.Object.FindObjectsOfType<RuntimePlacementMarker>();
         foreach (RuntimePlacementMarker marker in markers)
@@ -100,28 +150,68 @@ internal sealed class UnityRuntimePlacementFactory :
             if (marker == null || marker.transform == null
                 || !marker.transform.IsChildOf(holder)
                 || !string.Equals(marker.Source, "Framework", StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(marker.PlacementId, placement.Id, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(marker.Type, placement.Type, StringComparison.OrdinalIgnoreCase))
+                || string.IsNullOrEmpty(marker.PlacementId)
+                || string.IsNullOrEmpty(marker.Type))
                 continue;
 
-            var adopted = new UnityRuntimePlacementHandle(
-                placement.Id,
-                placement.Type,
-                marker.gameObject,
-                creator);
-            string applyError;
-            if (!adopted.TryApply(placement, out applyError))
+            Dictionary<string, Queue<RuntimePlacementMarker>> byType;
+            if (!lookup.TryGetValue(marker.PlacementId, out byType))
             {
-                error = applyError ?? "Framework projection rejected adoption.";
-                return false;
+                byType = new Dictionary<string, Queue<RuntimePlacementMarker>>(StringComparer.OrdinalIgnoreCase);
+                lookup.Add(marker.PlacementId, byType);
             }
 
-            MarkEditorProjection(marker.gameObject, placement);
-            handle = adopted;
-            return true;
+            Queue<RuntimePlacementMarker> matchingMarkers;
+            if (!byType.TryGetValue(marker.Type, out matchingMarkers))
+            {
+                matchingMarkers = new Queue<RuntimePlacementMarker>();
+                byType.Add(marker.Type, matchingMarkers);
+            }
+
+            matchingMarkers.Enqueue(marker);
         }
 
-        return false;
+        return lookup;
+    }
+
+    private static bool TryTakeMatchingMarker(
+        Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> lookup,
+        Transform holder,
+        PlacementRecord placement,
+        out RuntimePlacementMarker marker)
+    {
+        marker = null;
+        if (lookup == null)
+            return false;
+
+        Dictionary<string, Queue<RuntimePlacementMarker>> byType;
+        Queue<RuntimePlacementMarker> candidates;
+        if (!lookup.TryGetValue(placement.Id, out byType)
+            || !byType.TryGetValue(placement.Type, out candidates))
+            return false;
+
+        while (candidates.Count > 0)
+        {
+            RuntimePlacementMarker candidate = candidates.Dequeue();
+            if (candidate == null || candidate.transform == null
+                || !candidate.transform.IsChildOf(holder)
+                || !string.Equals(candidate.Source, "Framework", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(candidate.PlacementId, placement.Id, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(candidate.Type, placement.Type, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            marker = candidate;
+            break;
+        }
+
+        if (candidates.Count == 0)
+        {
+            byType.Remove(placement.Type);
+            if (byType.Count == 0)
+                lookup.Remove(placement.Id);
+        }
+
+        return marker != null;
     }
 
     public bool ShouldProject(PlacementRecord placement, out string reason)

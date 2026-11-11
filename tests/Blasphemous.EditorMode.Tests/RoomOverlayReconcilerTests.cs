@@ -46,6 +46,43 @@ public sealed class RoomOverlayReconcilerTests
     }
 
     [Fact]
+    public void Multiple_placements_share_one_adoption_lookup_and_adopt_compatible_markers_once()
+    {
+        string source = DocumentWithPlacements();
+        FrameworkCodecResult parsed = LevelFrameworkAdapter.Parse(source);
+        Assert.True(parsed.IsValid);
+        FrameworkFileResult file = new FrameworkFileResult(
+            "D03Z02S06.json",
+            source,
+            parsed.Document,
+            parsed.Diagnostics);
+        FakeFrameworkMarker first = new FakeFrameworkMarker("room", "Framework", "first", "bell-iron");
+        FakeFrameworkMarker second = new FakeFrameworkMarker("room", "Framework", "second", "bell-iron");
+        FakeFrameworkMarker wrongRoom = new FakeFrameworkMarker("other-room", "Framework", "first", "bell-iron");
+        FakeFrameworkMarker wrongSource = new FakeFrameworkMarker("room", "EditorMode", "second", "bell-iron");
+        FakeFrameworkMarker wrongType = new FakeFrameworkMarker("room", "Framework", "first", "other");
+        FakeAdoptingFactory factory = new FakeAdoptingFactory(
+            new[] { first, second, wrongRoom, wrongSource, wrongType });
+        RoomOverlayReconciler reconciler = new RoomOverlayReconciler(
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        RoomOverlayReconcileResult result = reconciler.Apply(
+            CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
+            file);
+
+        Assert.True(result.Succeeded, result.StatusMessage);
+        Assert.Equal(1, factory.LookupBuildCount);
+        Assert.Equal(1, factory.AdoptionPassCount);
+        Assert.Equal(1, factory.AdoptionPassEndCount);
+        Assert.Equal(2, factory.Adopted.Count);
+        Assert.Equal(1, first.AdoptionCount);
+        Assert.Equal(1, second.AdoptionCount);
+        Assert.Equal(0, wrongRoom.AdoptionCount);
+        Assert.Equal(0, wrongSource.AdoptionCount);
+        Assert.Equal(0, wrongType.AdoptionCount);
+    }
+
+    [Fact]
     public void Failed_import_preserves_current_session_and_projection()
     {
         string path = "D03Z02S06.json";
@@ -196,6 +233,11 @@ public sealed class RoomOverlayReconcilerTests
         return "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"authored\",\"position\":{\"x\":1,\"y\":2,\"z\":3},\"condition\":\"flag:opened\"}],\"modifications\":[],\"deletions\":[]}";
     }
 
+    private static string DocumentWithPlacements()
+    {
+        return "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"first\",\"position\":{\"x\":1,\"y\":2,\"z\":3}},{\"type\":\"bell-iron\",\"id\":\"second\",\"position\":{\"x\":4,\"y\":5,\"z\":6}}],\"modifications\":[],\"deletions\":[]}";
+    }
+
     private static RoomIdentity CreateRoom(string levelKey, string scene)
     {
         RoomIdentity room;
@@ -225,6 +267,91 @@ public sealed class RoomOverlayReconcilerTests
             Created.Add(handle);
             return handle;
         }
+    }
+
+    private sealed class FakeAdoptingFactory :
+        IRuntimePlacementFactory,
+        IRuntimePlacementAdopter,
+        IRuntimePlacementAdoptionPass
+    {
+        private readonly List<FakeFrameworkMarker> _markers;
+        private List<FakeFrameworkMarker> _lookup;
+
+        internal FakeAdoptingFactory(IEnumerable<FakeFrameworkMarker> markers)
+        {
+            _markers = new List<FakeFrameworkMarker>(markers);
+            Adopted = new List<FakeFrameworkMarker>();
+        }
+
+        internal int LookupBuildCount { get; private set; }
+        internal int AdoptionPassCount { get; private set; }
+        internal int AdoptionPassEndCount { get; private set; }
+        internal List<FakeFrameworkMarker> Adopted { get; }
+
+        public IRuntimePlacementHandle Create(PlacementRecord placement)
+        {
+            return new FakeHandle(placement.Id);
+        }
+
+        public void BeginAdoptionPass()
+        {
+            AdoptionPassCount++;
+            LookupBuildCount++;
+            _lookup = new List<FakeFrameworkMarker>();
+            foreach (FakeFrameworkMarker marker in _markers)
+            {
+                if (string.Equals(marker.Holder, "room", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(marker.Source, "Framework", StringComparison.OrdinalIgnoreCase))
+                    _lookup.Add(marker);
+            }
+        }
+
+        public void EndAdoptionPass()
+        {
+            AdoptionPassEndCount++;
+            _lookup = null;
+        }
+
+        public bool TryAdopt(
+            PlacementRecord placement,
+            out IRuntimePlacementHandle handle,
+            out string error)
+        {
+            handle = null;
+            error = null;
+            for (int index = 0; index < _lookup.Count; index++)
+            {
+                FakeFrameworkMarker marker = _lookup[index];
+                if (!string.Equals(marker.PlacementId, placement.Id, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(marker.Type, placement.Type, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                _lookup.RemoveAt(index);
+                marker.AdoptionCount++;
+                Adopted.Add(marker);
+                handle = new FakeHandle(placement.Id);
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    private sealed class FakeFrameworkMarker
+    {
+        internal FakeFrameworkMarker(string holder, string source, string placementId, string type)
+        {
+            Holder = holder;
+            Source = source;
+            PlacementId = placementId;
+            Type = type;
+        }
+
+        internal string Holder { get; }
+        internal string Source { get; }
+        internal string PlacementId { get; }
+        internal string Type { get; }
+        internal int AdoptionCount { get; set; }
     }
 
     private sealed class FakeHandle : IRuntimePlacementHandle
