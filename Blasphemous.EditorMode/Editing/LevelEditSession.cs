@@ -65,12 +65,14 @@ internal sealed class LevelEditSessionExportResult
 internal sealed class LevelEditSession
 {
     private readonly List<PlacementRecord> _placements;
+    private readonly HashSet<string> _preservedAdditionIds;
 
     private LevelEditSession(
         RoomIdentity room,
         FrameworkLevelEdit importedDocument,
         string sourceText,
         IEnumerable<PlacementRecord> placements,
+        IEnumerable<string> preservedAdditionIds,
         LevelEditSessionState state,
         ApplyReport report)
     {
@@ -78,6 +80,9 @@ internal sealed class LevelEditSession
         ImportedDocument = importedDocument;
         OriginalSourceText = sourceText;
         _placements = new List<PlacementRecord>(placements ?? new PlacementRecord[0]);
+        _preservedAdditionIds = new HashSet<string>(
+            preservedAdditionIds ?? new string[0],
+            StringComparer.OrdinalIgnoreCase);
         State = state;
         LastReport = report;
     }
@@ -171,6 +176,13 @@ internal sealed class LevelEditSession
             report.Applied();
         }
 
+        var preservedAdditionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (FrameworkObjectData data in file.Document.Additions)
+        {
+            if (!ids.Contains(data.Id))
+                preservedAdditionIds.Add(data.Id);
+        }
+
         if (file.Document.Modifications.Count > 0 || file.Document.Deletions.Count > 0)
         {
             report.Warning(
@@ -187,6 +199,7 @@ internal sealed class LevelEditSession
             file.Document,
             file.OriginalText,
             placements,
+            preservedAdditionIds,
             state,
             report);
         return new LevelEditSessionImportResult(session, state, report, file.OriginalText);
@@ -301,10 +314,35 @@ internal sealed class LevelEditSession
     internal FrameworkLevelEdit BuildExportDocument()
     {
         var additions = new List<FrameworkObjectData>();
+        var currentById = new Dictionary<string, PlacementRecord>(StringComparer.OrdinalIgnoreCase);
         foreach (PlacementRecord placement in _placements)
         {
             if (placement.Ownership == PlacementOwnership.ArchitectOwned)
+                currentById.Add(placement.Id, placement);
+        }
+
+        var importedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (FrameworkObjectData sourceAddition in ImportedDocument.Additions)
+        {
+            importedIds.Add(sourceAddition.Id);
+            if (_preservedAdditionIds.Contains(sourceAddition.Id))
+            {
+                additions.Add(sourceAddition.WithPreservedOriginalAddition());
+                continue;
+            }
+
+            PlacementRecord placement;
+            if (currentById.TryGetValue(sourceAddition.Id, out placement))
                 additions.Add(placement.ToFrameworkData());
+        }
+
+        foreach (PlacementRecord placement in _placements)
+        {
+            if (placement.Ownership == PlacementOwnership.ArchitectOwned
+                && !importedIds.Contains(placement.Id))
+            {
+                additions.Add(placement.ToFrameworkData());
+            }
         }
 
         return new FrameworkLevelEdit(
@@ -336,6 +374,18 @@ internal sealed class LevelEditSession
                 "Export failed; the previous valid file remains available.");
             LastReport = report;
             return new LevelEditSessionExportResult(frameworkResult, report, document);
+        }
+
+        foreach (FrameworkObjectData addition in ImportedDocument.Additions)
+        {
+            if (_preservedAdditionIds.Contains(addition.Id))
+            {
+                report.Warning(
+                    "UNEDITABLE_ADDITION_PRESERVED",
+                    addition.Id,
+                    "An uneditable source addition was retained unchanged.",
+                    true);
+            }
         }
 
         State = report.IsPartial ? LevelEditSessionState.Partial : LevelEditSessionState.Clean;
