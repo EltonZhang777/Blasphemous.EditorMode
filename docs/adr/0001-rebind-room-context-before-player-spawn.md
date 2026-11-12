@@ -1,0 +1,3 @@
+# Rebind the room context before player spawn
+
+Blasphemous.ModdingAPI routes `OnLevelPreloaded` from the game's `LevelManager.OnLevelPreLoaded`, before enemy and player spawning. On the first room, the active initializer's `LevelEffectsStore` property may not be initialized at this boundary even though the component is present. The game assigns that property in `LevelInitializer.Awake`, before effect components read `Core.Logic.CurrentLevelConfig.LevelEffectsStore` in `Start`. Rebind to the active initializer when its hierarchy contains the store component; otherwise keep the existing context and publish an actionable diagnostic.

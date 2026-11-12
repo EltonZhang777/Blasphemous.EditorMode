@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.4.1" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.4.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\DependencyGate.cs" Link="Diagnostics\DependencyGate.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Framework\LevelFrameworkContract.cs" Link="Framework\LevelFrameworkContract.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Content\CreatorMetadata.cs" Link="Content\CreatorMetadata.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Content\CreatorProbe.cs" Link="Content\CreatorProbe.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Content\ContentCatalog.cs" Link="Content\ContentCatalog.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\RoomIdentity.cs" Link="Lifecycle\RoomIdentity.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\BlasphemousLifecycleBridge.cs" Link="Lifecycle\BlasphemousLifecycleBridge.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\EditorRuntimeState.cs" Link="Lifecycle\EditorRuntimeState.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Framework\LevelFrameworkAdapter.cs" Link="Framework\LevelFrameworkAdapter.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\ApplyReport.cs" Link="Diagnostics\ApplyReport.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\ApplyReportSurface.cs" Link="Diagnostics\ApplyReportSurface.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\EditorFlowRecovery.cs" Link="Diagnostics\EditorFlowRecovery.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\P0AcceptanceGate.cs" Link="Diagnostics\P0AcceptanceGate.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\PlacementRecord.cs" Link="Editing\PlacementRecord.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\LevelEditSession.cs" Link="Editing\LevelEditSession.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\PlacementValidation.cs" Link="Editing\PlacementValidation.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\RuntimePlacementManager.cs" Link="Editing\RuntimePlacementManager.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\EditCommandHistory.cs" Link="Editing\EditCommandHistory.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Editing\RoomOverlayReconciler.cs" Link="Editing\RoomOverlayReconciler.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Runtime\ScreenCoordinateMapper.cs" Link="Runtime\ScreenCoordinateMapper.cs" />
+  </ItemGroup>
+
+</Project>
