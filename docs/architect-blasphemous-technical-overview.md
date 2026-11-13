@@ -199,7 +199,7 @@ LevelFrameworkExtended 的 LevelObject Creators 区域提供了 spikes、trap、
     ├── Runtime
     │   ├── BlasphemousLifecycleBridge
     │   ├── RuntimePlacementManager
-    │   ├── ObjectOwnership
+    │   ├── EditAuthority
     │   ├── Transform/selection/raycast services
     │   └── pause/input-state guard
     ├── Catalog
@@ -256,7 +256,7 @@ LevelFrameworkExtended 的 LevelObject Creators 区域提供了 spikes、trap、
 LevelEditSession 是用户行为的最高层边界。它不直接依赖 Canvas、Unity scene 或 BepInEx 配置，负责：
 
 - 当前 Room Identity 和导入文档的关联。
-- 当前会话中的 Architect-owned placements。
+- 当前会话中的 Editable Overlay Placements。
 - 新增、移动、删除、变换、锁定、属性编辑、复制粘贴等命令。
 - undo/redo。
 - 从 canonical Level JSON 建立会话。
@@ -273,7 +273,7 @@ LevelEditSession 是用户行为的最高层边界。它不直接依赖 Canvas�
 - 将 currentLevel、LevelName、scene suffix 和 LevelInitializer 映射为 RoomIdentity。
 - 在 OnLevelPreLoaded 后确认 Framework 已完成或正在完成 canonical JSON 应用。
 - 在 OnLevelLoaded 后创建/恢复编辑会话和 UI。
-- 在房间离开前销毁或冻结当前 Architect-owned runtime objects。
+- 在房间离开前销毁或冻结当前 Editable Overlay Placements 的 runtime objects。
 - 不在场景加载竞态期间强行修改玩家生成、摄像机、LevelInitializer 或存档。
 
 建议的状态：
@@ -311,8 +311,8 @@ LevelFrameworkAdapter 是唯一负责 Framework JSON 的边界。它不修改 Fr
 导出策略：
 
 1. 仅导出当前 Room Identity 对应的文件。
-2. 只写 Architect-owned 新增对象和允许的修改记录。
-3. 对已删除的 Architect-owned placement 不再输出 additions。
+2. 只写 Editable Overlay Placements 的新增对象和允许的修改记录。
+3. 对已删除的 Editable Overlay Placement 不再输出 additions。
 4. 不写入玩家原版存档。
 5. 使用临时文件写入、校验后替换，并保留上一版本备份。
 
@@ -340,7 +340,7 @@ Object Catalog 是面向用户的对象目录，不等同于 Framework 内部 cr
 
 原生对象的操作边界：
 
-- Architect 新建的对象由 ObjectOwnership 标记为可编辑。
+- 任何通过验证的新建或导入 addition 都由 EditAuthority 标记为可编辑；无法完整建模的 addition 作为 Preserved Addition 保留。
 - 原版已有对象在首版只读，不进入拖拽/删除/属性写入流程。
 - Framework 的 modifications/deletions 能力仍然在文档中保留，但首版不把它暴露为任意原版对象编辑器。
 - 任意 creator 缺失时跳过该条目并显示原因。
@@ -353,7 +353,7 @@ Object Catalog 是面向用户的对象目录，不等同于 Framework 内部 cr
 - 缓存 creator/scene loader 结果，避免每次移动都重新加载源场景。
 - 为光标预览创建隔离的 preview instance。
 - 处理移动、旋转、缩放、翻转和删除。
-- 记录 ownership，防止误删原版对象。
+- 记录 edit authority，防止误删原版对象。
 - 在退出编辑模式或房间切换时清理临时对象。
 
 不要把基础 Framework 的 OnLevelPreloaded 当作实时编辑 API。它适合在房间加载时应用持久化文件；当前房间内的拖拽和撤销必须由 RuntimePlacementManager 直接完成，导出后由 Framework 在下一次关卡预加载时复现。
@@ -364,7 +364,7 @@ Object Catalog 是面向用户的对象目录，不等同于 Framework 内部 cr
 
 - Editor root：编辑模式开关、当前房间、dirty 状态、错误状态。
 - Object Browser：分页、搜索、分类、收藏预留。
-- Inspector：position、rotation、scale、properties、ownership。
+- Inspector：position、rotation、scale、properties、edit authority。
 - Toolbar：选择、放置、拖拽、删除、复制、锁定、撤销、重做。
 - Import/Export：选择当前房间文件、导入结果、备份、冲突提示。
 - Report Panel：未知 creator、路径失败、条件不满足、版本不匹配、跳过数量。
@@ -422,9 +422,9 @@ Silksong 的 PreloadManager、AssetHelper、Fixers、RuntimeDetour 和外部 PNG
 | 7 | 对象目录、分类、分页、搜索 | Categories.cs:7、33；EditorUI.cs:215、1047 | P0 | 从基础 creator 候选建立 curated catalog |
 | 8 | 收藏、Saved Object、Prefab 分类 | EditorUI.cs:257、866；StorageManager.cs:170、195 | P1 | 先做目录，保存对象与 Prefab 后置 |
 | 9 | 鼠标悬停预览 | CursorManager.cs:19、69、103 | P0 | 需要 Blasphemous Sprite/scene loader preview |
-| 10 | 单选、多选、框选、拖拽移动 | DragObject.cs:19；EditManager.cs:646、673、710 | P0 | 以 ownership placement 为操作对象 |
+| 10 | 单选、多选、框选、拖拽移动 | DragObject.cs:19；EditManager.cs:646、673、710 | P0 | 以 Editable Overlay Placement 为操作对象 |
 | 11 | 复制、粘贴、ID 重映射 | EditManager.cs:374、384；Settings.cs:141 | P0 | ID 必须在 session 和导出中保持唯一 |
-| 12 | Cursor/Pick Tool 获取对象和属性 | CursorObject.cs:21、30；PickObject.cs:18、25 | P0 | Pick 只读取 Architect-owned placement |
+| 12 | Cursor/Pick Tool 获取对象和属性 | CursorObject.cs:21、30；PickObject.cs:18、25 | P0 | Pick 只读取 Editable Overlay Placement |
 | 13 | Eraser Tool 删除对象 | EraserObject.cs:19、29；ActionManager.cs:203 | P0 | 禁止删除原版对象 |
 | 14 | 锁定/解锁对象 | LockObject.cs:17、25；ActionManager.cs:175 | P0 | 锁定只影响编辑器，不改变游戏对象语义 |
 | 15 | 旋转、翻转、缩放、精确变换 | Settings.cs:64、78；EditorUI.cs:1072；EditManager.cs:464 | P0 | 需确认 Blasphemous Z 排序和精灵朝向 |
@@ -503,7 +503,7 @@ canonical JSON 必须以基础 Framework 能反序列化的三数组为核心：
 - scene
 - path
 
-首版只允许 Architect-owned 新对象进入编辑命令栈；原版对象 modifications/deletions 只保留为未来能力和兼容读取边界，不能由默认 UI 任意操作。
+首版只允许 Editable Overlay Placements 进入编辑命令栈；原版对象 modifications/deletions 只保留为未来能力和兼容读取边界，不能由默认 UI 任意操作。
 
 ### 7.2 Room Identity
 
@@ -559,12 +559,12 @@ Extended 当前的 .jsonc、注释、.json 优先级、$prev 继承和唯一 ID 
 基础框架主要在关卡预加载时应用文件。若未来需要不重载房间就实时刷新，Extended 可以提供：
 
 - apply additions
-- remove Architect-owned additions
+- remove Editable Overlay Placements
 - reapply current room
 - apply report
 - lifecycle-safe cleanup
 
-这类 API 必须定义对象 ownership 和重复应用语义，不能只暴露一个无状态的 Apply 方法。
+这类 API 必须定义对象 edit authority 和重复应用语义，不能只暴露一个无状态的 Apply 方法。
 
 ### 8.5 更多原生 creators
 
@@ -683,12 +683,12 @@ UI、输入、对象目录、RuntimePlacementManager 和 LevelFrameworkAdapter �
 
 - 建立 curated Object Catalog。
 - 通过已验证源 scene/creator 实现 clone 和 preview。
-- 实现 PlacementRecord 和 ownership。
+- 实现 PlacementRecord 和 edit authority。
 - 实现选择、放置、移动、变换、删除、属性编辑。
 - 实现 command undo/redo。
 - 实现安全暂停和状态恢复。
 
-完成条件：当前房间可编辑 Architect-owned 对象，原版对象保持只读。
+完成条件：当前房间可编辑 Editable Overlay Placements，原版对象保持只读。
 
 ### Phase 3：Framework JSON round-trip
 

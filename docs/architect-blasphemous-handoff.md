@@ -11,7 +11,7 @@
 - 首版范围：当前房间 Room Overlay。
 - 持久化：Blasphemous.Framework.Levels 是必需外部依赖，使用其 additions/modifications/deletions JSON。
 - Extended：Blasphemous.LevelFrameworkExtended 不作为默认依赖；只有基础框架缺少绝对必要能力时，才在扩展建议中提出能力。
-- 首版对象：新增、移动、变换、属性编辑、删除 Architect-owned 对象；原版对象只读。
+- 首版对象：新增、移动、变换、属性编辑、删除 Editable Overlay Placement；原版对象只读。
 - JSON：导入 + 编辑 + 导出，错误逐项跳过并报告，原文件备份。
 - 事件：统一目标事件抽象，只执行已验证事件子集。
 - Tilemap/多房间/Standalone Level：完整盘点，能力验证后再分级。

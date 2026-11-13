@@ -27,7 +27,7 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 
 核心方案：
 
-1. 以 LevelEditSession 作为最高层用户行为接缝，承载当前 Room Identity、Architect-owned Placement、编辑命令和 undo/redo。
+1. 以 LevelEditSession 作为最高层用户行为接缝，承载当前 Room Identity、Editable Overlay Placement、编辑命令和 undo/redo。
 2. 以 BlasphemousLifecycleBridge 连接 LevelManager 的关卡生命周期，在关卡加载后启动编辑会话，在离开关卡时清理运行时对象。
 3. 以 RuntimePlacementManager 提供当前房间的实时预览和对象操作，不把基础 Level Framework 的预加载流程误当作实时编辑 API。
 4. 以 LevelFrameworkAdapter 读写基础 Framework 兼容的 canonical JSON；不修改 Framework 源码。
@@ -75,12 +75,12 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 27. As an author, I want to control depth or sorting values when the target object supports it, so that 2D layering remains predictable.
 28. As an author, I want to copy and paste placed objects, so that repeated structures can be authored quickly.
 29. As an author, I want copied objects to receive non-conflicting ids, so that references and exports remain valid.
-30. As an author, I want a pick tool to copy an existing Architect-owned placement into the cursor, so that I can reuse its properties.
-31. As an author, I want a cursor tool to inspect an Architect-owned placement, so that I can understand its identity and transform.
-32. As an author, I want to lock an Architect-owned placement, so that accidental edits do not change a finished part of a layout.
-33. As an author, I want to delete an Architect-owned placement, so that I can revise the layout.
+30. As an author, I want a pick tool to copy an existing Editable Overlay Placement into the cursor, so that I can reuse its properties.
+31. As an author, I want a cursor tool to inspect an Editable Overlay Placement, so that I can understand its identity and transform.
+32. As an author, I want to lock an Editable Overlay Placement, so that accidental edits do not change a finished part of a layout.
+33. As an author, I want to delete an Editable Overlay Placement, so that I can revise the layout.
 34. As an author, I want the editor to prevent deletion of original game objects, so that authoring remains a non-destructive overlay.
-35. As an author, I want the runtime to distinguish original objects from Architect-owned objects, so that ownership controls are enforced outside the UI as well.
+35. As an author, I want the runtime to distinguish Original Objects from Editable Overlay Placements, so that edit authority is enforced outside the UI as well.
 
 ### 属性与对象行为
 
@@ -123,7 +123,7 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 
 64. As an editor developer, I want the editor to observe Blasphemous level transitions, so that a session is created only for a loaded room.
 65. As an editor developer, I want the editor to apply runtime previews after the room is ready, so that object creation does not race LevelInitializer or player spawning.
-66. As an editor developer, I want all Architect-owned runtime objects removed or reconciled when leaving a room, so that objects do not leak into the next room.
+66. As an editor developer, I want all runtime objects for Editable Overlay Placements removed or reconciled when leaving a room, so that objects do not leak into the next room.
 67. As an editor developer, I want repeated level-load callbacks to be idempotent, so that the same placement is not spawned twice.
 68. As an editor developer, I want the editor to avoid writing the original save, so that authored layouts remain independent from player progression.
 69. As an editor developer, I want a room reload to reconstruct the same observable layout from JSON, so that runtime edits are persistent without mutating packaged scenes.
@@ -172,8 +172,8 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 
 ### 领域模块
 
-- LevelEditSession：用户编辑会话、Room Identity、owned placements、命令和结果。
-- PlacementRecord：对象 type、id、transform、properties、ownership、状态。
+- LevelEditSession：用户编辑会话、Room Identity、Editable Overlay Placements、命令和结果。
+- PlacementRecord：对象 type、id、transform、properties、edit authority、状态。
 - ObjectCatalog：面向用户的对象元数据、分类、能力和兼容性。
 - RuntimePlacementManager：当前房间 GameObject 投影、预览、清理和幂等。
 - LevelFrameworkAdapter：canonical JSON 导入/导出、校验、备份和报告。
@@ -186,7 +186,7 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 ### 关卡与对象语义
 
 - Level 首版以当前 Room Overlay 为目标，不改写打包 Unity 场景。
-- 原版对象只读；Architect-owned 对象可以新增、移动、变换、修改属性、锁定、复制和删除。
+- 原版对象只读；Editable Overlay Placements 可以新增、移动、变换、修改属性、锁定、复制和删除。
 - 原版对象的修改/删除数据结构保留在兼容模型中，但不作为首版任意编辑 UI。
 - Level Framework additions/modifications/deletions 是 canonical JSON 的持久化结构。
 - Room Identity 包含 Framework level key、目标 scene suffix、active scene name 和导出文件身份。
@@ -202,7 +202,7 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 
 ### 功能优先级
 
-- P0：编辑模式、对象目录、预览、放置、选择、移动、删除、变换、属性、ownership、undo/redo、Framework JSON round-trip、错误报告。
+- P0：编辑模式、对象目录、预览、放置、选择、移动、删除、变换、属性、edit authority、undo/redo、Framework JSON round-trip、错误报告。
 - P1：收藏、Hotbar、Prefab 基础复用、事件子集、预加载进度、单对象 fixer、更多属性和目录。
 - P2：完整 Script Editor、Tilemap、Prefab 编辑器、多房间、整张地图、Standalone Level、Workshop 本地内容。
 - OUT：在线登录、上传、搜索、下载、网络 Workshop、SSMP 联机、远程外部资源下载。
@@ -214,12 +214,12 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 
 测试外部可观察行为，不测试具体私有实现。主接缝是 LevelEditSession/编辑会话：
 
-导入 JSON → 创建当前房间会话 → 编辑 Architect-owned 对象 → undo/redo → 导出 JSON → 房间重载 → 再导入并比较结果。
+导入 JSON → 创建当前房间会话 → 编辑 Editable Overlay Placements → undo/redo → 导出 JSON → 房间重载 → 再导入并比较结果。
 
 ### 必须覆盖的模块
 
 - canonical JSON codec：字段、默认值、条件、properties、错误、round-trip。
-- LevelEditSession：命令、ownership、dirty state、undo/redo、id。
+- LevelEditSession：命令、edit authority、dirty state、undo/redo、id。
 - ObjectCatalog：能力过滤、缺失 creator、预览状态。
 - RuntimePlacementManager：幂等创建、变换、清理、原版对象保护。
 - LevelFrameworkAdapter：文件范围、备份、原子写入、版本门禁。
@@ -235,7 +235,7 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 - MainMenu、普通房间、过场、加载中、房间切换期间启用/禁用编辑器。
 - 基础 creator 加载、预览、放置、变换、删除。
 - JSON 导入、导出、房间重载。
-- 原版对象只读和 Architect-owned 对象可编辑。
+- 原版对象只读和 Editable Overlay Placements 可编辑。
 - TimeScale、Core.Input、UIController.Paused、玩家控制和 HUD 的完整恢复。
 - 多次触发 OnLevelPreLoaded/OnLevelLoaded。
 
