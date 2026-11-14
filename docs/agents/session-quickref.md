@@ -47,28 +47,11 @@ A cached summary is non-authoritative for writes, assignment, labeling, closing,
 
 ## Handoff approvals
 
-Keep these layers distinct:
-- **User-intent approval**: the source user's explicit acceptance of an action on a normalized target. Task scope or a successful prior command does not imply it.
-- **Repository workflow authorization**: permission from tracked repository instructions and the ticket to perform in-scope local work. It cannot substitute for a user-intent approval or a harness technical permission.
-- **Harness technical permission**: the runtime's sandbox, credential, network, and execution decision. It is evaluated at execution time and does not itself constitute user consent.
+Cross-repository handoff and approval inheritance follow `AOC-GLOBAL@1`. Approval records use its `source` value for the source thread and user message, plus `action`, `normalized_target`, `lifetime`, and `invalidators`. The only valid lifetime values are `one-time` (one use) and `task` (until task completion or an invalidator).
 
-A handoff inherits only approvals explicitly listed in the handoff. Each record must contain these six fields. Every required field and each invalidator entry must be non-empty:
-- `source_thread`: the source thread ID.
-- `source_message`: the source user-message reference or exact text.
-- `action`: the approved action.
-- `normalized_target`: the canonical repository/worktree, issue, or external resource target.
-- `lifetime`: `one-shot` (valid for one use) or `reusable` (valid only within its recorded constraints); no other value is valid.
-- `invalidators`: the condition or conditions that end the approval.
+In this repository, `normalized_target` names the ticket worktree and issue named by the handoff. Unlisted actions or changed targets require new approval. Elevation grants retain the baseline's `constraints.command`, `constraints.host`, `constraints.target`, and `constraints.reuse` values; all must match exactly.
 
-A parent elevation grant must record non-empty `constraints.command`, `constraints.host`, `constraints.target`, and `constraints.reuse` values in a comparable `constraints` object; `constraints.target` must equal `normalized_target`.
-
-Do not infer an unlisted action: request separate approval. A missing field, changed action or target, any invalidator, or completion of the recorded task ends inheritance. `reusable` does not widen the action, target, command, host, or other constraints in the record.
-
-An explicitly recorded parent elevation grant is inherited only when its command, host, target, and reuse constraints are stored as non-empty `constraints.command`, `constraints.host`, `constraints.target`, and `constraints.reuse` values and must all match the request. A missing, empty, or changed value requires separate approval. Unrecorded sandbox, credential, and network permissions remain independently gated; user approval does not override a harness denial.
-
-A technical denial is a concrete blocker. Do not retry, elevate, or infer consent automatically; report the blocker and the specific input or approval needed next.
-
-A handoff does not authorize issue creation, issue status changes, issue linking, pull-request creation, or merge. Obtain separate approval for each of those actions.
+Technical permissions and denials remain independently gated. A handoff does not add authority for issue creation, issue status changes, issue linking, pull requests, or merges.
 
 ## Commands
 
