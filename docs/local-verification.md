@@ -209,6 +209,9 @@ exercise these workflows, confirm publication for both a same-repository and a
 fork pull request, and only then activate a `dev` ruleset requiring
 `Trusted verification evidence`. Ruleset activation is a separate external
 configuration action and is not performed by the verification scripts.
+The prepared payload, preflight, manual audit, and rollback procedure are in
+[`docs/dev-ruleset.md`](dev-ruleset.md); activation still requires explicit
+maintainer approval.
 
 ## Final dev verification
 
