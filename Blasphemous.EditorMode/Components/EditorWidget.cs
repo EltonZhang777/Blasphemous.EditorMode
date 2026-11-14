@@ -57,6 +57,8 @@ internal class EditorWidget : MonoBehaviour
             new Vector2(600f, 90f),
             13,
             TextAnchor.UpperLeft);
+        // shortcut: mandatory text can render outside the fixed 90px rect; add a detail area if real-profile verification shows overlap.
+        _statusText.verticalOverflow = VerticalWrapMode.Overflow;
 
         CreateText(
             "Catalog Header",
@@ -245,22 +247,28 @@ internal class EditorWidget : MonoBehaviour
             ? "—"
             : selectedPlacement.IsLocked ? "yes" : "no";
         ApplyReportSurface reportSurface = editor.ReportSurface;
-        string report = reportSurface == null
-            ? ""
-            : reportSurface.UiText;
-        string status = string.Format(
-            "Room: {0}   Session: {1}\nSelected: {2}   Locked: {3}\nDependencies: {4}   Preview: {5}\nClipboard: {6}   Last: {7}",
+        string statusPrefix = string.Format(
+            "Room: {0}   Session: {1}\nSelected: {2}   Locked: {3}\nDependencies: {4}   Preview: {5}\nClipboard: {6}   Last: ",
             room,
             state,
             selected,
             locked,
             dependency,
             editor.PreviewStatus,
-            editor.ClipboardStatus,
-            string.IsNullOrEmpty(report) ? "—" : report);
-        if (reportSurface != null && !string.IsNullOrEmpty(reportSurface.ActionableMessage))
-            status += "\n" + reportSurface.ActionableMessage;
+            editor.ClipboardStatus);
+        string status = reportSurface == null || string.IsNullOrEmpty(reportSurface.UiText)
+            ? statusPrefix + "—"
+            : reportSurface.ComposeStatusText(statusPrefix, FitsStatusText);
         _statusText.text = status;
+    }
+
+    private bool FitsStatusText(string text)
+    {
+        Rect rect = _statusText.rectTransform.rect;
+        TextGenerationSettings settings = _statusText.GetGenerationSettings(rect.size);
+        float preferredHeight = _statusText.cachedTextGeneratorForLayout.GetPreferredHeight(text, settings)
+            / _statusText.pixelsPerUnit;
+        return preferredHeight <= rect.height;
     }
 
     private static bool IsInputFieldFocused()

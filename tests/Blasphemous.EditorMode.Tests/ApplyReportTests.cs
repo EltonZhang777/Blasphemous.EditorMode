@@ -173,6 +173,110 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
+    public void An_error_takes_priority_over_an_earlier_warning()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Warning("FIRST_WARNING", "$", "first warning");
+        report.Error("FIRST_ERROR", "$", "first error");
+        report.Error("SECOND_ERROR", "$", "second error");
+        ApplyReportSurface surface = new ApplyReportSurface();
+
+        surface.Publish("apply", report);
+
+        Assert.Equal("[FIRST_ERROR] first error", surface.ActionableMessage);
+    }
+
+    [Fact]
+    public void The_first_warning_is_actionable_when_the_report_has_no_error()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Info("IGNORED_INFO", "$", "info");
+        report.Warning("FIRST_WARNING", "$", "first warning");
+        report.Warning("SECOND_WARNING", "$", "second warning");
+        ApplyReportSurface surface = new ApplyReportSurface();
+
+        surface.Publish("apply", report);
+
+        Assert.Equal("[FIRST_WARNING] first warning", surface.ActionableMessage);
+    }
+
+    [Fact]
+    public void Info_only_reports_do_not_add_an_actionable_message()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Info("ONLY_INFO", "$", "informational");
+        ApplyReportSurface surface = new ApplyReportSurface();
+
+        surface.Publish("apply", report);
+
+        Assert.False(surface.HasActionableMessage);
+        Assert.Equal("Last: " + report.ToSummary("apply"), surface.ComposeStatusText("Last: ", _ => true));
+    }
+
+    [Fact]
+    public void Non_info_codes_are_grouped_in_first_seen_order()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Warning("FIRST_CODE", "$", "first warning");
+        report.Info("IGNORED_INFO", "$", "info");
+        report.Error("ERROR_CODE", "$", "first error");
+        report.Warning("FIRST_CODE", "$", "second warning");
+        report.Warning("LAST_CODE", "$", "last warning");
+        ApplyReportSurface surface = new ApplyReportSurface();
+
+        surface.Publish("apply", report);
+        string text = surface.ComposeStatusText("Last: ", _ => true);
+
+        Assert.Contains("[ERROR_CODE] first error", text);
+        Assert.Contains("FIRST_CODE x2", text);
+        Assert.Contains("ERROR_CODE x1", text);
+        Assert.Contains("LAST_CODE x1", text);
+        Assert.DoesNotContain("IGNORED_INFO", text);
+        Assert.True(text.IndexOf("FIRST_CODE x2", StringComparison.Ordinal)
+            < text.IndexOf("ERROR_CODE x1", StringComparison.Ordinal));
+        Assert.True(text.IndexOf("ERROR_CODE x1", StringComparison.Ordinal)
+            < text.IndexOf("LAST_CODE x1", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Trailing_code_groups_are_omitted_with_a_distinct_code_marker()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Warning("FIRST_CODE", "$", "first warning");
+        report.Error("ERROR_CODE", "$", "first error");
+        report.Warning("LAST_CODE", "$", "last warning");
+        ApplyReportSurface surface = new ApplyReportSurface();
+        surface.Publish("apply", report);
+
+        string text = surface.ComposeStatusText(
+            "Last: ",
+            candidate => candidate.Contains("FIRST_CODE x1")
+                && !candidate.Contains("ERROR_CODE x1")
+                && !candidate.Contains("LAST_CODE x1"));
+
+        Assert.Contains("[ERROR_CODE] first error", text);
+        Assert.Contains("FIRST_CODE x1", text);
+        Assert.DoesNotContain("ERROR_CODE x1", text);
+        Assert.DoesNotContain("LAST_CODE x1", text);
+        Assert.Contains("+2 more diagnostic code(s)", text);
+    }
+
+    [Fact]
+    public void The_summary_and_actionable_message_are_not_truncated_for_groups()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Error("ERROR_CODE", "$", "complete error message");
+        ApplyReportSurface surface = new ApplyReportSurface();
+        surface.Publish("apply", report);
+
+        string text = surface.ComposeStatusText("Last: ", _ => false);
+
+        Assert.Equal(
+            "Last: " + report.ToSummary("apply") + "\n[ERROR_CODE] complete error message",
+            text);
+    }
+
+    [Fact]
     public void Failed_edit_flow_returns_to_the_previous_safe_state_after_recovery()
     {
         ApplyReport report = new ApplyReport();
