@@ -8,6 +8,7 @@ using Gameplay.UI;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -258,8 +259,62 @@ internal class EditorWidget : MonoBehaviour
             editor.ClipboardStatus);
         string status = reportSurface == null || string.IsNullOrEmpty(reportSurface.UiText)
             ? statusPrefix + "—"
-            : reportSurface.ComposeStatusText(statusPrefix, FitsStatusText);
+            : ComposeStatusText(reportSurface, statusPrefix);
         _statusText.text = status;
+    }
+
+    private string ComposeStatusText(ApplyReportSurface reportSurface, string prefix)
+    {
+        string baseText = prefix + reportSurface.UiText;
+        if (reportSurface.HasActionableMessage)
+            baseText += "\n" + reportSurface.ActionableMessage;
+
+        List<DiagnosticCodeCount> groups = new List<DiagnosticCodeCount>();
+        foreach (ApplyReportEntry entry in reportSurface.LastReport.Entries)
+        {
+            if (entry.Severity == ApplySeverity.Info)
+                continue;
+
+            DiagnosticCodeCount group = groups.Find(existing =>
+                string.Equals(existing.Code, entry.Code, StringComparison.Ordinal));
+            if (group == null)
+                groups.Add(new DiagnosticCodeCount(entry.Code));
+            else
+                group.Count++;
+        }
+
+        if (groups.Count == 0)
+            return baseText;
+
+        string candidate = baseText + "\n" + FormatGroups(groups, groups.Count);
+        if (FitsStatusText(candidate))
+            return candidate;
+
+        for (int included = groups.Count - 1; included >= 0; included--)
+        {
+            int omitted = groups.Count - included;
+            string marker = "+" + omitted + " more diagnostic code(s)";
+            candidate = baseText + "\n"
+                + (included == 0 ? marker : FormatGroups(groups, included) + ", " + marker);
+            if (FitsStatusText(candidate))
+                return candidate;
+        }
+
+        return baseText;
+    }
+
+    private static string FormatGroups(List<DiagnosticCodeCount> groups, int count)
+    {
+        StringBuilder text = new();
+        for (int index = 0; index < count; index++)
+        {
+            if (index > 0)
+                text.Append(", ");
+            DiagnosticCodeCount group = groups[index];
+            text.Append(group.Code).Append(" x").Append(group.Count);
+        }
+
+        return text.ToString();
     }
 
     private bool FitsStatusText(string text)
@@ -275,6 +330,18 @@ internal class EditorWidget : MonoBehaviour
     {
         GameObject selected = EventSystem.current?.currentSelectedGameObject;
         return selected != null && selected.GetComponentInParent<InputField>() != null;
+    }
+
+    private sealed class DiagnosticCodeCount
+    {
+        internal DiagnosticCodeCount(string code)
+        {
+            Code = code;
+            Count = 1;
+        }
+
+        internal string Code { get; }
+        internal int Count { get; set; }
     }
 
     private InputField[] CreateTransformFields(string group, float x)

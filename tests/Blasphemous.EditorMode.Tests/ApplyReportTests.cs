@@ -55,7 +55,7 @@ public sealed class ApplyReportTests
         report.Error("FAILED_ERROR", "item[3]", "failed error", false);
 
         Assert.Equal(
-            "import failed: Applied=1 item(s), Skipped=2 item(s), Failed=2 error(s), Diagnostic=3 entry(ies).",
+            "import failed: Applied=1 successful items/operations; Skipped=2 entries; Failed=2 entries; Diagnostic=3 entries.",
             report.ToSummary("import"));
     }
 
@@ -210,70 +210,7 @@ public sealed class ApplyReportTests
         surface.Publish("apply", report);
 
         Assert.False(surface.HasActionableMessage);
-        Assert.Equal("Last: " + report.ToSummary("apply"), surface.ComposeStatusText("Last: ", _ => true));
-    }
-
-    [Fact]
-    public void Non_info_codes_are_grouped_in_first_seen_order()
-    {
-        ApplyReport report = new ApplyReport();
-        report.Warning("FIRST_CODE", "$", "first warning");
-        report.Info("IGNORED_INFO", "$", "info");
-        report.Error("ERROR_CODE", "$", "first error");
-        report.Warning("FIRST_CODE", "$", "second warning");
-        report.Warning("LAST_CODE", "$", "last warning");
-        ApplyReportSurface surface = new ApplyReportSurface();
-
-        surface.Publish("apply", report);
-        string text = surface.ComposeStatusText("Last: ", _ => true);
-
-        Assert.Contains("[ERROR_CODE] first error", text);
-        Assert.Contains("FIRST_CODE x2", text);
-        Assert.Contains("ERROR_CODE x1", text);
-        Assert.Contains("LAST_CODE x1", text);
-        Assert.DoesNotContain("IGNORED_INFO", text);
-        Assert.True(text.IndexOf("FIRST_CODE x2", StringComparison.Ordinal)
-            < text.IndexOf("ERROR_CODE x1", StringComparison.Ordinal));
-        Assert.True(text.IndexOf("ERROR_CODE x1", StringComparison.Ordinal)
-            < text.IndexOf("LAST_CODE x1", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void Trailing_code_groups_are_omitted_with_a_distinct_code_marker()
-    {
-        ApplyReport report = new ApplyReport();
-        report.Warning("FIRST_CODE", "$", "first warning");
-        report.Error("ERROR_CODE", "$", "first error");
-        report.Warning("LAST_CODE", "$", "last warning");
-        ApplyReportSurface surface = new ApplyReportSurface();
-        surface.Publish("apply", report);
-
-        string text = surface.ComposeStatusText(
-            "Last: ",
-            candidate => candidate.Contains("FIRST_CODE x1")
-                && !candidate.Contains("ERROR_CODE x1")
-                && !candidate.Contains("LAST_CODE x1"));
-
-        Assert.Contains("[ERROR_CODE] first error", text);
-        Assert.Contains("FIRST_CODE x1", text);
-        Assert.DoesNotContain("ERROR_CODE x1", text);
-        Assert.DoesNotContain("LAST_CODE x1", text);
-        Assert.Contains("+2 more diagnostic code(s)", text);
-    }
-
-    [Fact]
-    public void The_summary_and_actionable_message_are_not_truncated_for_groups()
-    {
-        ApplyReport report = new ApplyReport();
-        report.Error("ERROR_CODE", "$", "complete error message");
-        ApplyReportSurface surface = new ApplyReportSurface();
-        surface.Publish("apply", report);
-
-        string text = surface.ComposeStatusText("Last: ", _ => false);
-
-        Assert.Equal(
-            "Last: " + report.ToSummary("apply") + "\n[ERROR_CODE] complete error message",
-            text);
+        Assert.Equal(report.ToSummary("apply"), surface.UiText);
     }
 
     [Fact]

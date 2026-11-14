@@ -819,7 +819,8 @@ internal class EditorMode : BlasMod
 
     private void LogCursorPosition(string action, Vector3 worldPosition)
     {
-        if (!_verboseDiagnostics)
+        if (!_verboseDiagnostics
+            && string.Equals(action, "CURSOR_PREVIEW", System.StringComparison.Ordinal))
             return;
 
         Camera camera = Camera.main;

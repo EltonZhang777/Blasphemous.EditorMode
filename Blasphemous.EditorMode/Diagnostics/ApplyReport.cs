@@ -136,7 +136,7 @@ internal sealed class ApplyReport
     {
         string status = HasErrors ? "failed" : IsPartial ? "partial" : "passed";
         return string.Format(
-            "{0} {1}: Applied={2} item(s), Skipped={3} item(s), Failed={4} error(s), Diagnostic={5} entry(ies).",
+            "{0} {1}: Applied={2} successful items/operations; Skipped={3} entries; Failed={4} entries; Diagnostic={5} entries.",
             operation,
             status,
             AppliedCount,
