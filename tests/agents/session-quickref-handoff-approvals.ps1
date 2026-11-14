@@ -4,7 +4,7 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$requiredFields = @('source_thread', 'source_message', 'action', 'normalized_target', 'lifetime', 'invalidators')
+$requiredFields = @('source', 'action', 'normalized_target', 'lifetime', 'invalidators')
 $action = 'run-command'
 $target = 'repo:EltonZhang777/Blasphemous.EditorMode#issue-43'
 $consumedOneShots = [System.Collections.Generic.HashSet[string]]::new()
@@ -32,11 +32,10 @@ function Test-NonEmptyText {
 
 function New-ApprovalRecord {
     return [pscustomobject]@{
-        source_thread = 'thread-43-parent'
-        source_message = 'user message: run the handoff approvals fixture once'
+        source = 'thread:thread-43-parent; message:"run the handoff approvals fixture once"'
         action = 'run-command'
         normalized_target = 'repo:EltonZhang777/Blasphemous.EditorMode#issue-43'
-        lifetime = 'one-shot'
+        lifetime = 'one-time'
         invalidators = @('first use', 'action or target change', 'user withdrawal')
     }
 }
@@ -71,6 +70,10 @@ function Test-ApprovalRecord {
         if (-not (Test-NonEmptyText $property.Value)) {
             return $false
         }
+    }
+
+    if ($Approval.lifetime -cnotin @('one-time', 'task')) {
+        return $false
     }
 
     $constraints = $Approval.PSObject.Properties['constraints']
@@ -127,8 +130,7 @@ function Get-ApprovalKey {
     )
 
     $parts = @(
-        $Approval.source_thread,
-        $Approval.source_message,
+        $Approval.source,
         $Approval.action,
         $Approval.normalized_target,
         $Approval.lifetime,
@@ -180,7 +182,7 @@ function Get-HandoffDecision {
             continue
         }
 
-        if ($approval.lifetime -ceq 'one-shot') {
+        if ($approval.lifetime -ceq 'one-time') {
             $approvalKey = Get-ApprovalKey $approval
             if ($ConsumedOneShots.Contains($approvalKey)) {
                 continue
@@ -190,7 +192,7 @@ function Get-HandoffDecision {
             return 'proceed'
         }
 
-        if ($approval.lifetime -ceq 'reusable') {
+        if ($approval.lifetime -ceq 'task') {
             return 'proceed'
         }
     }
@@ -212,29 +214,22 @@ $previousHeading = $headingsBeforeCommands[$headingsBeforeCommands.Count - 1].Gr
 Assert-True ($previousHeading -eq 'Handoff approvals') 'Handoff approvals is immediately before Commands'
 
 $section = $text.Substring($handoffIndex, $commandsIndex - $handoffIndex)
-foreach ($layer in @('User-intent approval', 'Repository workflow authorization', 'Harness technical permission')) {
-    Assert-True ($section.Contains("- **$layer**:")) "section defines $layer"
-}
+Assert-True ($section.Contains('`AOC-GLOBAL@1`')) 'approval inheritance cites the global baseline'
 
-foreach ($field in @('source_thread', 'source_message', 'action', 'normalized_target', 'lifetime', 'invalidators')) {
+foreach ($field in @('source', 'action', 'normalized_target', 'lifetime', 'invalidators')) {
     Assert-True ($section.Contains("``$field``")) "approval record includes $field"
 }
 
-foreach ($field in @('constraints', 'constraints.command', 'constraints.host', 'constraints.target', 'constraints.reuse')) {
+foreach ($field in @('constraints.command', 'constraints.host', 'constraints.target', 'constraints.reuse')) {
     Assert-True ($section.Contains("``$field``")) "elevation record includes $field"
 }
 
-Assert-True ($section -match '(?i)Every required field and each invalidator entry must be non-empty') 'required fields and invalidators must be non-empty'
-Assert-True ($section.Contains('`one-shot`') -and $section.Contains('`reusable`')) 'approval lifetime supports one-shot and reusable states'
-Assert-True ($section.Contains('no other value is valid')) 'unknown approval lifetimes are invalid'
-Assert-True ($section -match '(?im)^A handoff inherits only approvals explicitly listed in the handoff\.') 'only listed approvals are inherited'
-Assert-True ($section -match '(?im)^Do not infer an unlisted action: request separate approval\.') 'unlisted actions require separate approval'
-Assert-True ($section.Contains('An explicitly recorded parent elevation grant is inherited only when its command, host, target, and reuse constraints are stored as non-empty')) 'parent elevation grants require stored constraints'
-Assert-True ($section.Contains('must all match the request')) 'parent elevation constraints must match exactly'
-Assert-True ($section -match '(?i)Unrecorded sandbox, credential, and network permissions remain independently gated') 'unrecorded technical permissions stay gated'
-Assert-True ($section -match '(?im)^A technical denial is a concrete blocker\.') 'technical denials block progress'
-Assert-True ($section -match '(?i)Do not retry, elevate, or infer consent automatically') 'technical denials do not trigger automatic retry, elevation, or consent'
-Assert-True ($section -match '(?im)^A handoff does not authorize issue creation, issue status changes, issue linking, pull-request creation, or merge\.') 'handoff excludes issue, PR, and merge authority'
+Assert-True ($section.Contains('`one-time`') -and $section.Contains('`task`')) 'approval lifetime supports one-time and task states'
+Assert-True ($section.Contains('The only valid lifetime values')) 'unknown approval lifetimes are invalid'
+Assert-True ($section -match '(?i)Unlisted actions or changed targets require new approval') 'unlisted actions and target changes require new approval'
+Assert-True ($section -match '(?i)all must match exactly') 'parent elevation constraints must match exactly'
+Assert-True ($section -match '(?i)Technical permissions and denials remain independently gated') 'technical permissions and denials stay gated'
+Assert-True ($section -match '(?i)A handoff does not add authority for issue creation, issue status changes, issue linking, pull requests, or merges') 'handoff excludes issue, PR, and merge authority'
 
 $approvals = @(New-ApprovalRecord)
 Assert-True (-not ($approvals[0].PSObject.Properties.Name -contains 'used')) 'one-shot consumption state is external to the approval record'
@@ -249,7 +244,7 @@ $recorded = Get-HandoffDecision -Approvals $approvals -Action $action -Target $t
 Assert-True ($recorded -eq 'proceed') 'an exact recorded one-shot approval proceeds without re-asking'
 
 $reused = Get-HandoffDecision -Approvals $approvals -Action $action -Target $target -ConsumedOneShots $consumedOneShots
-Assert-True ($reused -eq 'requires-approval') 'the one-shot approval is consumed after one use'
+Assert-True ($reused -eq 'requires-approval') 'the one-time approval is consumed after one use'
 
 $equivalentApproval = @(New-ApprovalRecord)
 $equivalentDecision = Get-HandoffDecision -Approvals $equivalentApproval -Action $action -Target $target -ConsumedOneShots $consumedOneShots
@@ -271,6 +266,12 @@ $unknownLifetime = New-ApprovalRecord
 $unknownLifetime.lifetime = 'session'
 $unknownLifetimeDecision = Get-HandoffDecision -Approvals @($unknownLifetime) -Action $action -Target $target -ConsumedOneShots $consumedOneShots
 Assert-True ($unknownLifetimeDecision -eq 'requires-approval') 'an unknown lifetime is blocked'
+
+$taskApproval = New-ApprovalRecord
+$taskApproval.lifetime = 'task'
+$firstTaskDecision = Get-HandoffDecision -Approvals @($taskApproval) -Action $action -Target $target -ConsumedOneShots $consumedOneShots
+$secondTaskDecision = Get-HandoffDecision -Approvals @($taskApproval) -Action $action -Target $target -ConsumedOneShots $consumedOneShots
+Assert-True ($firstTaskDecision -eq 'proceed' -and $secondTaskDecision -eq 'proceed') 'a task-sized approval remains valid within the task'
 
 $requestedConstraints = [pscustomobject]@{
     command = 'dotnet test Blasphemous.EditorMode.sln'
