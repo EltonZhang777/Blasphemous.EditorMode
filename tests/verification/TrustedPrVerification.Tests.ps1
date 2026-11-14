@@ -506,6 +506,8 @@ Describe 'trusted PR verification transport' {
         $record.PSObject.Properties['tests'] | Should -BeNullOrEmpty
         $record.PSObject.Properties['buildDllSha256'] | Should -BeNullOrEmpty
         $record.PSObject.Properties['buildProfileDigest'] | Should -BeNullOrEmpty
+        $record.PSObject.Properties['whitespace'] | Should -BeNullOrEmpty
+        $record.PSObject.Properties['runner'] | Should -BeNullOrEmpty
     }
 
     It 'creates a trusted result transport without PR-controlled evidence fields' {
@@ -572,6 +574,42 @@ Describe 'trusted PR artifact preflight' {
 
         $result.ExitCode | Should -Not -Be 0
         $result.Output | Should -Match 'too large'
+    }
+
+    It 'rejects a missing artifact before download' {
+        $fixture = New-TransportFixture
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PreflightArguments) `
+            -Environment (New-PublishEnvironment -Fixture $fixture `
+                -ArtifactsJson '{"total_count":0,"artifacts":[]}')
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'exactly one'
+    }
+
+    It 'rejects an empty artifact before download' {
+        $fixture = New-TransportFixture
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PreflightArguments) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -ArtifactsJson (
+                New-ArtifactsJson -Fixture $fixture -Size 0
+            ))
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'empty or too large'
+    }
+
+    It 'rejects a transport artifact whose expiry timestamp has passed' {
+        $fixture = New-TransportFixture
+        $expiredAt = [DateTimeOffset]::UtcNow.AddMinutes(-1).ToString('O')
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PreflightArguments) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -ArtifactsJson (
+                New-ArtifactsJson -Fixture $fixture -ExpiresAt $expiredAt
+            ))
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'expired'
     }
 
     It 'rejects duplicate transport artifacts before download' {
@@ -845,6 +883,38 @@ Describe 'trusted PR evidence publication' {
 
         $result.ExitCode | Should -Not -Be 0
         $checkRequest.conclusion | Should -Be 'failure'
+        @($log | Where-Object { $_ -match 'issues/42/comments.*--method (POST|PATCH)' }).Count | Should -Be 0
+    }
+
+    It 'keeps the failure check when a human marker sits beside a same-run bot marker' {
+        $fixture = New-TransportFixture
+        $sameRunCreatedAt = [DateTimeOffset]::Parse($fixture.GeneratedAt).AddMinutes(-10).ToString('O')
+        $comments = @(
+            [ordered]@{
+                id = 84
+                body = New-CommentMarkerJson -GeneratedAt $fixture.GeneratedAt `
+                    -RunCreatedAt $sameRunCreatedAt
+                user = [ordered]@{ login = 'github-actions[bot]' }
+            }
+            [ordered]@{
+                id = 85
+                body = New-CommentMarkerJson
+                user = [ordered]@{ login = 'collaborator' }
+                author_association = 'COLLABORATOR'
+            }
+        ) | ConvertTo-Json -Depth 6 -Compress
+        $checkRuns = '{"total_count":1,"check_runs":[{"id":77,"name":"Trusted verification evidence"}]}'
+
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PublishArguments -Fixture $fixture) `
+            -Environment (New-PublishEnvironment -Fixture $fixture `
+                -CommentsJson $comments -CheckRunsJson $checkRuns)
+        $checkRequest = Read-FixtureJson -Path $fixture.CheckRunRequest
+        $log = @(Get-Content -LiteralPath $fixture.GhLog)
+
+        $result.ExitCode | Should -Not -Be 0
+        $checkRequest.conclusion | Should -Be 'failure'
+        @($log | Where-Object { $_ -match 'check-runs/77.*--method PATCH' }).Count | Should -Be 1
         @($log | Where-Object { $_ -match 'issues/42/comments.*--method (POST|PATCH)' }).Count | Should -Be 0
     }
 
