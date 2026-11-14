@@ -486,7 +486,12 @@ Describe 'evidence capture and publication' {
         $fixture = New-EvidenceFixture
         $olderTime = '2026-11-14T09:00:00.0000000Z'
         $existingBody = New-ExistingMarkerBody -Kind 'runtime-smoke' -GeneratedAt $olderTime
-        $comments = ConvertTo-Json -Compress -AsArray @([ordered]@{ id = 77; body = $existingBody })
+        $comments = ConvertTo-Json -Depth 6 -Compress @([ordered]@{
+            id = 77
+            body = $existingBody
+            user = [ordered]@{ login = 'maintainer' }
+            author_association = 'OWNER'
+        })
         Write-AutomatedEvidence -Fixture $fixture
         Write-SmokeEvidence -Fixture $fixture
 
@@ -515,7 +520,11 @@ Describe 'evidence capture and publication' {
         $fixture = New-EvidenceFixture
         $newerTime = '2026-11-14T11:00:00.0000000Z'
         $existingBody = New-ExistingMarkerBody -Kind 'runtime-smoke' -GeneratedAt $newerTime -SourceSha $script:otherSha
-        $comments = ConvertTo-Json -Compress -AsArray @([ordered]@{ id = 88; body = $existingBody })
+        $comments = ConvertTo-Json -Depth 6 -Compress @([ordered]@{
+            id = 88
+            body = $existingBody
+            user = [ordered]@{ login = 'github-actions[bot]' }
+        })
         Write-AutomatedEvidence -Fixture $fixture
         Write-SmokeEvidence -Fixture $fixture
 
@@ -537,9 +546,18 @@ Describe 'evidence capture and publication' {
     It 'rejects multiple marker comments for one evidence kind' {
         $fixture = New-EvidenceFixture
         $existingBody = New-ExistingMarkerBody -Kind 'runtime-smoke' -GeneratedAt '2026-11-14T09:00:00.0000000Z'
-        $firstPage = ConvertTo-Json -Compress -AsArray @([ordered]@{ id = 77; body = $existingBody })
-        $secondPage = ConvertTo-Json -Compress -AsArray @([ordered]@{ id = 78; body = $existingBody })
-        $comments = "[$firstPage,$secondPage]"
+        $comments = ConvertTo-Json -Depth 6 -Compress @(
+            [ordered]@{
+                id = 77
+                body = $existingBody
+                user = [ordered]@{ login = 'github-actions[bot]' }
+            }
+            [ordered]@{
+                id = 78
+                body = $existingBody
+                user = [ordered]@{ login = 'github-actions[bot]' }
+            }
+        )
         Write-AutomatedEvidence -Fixture $fixture
         Write-SmokeEvidence -Fixture $fixture
 
@@ -553,6 +571,34 @@ Describe 'evidence capture and publication' {
 
         $result.ExitCode | Should -Not -Be 0
         $result.Output | Should -Match 'multiple marker comments'
+    }
+
+    It 'ignores marker-shaped comments from untrusted authors' {
+        $fixture = New-EvidenceFixture
+        $existingBody = New-ExistingMarkerBody -Kind 'runtime-smoke' -GeneratedAt '2026-11-14T09:00:00.0000000Z'
+        $comments = ConvertTo-Json -Depth 6 -Compress @([ordered]@{
+            id = 77
+            body = $existingBody
+            user = [ordered]@{ login = 'outside-user' }
+            author_association = 'NONE'
+        })
+        Write-AutomatedEvidence -Fixture $fixture
+        Write-SmokeEvidence -Fixture $fixture
+
+        $result = Invoke-FixtureScript -Fixture $fixture -Arguments @(
+            '-Mode', 'publish'
+            '-EvidenceKind', 'runtime-smoke'
+            '-PrNumber', '42'
+            '-Repository', 'owner/repo'
+            '-Publish'
+        ) -Environment (New-PublishEnvironment -Fixture $fixture -CommentsJson $comments)
+        $log = @(Get-Content -LiteralPath $fixture.GhLog)
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        @($log | Where-Object {
+            $_ -match 'issues/7/comments' -and $_ -match '--method POST'
+        }).Count | Should -Be 1 -Because ($log -join "`n")
+        @($log | Where-Object { $_ -match 'issues/comments/77.*--method PATCH' }).Count | Should -Be 0
     }
 
     It 'rejects inconsistent runtime status fields in smoke evidence' {

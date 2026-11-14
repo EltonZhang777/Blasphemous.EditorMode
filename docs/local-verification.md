@@ -180,28 +180,49 @@ commit, and separately checks out the exact
 `contents: read`, has no secrets, and does not persist checkout credentials.
 
 The trusted verifier runs the normal automated gate against the reviewed head.
-Successful and failed runs both produce one small non-authoritative transport
-record. The artifact is named
+A separate transport job starts on a fresh runner, checks out only the trusted
+base commit, and uses the verification job's GitHub result to generate the
+transport. Pull-request code never runs in that job, and no evidence file from
+the PR-controlled runner is consumed for authoritative publication. Successful
+and failed runs both produce one small transport record. The authoritative PR
+marker contains the source SHA, run identity, and status derived from the
+completed GitHub workflow. Hashes, test counts, whitespace details, and runner
+identity from PR-controlled execution are not published as trusted evidence.
+Use the workflow run's logs for diagnostics. The transport artifact is named
 `pr-verification-<run-id>-<run-attempt>`, is retained for one day, and is never
 treated as the authoritative evidence record.
 
 `.github/workflows/publish-pr.yml` runs from the default branch on
 `workflow_run`. It does not check out or execute pull request code. Before any
-GitHub write it queries the workflow run and pull request association, requires
-a current open PR targeting `dev`, validates the declared evidence
-issue, and checks the transport artifact and evidence schema, size, hash
-formats and cross-field consistency, run identity, and freshness. It then
-upserts one PR marker comment and only after that completes or updates the
-fixed check named `Trusted verification evidence`.
+download it queries artifact metadata and rejects a missing, duplicate,
+expired, empty, or oversized transport. After download it checks the
+workflow run and pull request association, requires a current open PR
+targeting `dev`, validates the declared evidence issue, and checks the
+transport schema and run identity. Artifact expiry and current PR/run identity
+bound the transport lifetime, so publisher queue delay alone does not invalidate
+a current run. It then upserts one trusted-author PR marker comment and only after
+that completes or updates the fixed check named
+`Trusted verification evidence`. A missing or rejected transport still runs
+the publisher so it can replace an earlier green check with a failure.
+Automated stale-run suppression counts only markers authored by
+`github-actions[bot]`. Local publication can update bot or repository-owner
+markers. Other human marker-shaped comments are ignored; multiple trusted bot
+markers fail closed. The publisher requests contents and workflow-run read
+access, pull-request write access for the PR timeline marker, and check write
+access for the fixed check. It does not request issue write or repository
+administration permission.
 
 An older run cannot replace newer evidence, including when it finishes later.
 Any non-stale validation or publication failure attempts a failed fixed check
-when a validated run head is available. A stale run does not write a failure
-check because that would let an old run downgrade newer evidence. A cancelled,
-missing, stale, malformed, or otherwise untrusted result therefore cannot
-produce a successful required check. Same-repository and fork pull requests
-use the same trusted-base workflow; the only difference is the repository of
-the reviewed head.
+using the trusted workflow-event source SHA even when the run lookup fails.
+Only one valid Actions-bot marker that proves a strictly newer automated run
+can suppress that failed check. Malformed, duplicate, or uncertain markers do
+not count as proof. A stale run does not write a failure check because that
+would let an old run downgrade newer evidence. A cancelled, missing, stale,
+malformed, or otherwise untrusted result therefore cannot produce a successful
+required check. Same-repository and fork pull requests use the same
+trusted-base workflow; the only difference is the repository of the reviewed
+head.
 
 GitHub requires the `workflow_run` publisher workflow to exist on the default
 branch before it can trigger. The activation order is therefore: merge and

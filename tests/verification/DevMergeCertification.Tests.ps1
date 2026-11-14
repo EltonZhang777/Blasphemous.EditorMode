@@ -483,7 +483,11 @@ Describe 'final dev certification' {
 
     It 'updates an existing final-dev marker instead of creating a duplicate' {
         $fixture = New-DevFixture
-        $comments = @([ordered]@{ id = 88; body = (New-EvidenceComment) }) |
+        $comments = @([ordered]@{
+            id = 88
+            body = (New-EvidenceComment)
+            user = [ordered]@{ login = 'github-actions[bot]' }
+        }) |
             ConvertTo-Json -Depth 6 -Compress
         $result = Invoke-DevScript -Fixture $fixture -Environment (
             New-Environment -Fixture $fixture -CommentsJson $comments

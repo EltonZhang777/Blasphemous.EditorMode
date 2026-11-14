@@ -4,6 +4,7 @@ BeforeAll {
     $script:pwshPath = (Get-Process -Id $PID).Path
     $script:sourceSha = '0123456789abcdef0123456789abcdef01234567'
     $script:otherSha = 'fedcba9876543210fedcba9876543210fedcba98'
+    $script:generatedAt = [DateTimeOffset]::UtcNow.ToString('O')
 
     function Write-FixtureJson {
         param(
@@ -109,6 +110,9 @@ if ($command -match '/pulls(?:/|\s|$)' -and $command -notmatch '--method (POST|P
     exit 0
 }
 if ($command -match 'actions/runs/\d+' -and $command -notmatch '--method (POST|PATCH)') {
+    if ($env:FAKE_GH_RUN_EXIT -and [int]$env:FAKE_GH_RUN_EXIT -ne 0) {
+        exit [int]$env:FAKE_GH_RUN_EXIT
+    }
     [Console]::Out.WriteLine($env:FAKE_GH_RUN_JSON)
     exit 0
 }
@@ -201,10 +205,11 @@ exit /b %errorlevel%
             [string] $WorkflowConclusion = 'success',
             [string] $WorkflowName = 'PR verification',
             [string] $WorkflowEvent = 'pull_request_target',
-            [string] $SourceSha = $script:sourceSha
+            [string] $SourceSha = $script:sourceSha,
+            [switch] $StatusOnly
         )
 
-        @(
+        $arguments = @(
             '-Mode', 'transport'
             '-PrNumber', '42'
             '-SourceSha', $SourceSha
@@ -217,6 +222,10 @@ exit /b %errorlevel%
             '-WorkflowConclusion', $WorkflowConclusion
             '-TransportOutputPath', $Fixture.Transport
         )
+        if ($StatusOnly) {
+            $arguments += '-StatusOnly'
+        }
+        $arguments
     }
 
     function New-PrJson {
@@ -306,20 +315,26 @@ exit /b %errorlevel%
             [long] $Size = 2048,
             [bool] $Expired = $false,
             [string] $CreatedAt = $Fixture.GeneratedAt,
-            [string] $ExpiresAt = ([DateTimeOffset]::UtcNow.AddDays(1).ToString('O'))
+            [string] $ExpiresAt = ([DateTimeOffset]::UtcNow.AddDays(1).ToString('O')),
+            [switch] $Duplicate
         )
 
+        $entry = [ordered]@{
+            id = 99
+            name = $Name
+            size_in_bytes = $Size
+            expired = $Expired
+            created_at = $CreatedAt
+            expires_at = $ExpiresAt
+            workflow_run = [ordered]@{ id = 1234 }
+        }
+        $artifacts = @($entry)
+        if ($Duplicate) {
+            $artifacts += $entry
+        }
         [ordered]@{
-            total_count = 1
-            artifacts = @([ordered]@{
-                id = 99
-                name = $Name
-                size_in_bytes = $Size
-                expired = $Expired
-                created_at = $CreatedAt
-                expires_at = $ExpiresAt
-                workflow_run = [ordered]@{ id = 1234 }
-            })
+            total_count = $artifacts.Count
+            artifacts = $artifacts
         } | ConvertTo-Json -Depth 8 -Compress
     }
 
@@ -387,7 +402,8 @@ exit /b %errorlevel%
             [string] $ArtifactsJson = $null,
             [string] $IssueJson = $null,
             [string] $PullsJson = '[]',
-            [int] $IssueExit = 0
+            [int] $IssueExit = 0,
+            [int] $RunExit = 0
         )
 
         if (-not $RunJson) {
@@ -411,6 +427,7 @@ exit /b %errorlevel%
             FAKE_GH_PRS_JSON = $PullsJson
             FAKE_GH_ISSUE_JSON = $IssueJson
             FAKE_GH_ISSUE_EXIT = $IssueExit
+            FAKE_GH_RUN_EXIT = $RunExit
             FAKE_GH_WRITE_JSON = '{"id":501}'
         }
     }
@@ -418,16 +435,30 @@ exit /b %errorlevel%
     function New-PublishArguments {
         param(
             [Parameter(Mandatory)]
-            [pscustomobject] $Fixture
+            [pscustomobject] $Fixture,
+            [string] $SourceSha = $null
         )
 
-        @(
+        $arguments = @(
             '-Mode', 'publish-pr'
             '-TransportPath', $Fixture.Transport
             '-Repository', 'owner/repo'
             '-WorkflowRunId', '1234'
             '-WorkflowRunAttempt', '1'
             '-Publish'
+        )
+        if (-not [string]::IsNullOrWhiteSpace($SourceSha)) {
+            $arguments += @('-SourceSha', $SourceSha)
+        }
+        $arguments
+    }
+
+    function New-PreflightArguments {
+        @(
+            '-Mode', 'check-pr-artifact'
+            '-Repository', 'owner/repo'
+            '-WorkflowRunId', '1234'
+            '-WorkflowRunAttempt', '1'
         )
     }
 }
@@ -455,6 +486,48 @@ Describe 'trusted PR verification transport' {
         $transport.evidence.sourceSha | Should -Be $script:sourceSha
     }
 
+    It 'publishes only trusted workflow status and identity for PR evidence' {
+        $fixture = New-TransportFixture
+        $transportResult = Invoke-FixtureScript -Fixture $fixture -Arguments (
+            New-TransportArguments -Fixture $fixture -StatusOnly
+        )
+        $transportResult.ExitCode | Should -Be 0 -Because $transportResult.Output
+
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PublishArguments -Fixture $fixture) `
+            -Environment (New-PublishEnvironment -Fixture $fixture)
+        $record = (Read-FixtureJson -Path $fixture.PublicationPreview).record
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $record.sourceSha | Should -Be $script:sourceSha
+        $record.automatedStatus | Should -Be 'PASS'
+        $record.runtimeStatus | Should -Be 'PARTIAL'
+        $record.workflowRunId | Should -Be 1234
+        $record.PSObject.Properties['tests'] | Should -BeNullOrEmpty
+        $record.PSObject.Properties['buildDllSha256'] | Should -BeNullOrEmpty
+        $record.PSObject.Properties['buildProfileDigest'] | Should -BeNullOrEmpty
+    }
+
+    It 'creates a trusted result transport without PR-controlled evidence fields' {
+        $fixture = New-TransportFixture
+        $evidencePath = Join-Path $fixture.Repo 'artifacts\automated-evidence.json'
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $evidencePath) | Out-Null
+        '{"automatedStatus":"FAIL","tests":{"executed":0}}' |
+            Set-Content -LiteralPath $evidencePath
+
+        $result = Invoke-FixtureScript -Fixture $fixture -Arguments (
+            New-TransportArguments -Fixture $fixture -StatusOnly
+        )
+        $transport = Read-FixtureJson -Path $fixture.Transport
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $transport.workflow.conclusion | Should -Be 'success'
+        $transport.evidence.evidenceKind | Should -Be 'pr-workflow-result'
+        $transport.evidence.automatedStatus | Should -Be 'PASS'
+        $transport.evidence.PSObject.Properties.Name |
+            Should -Be @('schemaVersion', 'evidenceKind', 'generatedAt', 'sourceSha', 'automatedStatus')
+    }
+
     It 'rejects a source SHA that differs from the verified evidence' {
         $fixture = New-TransportFixture
         $arguments = New-TransportArguments -Fixture $fixture -SourceSha $script:otherSha
@@ -473,6 +546,56 @@ Describe 'trusted PR verification transport' {
         $result.ExitCode | Should -Not -Be 0
         $result.Output | Should -Match 'conclusion'
         (Test-Path -LiteralPath $fixture.Transport) | Should -BeFalse
+    }
+}
+
+Describe 'trusted PR artifact preflight' {
+    It 'accepts an artifact at the size limit before download' {
+        $fixture = New-TransportFixture
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PreflightArguments) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -ArtifactsJson (
+                New-ArtifactsJson -Fixture $fixture -Size 262144
+            ))
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $result.Output | Should -Match 'Transport artifact'
+    }
+
+    It 'rejects an oversized artifact before download' {
+        $fixture = New-TransportFixture
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PreflightArguments) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -ArtifactsJson (
+                New-ArtifactsJson -Fixture $fixture -Size 262145
+            ))
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'too large'
+    }
+
+    It 'rejects duplicate transport artifacts before download' {
+        $fixture = New-TransportFixture
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PreflightArguments) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -ArtifactsJson (
+                New-ArtifactsJson -Fixture $fixture -Duplicate
+            ))
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'exactly one'
+    }
+
+    It 'rejects an expired transport artifact before download' {
+        $fixture = New-TransportFixture
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PreflightArguments) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -ArtifactsJson (
+                New-ArtifactsJson -Fixture $fixture -Expired $true
+            ))
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'expired'
     }
 }
 
@@ -566,6 +689,29 @@ Describe 'trusted PR evidence publication' {
         $checkRequest.head_sha | Should -Be $script:sourceSha
     }
 
+    It 'publishes an early failure with missing build hashes' {
+        $fixture = New-TransportFixture -Status 'FAIL'
+        $transportResult = Invoke-FixtureScript -Fixture $fixture -Arguments (
+            New-TransportArguments -Fixture $fixture -Status 'FAIL' -WorkflowConclusion 'failure'
+        )
+        $transportResult.ExitCode | Should -Be 0 -Because $transportResult.Output
+        $transport = Read-FixtureJson -Path $fixture.Transport
+        $transport.evidence.buildDllSha256 = $null
+        $transport.evidence.buildProfileDigest = $null
+        Write-FixtureJson -Path $fixture.Transport -Value $transport
+
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PublishArguments -Fixture $fixture) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -RunJson (
+                New-RunJson -Fixture $fixture -Conclusion 'failure'
+            ))
+        $checkRequest = Read-FixtureJson -Path $fixture.CheckRunRequest
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $checkRequest.conclusion | Should -Be 'failure'
+        $checkRequest.head_sha | Should -Be $script:sourceSha
+    }
+
     It 'updates an existing check instead of creating another one' {
         $fixture = New-TransportFixture
         $null = Invoke-FixtureScript -Fixture $fixture -Arguments (New-TransportArguments -Fixture $fixture)
@@ -583,19 +729,33 @@ Describe 'trusted PR evidence publication' {
         @($log | Where-Object { $_ -match 'check-runs.*--method POST' }).Count | Should -Be 0
     }
 
-    It 'rejects stale transport without comment or check writes' {
-        $oldTime = [DateTimeOffset]::UtcNow.AddHours(-2).ToString('O')
+    It 'accepts an unexpired artifact after a publisher queue delay' {
+        $oldTime = [DateTimeOffset]::UtcNow.AddMinutes(-45).ToString('O')
         $fixture = New-TransportFixture -GeneratedAt $oldTime
         $null = Invoke-FixtureScript -Fixture $fixture -Arguments (New-TransportArguments -Fixture $fixture)
 
         $result = Invoke-FixtureScript -Fixture $fixture `
             -Arguments (New-PublishArguments -Fixture $fixture) `
             -Environment (New-PublishEnvironment -Fixture $fixture)
-        $log = @(Get-Content -LiteralPath $fixture.GhLog)
 
-        $result.ExitCode | Should -Not -Be 0
-        $result.Output | Should -Match 'stale'
-        @($log | Where-Object { $_ -match '--method (POST|PATCH)' }).Count | Should -Be 0
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        (Read-FixtureJson -Path $fixture.CheckRunRequest).conclusion | Should -Be 'success'
+    }
+
+    It 'accepts a slow verification when its artifact upload is current' {
+        $oldTime = [DateTimeOffset]::UtcNow.AddHours(-2).ToString('O')
+        $fixture = New-TransportFixture -GeneratedAt $oldTime
+        $null = Invoke-FixtureScript -Fixture $fixture -Arguments (New-TransportArguments -Fixture $fixture)
+
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PublishArguments -Fixture $fixture) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -ArtifactsJson (
+                New-ArtifactsJson -Fixture $fixture -CreatedAt ([DateTimeOffset]::UtcNow.ToString('O'))
+            ))
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $checkRequest = Read-FixtureJson -Path $fixture.CheckRunRequest
+        $checkRequest.conclusion | Should -Be 'success'
     }
 
     It 'rejects a stale head without publishing a success' {
@@ -659,6 +819,88 @@ Describe 'trusted PR evidence publication' {
         $result.ExitCode | Should -Not -Be 0
         $checkRequest.conclusion | Should -Be 'failure'
         @($log | Where-Object { $_ -match 'check-runs.*--method POST' }).Count | Should -Be 1
+    }
+
+    It 'fails closed when a bot marker is malformed beside a human marker' {
+        $fixture = New-TransportFixture
+        $comments = @(
+            [ordered]@{
+                id = 81
+                body = "<!-- codex-evidence:pr-head-automated -->`nmalformed"
+                user = [ordered]@{ login = 'github-actions[bot]' }
+            }
+            [ordered]@{
+                id = 82
+                body = New-CommentMarkerJson
+                user = [ordered]@{ login = 'collaborator' }
+                author_association = 'COLLABORATOR'
+            }
+        ) | ConvertTo-Json -Depth 6 -Compress
+
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PublishArguments -Fixture $fixture) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -CommentsJson $comments)
+        $checkRequest = Read-FixtureJson -Path $fixture.CheckRunRequest
+        $log = @(Get-Content -LiteralPath $fixture.GhLog)
+
+        $result.ExitCode | Should -Not -Be 0
+        $checkRequest.conclusion | Should -Be 'failure'
+        @($log | Where-Object { $_ -match 'issues/42/comments.*--method (POST|PATCH)' }).Count | Should -Be 0
+    }
+
+    It 'writes a failed check from the trusted event SHA when run lookup fails' {
+        $fixture = New-TransportFixture
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PublishArguments -Fixture $fixture -SourceSha $script:sourceSha) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -RunExit 1)
+        $checkRequest = Read-FixtureJson -Path $fixture.CheckRunRequest
+
+        $result.ExitCode | Should -Not -Be 0
+        $checkRequest.conclusion | Should -Be 'failure'
+        $checkRequest.head_sha | Should -Be $script:sourceSha
+    }
+
+    It 'ignores a newer owner marker during automated publication' {
+        $fixture = New-TransportFixture
+        $null = Invoke-FixtureScript -Fixture $fixture -Arguments (New-TransportArguments -Fixture $fixture)
+        $future = [DateTimeOffset]::UtcNow.AddHours(1).ToString('O')
+        $comments = @([ordered]@{
+            id = 83
+            body = New-CommentMarkerJson -GeneratedAt $future -RunCreatedAt $future
+            user = [ordered]@{ login = 'repository-owner' }
+            author_association = 'OWNER'
+        }) | ConvertTo-Json -Depth 6 -Compress
+
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PublishArguments -Fixture $fixture) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -CommentsJson $comments)
+        $checkRequest = Read-FixtureJson -Path $fixture.CheckRunRequest
+        $log = @(Get-Content -LiteralPath $fixture.GhLog)
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $checkRequest.conclusion | Should -Be 'success'
+        @($log | Where-Object { $_ -match 'issues/42/comments.*--method POST' }).Count | Should -Be 1
+        @($log | Where-Object { $_ -match 'issues/comments/83.*--method PATCH' }).Count | Should -Be 0
+    }
+
+    It 'records a failed check when transport preflight finds no artifact' {
+        $fixture = New-TransportFixture
+        $comments = @([ordered]@{
+            id = 78
+            body = New-CommentMarkerJson
+            user = [ordered]@{ login = 'collaborator' }
+            author_association = 'COLLABORATOR'
+        }) | ConvertTo-Json -Depth 6 -Compress
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PublishArguments -Fixture $fixture) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -ArtifactsJson (
+                '{"total_count":0,"artifacts":[]}'
+            ) -CommentsJson $comments)
+        $checkRequest = Read-FixtureJson -Path $fixture.CheckRunRequest
+
+        $result.ExitCode | Should -Not -Be 0
+        $checkRequest.conclusion | Should -Be 'failure'
+        $checkRequest.head_sha | Should -Be $script:sourceSha
     }
 
     It 'validates the run and artifact before publishing' {
@@ -810,6 +1052,7 @@ Describe 'trusted PR evidence publication' {
             id = 89
             body = New-CommentMarkerJson -GeneratedAt ([DateTimeOffset]::UtcNow.AddMinutes(4).ToString('O')) `
                 -RunCreatedAt $newerRunCreatedAt -RunId 1235 -RunAttempt 1
+            user = [ordered]@{ login = 'github-actions[bot]' }
         }) | ConvertTo-Json -Depth 6 -Compress
 
         $result = Invoke-FixtureScript -Fixture $fixture `
@@ -833,6 +1076,7 @@ Describe 'trusted PR evidence publication' {
             id = 88
             body = New-CommentMarkerJson -GeneratedAt ([DateTimeOffset]::UtcNow.AddMinutes(4).ToString('O')) `
                 -RunCreatedAt $newerRunCreatedAt -RunId 1235 -RunAttempt 1
+            user = [ordered]@{ login = 'github-actions[bot]' }
         }) | ConvertTo-Json -Depth 6 -Compress
 
         $result = Invoke-FixtureScript -Fixture $fixture `
@@ -860,17 +1104,43 @@ Describe 'trusted PR workflow boundaries' {
         $workflow | Should -Match 'retention-days: 1'
         $workflow | Should -Match 'ready_for_review, edited'
         $workflow | Should -Not -Match 'pull_request\.draft'
+        @([regex]::Matches($workflow, '& \$trustedScript')).Count | Should -Be 1
+        $workflow | Should -Match '-SourceSha \$env:SOURCE_SHA'
+        $workflow | Should -Not -Match 'Upload automated evidence'
+        $workflow | Should -Not -Match 'Upload.*evidence'
+        $workflow | Should -Not -Match '\$verifyExit'
         $workflow | Should -Not -Match 'secrets\.'
         $workflow | Should -Not -Match 'administration:'
+
+        $transportStart = $workflow.IndexOf("`n  transport:")
+        $transportStart | Should -BeGreaterThan 0
+        $transportJob = $workflow.Substring($transportStart)
+        $transportJob | Should -Match 'needs: verify'
+        $transportJob | Should -Match 'if: \$\{\{ always\(\) \}\}'
+        $transportJob | Should -Not -Match 'Download automated evidence'
+        $transportJob | Should -Match 'VERIFY_RESULT: \$\{\{ needs\.verify\.result \}\}'
+        $transportJob | Should -Match '-Mode transport'
+        $transportJob | Should -Match '-StatusOnly'
+        $transportJob | Should -Not -Match 'pull_request\.head\.repo\.full_name'
     }
 
-    It 'publishes from an independent default-branch workflow without checking out PR code' {
+    It 'publishes from an independent default-branch workflow with least PR write access' {
         $workflow = Get-Content -Raw -LiteralPath (Join-Path $script:sourceRepoRoot '.github\workflows\publish-pr.yml')
 
         $workflow | Should -Match 'workflow_run:'
         $workflow | Should -Match 'checks: write'
-        $workflow | Should -Match 'issues: write'
         $workflow | Should -Match 'pull-requests: write'
+        $workflow | Should -Not -Match 'issues: write'
+        $workflow | Should -Match 'SOURCE_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}'
+        $workflow | Should -Match '-SourceSha \$env:SOURCE_SHA'
+        $workflow | Should -Match 'Reject unsafe transport before download'
+        $workflow | Should -Match '-Mode check-pr-artifact'
+        $workflow | Should -Match 'id: transport-preflight'
+        $workflow | Should -Match 'continue-on-error: true'
+        $workflow | Should -Match "if: steps\.transport-preflight\.outcome == 'success'"
+        $workflow | Should -Match 'if: always\(\)'
+        $workflow.IndexOf('Reject unsafe transport before download') |
+            Should -BeLessThan $workflow.IndexOf('Download verification transport')
         $workflow | Should -Match 'persist-credentials: false'
         $workflow | Should -Not -Match 'pull_request\.head'
         $workflow | Should -Not -Match 'secrets\.'

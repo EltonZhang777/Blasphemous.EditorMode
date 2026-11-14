@@ -2,7 +2,7 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet('automated', 'smoke', 'publish', 'transport', 'publish-pr', 'publish-dev')]
+    [ValidateSet('automated', 'smoke', 'publish', 'transport', 'check-pr-artifact', 'publish-pr', 'publish-dev')]
     [string] $Mode = 'automated',
 
     [string] $RepoRoot,
@@ -29,7 +29,7 @@ param(
 
     [int] $TransportMaxBytes = 262144,
 
-    [int] $FreshnessMinutes = 30,
+    [switch] $StatusOnly,
 
     [string] $CheckContext = 'Trusted verification evidence',
 
@@ -448,17 +448,25 @@ function Read-TestCounts {
 function ConvertTo-EvidenceTimestamp {
     param(
         [Parameter(Mandatory)]
-        [string] $Value
+        [object] $Value
     )
 
-    $parsed = [DateTimeOffset]::MinValue
-    if (-not [DateTimeOffset]::TryParse(
-        $Value,
-        [Globalization.CultureInfo]::InvariantCulture,
-        [Globalization.DateTimeStyles]::RoundtripKind,
-        [ref] $parsed
-    )) {
-        throw "Evidence timestamp is malformed: '$Value'."
+    if ($Value -is [DateTimeOffset]) {
+        $parsed = $Value
+    }
+    elseif ($Value -is [DateTime]) {
+        $parsed = [DateTimeOffset]$Value
+    }
+    else {
+        $parsed = [DateTimeOffset]::MinValue
+        if (-not [DateTimeOffset]::TryParse(
+            [string]$Value,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind,
+            [ref] $parsed
+        )) {
+            throw "Evidence timestamp is malformed: '$Value'."
+        }
     }
 
     return $parsed.UtcDateTime.ToString(
@@ -469,7 +477,7 @@ function ConvertTo-EvidenceTimestamp {
 
 function Get-EvidenceTimestamp {
     param(
-        [string] $Value
+        [object] $Value
     )
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -773,7 +781,7 @@ function Assert-AutomatedEvidence {
     if ($sourceSha -notmatch '^[0-9a-f]{40}$' -or -not $buildHashesValid) {
         throw 'Automated evidence has malformed SHA fields.'
     }
-    [void](ConvertTo-EvidenceTimestamp -Value ([string](Get-RequiredPropertyValue -Object $Evidence -Name 'generatedAt')))
+    [void](ConvertTo-EvidenceTimestamp -Value (Get-RequiredPropertyValue -Object $Evidence -Name 'generatedAt'))
 
     $status = [string](Get-RequiredPropertyValue -Object $Evidence -Name 'automatedStatus')
     if ($status -notin @('PASS', 'FAIL', 'PARTIAL')) {
@@ -829,6 +837,8 @@ function Assert-AutomatedEvidence {
 
     if ($status -eq 'PASS') {
         if (
+            $buildDllSha256 -notmatch '^[0-9a-f]{64}$' -or
+            $buildProfileDigest -notmatch '^[0-9a-f]{64}$' -or
             [string](Get-RequiredPropertyValue -Object $Evidence -Name 'sourceTreeStatus') -ne 'clean' -or
             $testsStatus -ne 'PASS' -or
             $executed -eq 0 -or
@@ -891,6 +901,10 @@ function Assert-AutomatedConclusion {
 }
 
 function Invoke-TransportCreation {
+    param(
+        [switch] $StatusOnly
+    )
+
     if ($PrNumber -le 0) {
         throw 'PrNumber must be a positive issue number.'
     }
@@ -913,12 +927,23 @@ function Invoke-TransportCreation {
             throw "$($workflowField.Name) is required."
         }
     }
-
     $repositoryName = Get-RepositoryName -Override $Repository
-    $evidence = Read-JsonFile -Path $evidencePath
-    Assert-AutomatedEvidence -Evidence $evidence
-    if ([string]$evidence.sourceSha -ne $SourceSha) {
-        throw "Verified source SHA '$($evidence.sourceSha)' does not match the reviewed head SHA '$SourceSha'."
+    if ($StatusOnly) {
+        $evidence = [ordered]@{
+            schemaVersion = 1
+            evidenceKind = 'pr-workflow-result'
+            generatedAt = Get-EvidenceTimestamp
+            sourceSha = $SourceSha
+            automatedStatus = if ($WorkflowConclusion -eq 'success') { 'PASS' } else { 'FAIL' }
+        }
+    }
+    else {
+        $evidence = Read-JsonFile -Path $evidencePath
+        Assert-AutomatedEvidence -Evidence $evidence `
+            -AllowMissingBuildHashes:($WorkflowConclusion -eq 'failure')
+        if ([string]$evidence.sourceSha -ne $SourceSha) {
+            throw "Verified source SHA '$($evidence.sourceSha)' does not match the reviewed head SHA '$SourceSha'."
+        }
     }
     Assert-AutomatedConclusion -Conclusion $WorkflowConclusion `
         -AutomatedStatus ([string]$evidence.automatedStatus)
@@ -927,7 +952,7 @@ function Invoke-TransportCreation {
         schemaVersion = 1
         transportVersion = 1
         authoritative = $false
-        generatedAt = [string]$evidence.generatedAt
+        generatedAt = ConvertTo-EvidenceTimestamp -Value $evidence.generatedAt
         repository = $repositoryName
         prNumber = $PrNumber
         sourceSha = $SourceSha
@@ -947,10 +972,19 @@ function Invoke-TransportCreation {
     return 0
 }
 
+function Invoke-PrArtifactPreflight {
+    $repositoryName = Get-RepositoryName -Override $Repository
+    $run = Get-GitHubWorkflowRun -RepositoryName $repositoryName
+    $artifact = Assert-WorkflowArtifact -RepositoryName $repositoryName -Run $run
+    Write-Host "Transport artifact: $($artifact.Name) ($($artifact.Size) bytes)"
+    return 0
+}
+
 function Get-PublicationRecord {
     param(
         [object] $AutomatedEvidence,
-        [switch] $UseSuppliedEvidence
+        [switch] $UseSuppliedEvidence,
+        [switch] $AllowMissingBuildHashes
     )
 
     $automated = if ($UseSuppliedEvidence) {
@@ -977,7 +1011,7 @@ function Get-PublicationRecord {
         throw "Requested evidence is missing for kind '$EvidenceKind'."
     }
     if ($null -ne $automated) {
-        Assert-AutomatedEvidence -Evidence $automated
+        Assert-AutomatedEvidence -Evidence $automated -AllowMissingBuildHashes:$AllowMissingBuildHashes
     }
     if ($null -ne $smoke -and (
         [int]$smoke.schemaVersion -ne 1 -or
@@ -989,7 +1023,7 @@ function Get-PublicationRecord {
     if ($sourceSha -notmatch '^[0-9a-f]{40}$') {
         throw "Evidence source SHA is malformed: '$sourceSha'."
     }
-    $generatedAt = ConvertTo-EvidenceTimestamp -Value ([string]$primary.generatedAt)
+    $generatedAt = ConvertTo-EvidenceTimestamp -Value $primary.generatedAt
 
     if ($EvidenceKind -eq 'runtime-smoke') {
         if ([string]$primary.evidenceKind -ne 'runtime-smoke') {
@@ -1004,8 +1038,16 @@ function Get-PublicationRecord {
         if ([string]$primary.evidenceKind -ne 'automated') {
             throw 'Automated evidence has the wrong evidence kind.'
         }
-        if ([string]$primary.buildDllSha256 -notmatch '^[0-9a-f]{64}$' -or
-            [string]$primary.buildProfileDigest -notmatch '^[0-9a-f]{64}$') {
+        if (
+            (-not $AllowMissingBuildHashes -or -not [string]::IsNullOrWhiteSpace([string]$primary.buildDllSha256)) -and
+            [string]$primary.buildDllSha256 -notmatch '^[0-9a-f]{64}$'
+        ) {
+            throw 'Automated evidence hashes are malformed.'
+        }
+        if (
+            (-not $AllowMissingBuildHashes -or -not [string]::IsNullOrWhiteSpace([string]$primary.buildProfileDigest)) -and
+            [string]$primary.buildProfileDigest -notmatch '^[0-9a-f]{64}$'
+        ) {
             throw 'Automated evidence hashes are malformed.'
         }
     }
@@ -1013,7 +1055,7 @@ function Get-PublicationRecord {
     $automatedStatus = 'PARTIAL'
     $automatedGeneratedAt = $null
     if ($null -ne $automated -and [string]$automated.sourceSha -eq $sourceSha) {
-        $automatedGeneratedAt = ConvertTo-EvidenceTimestamp -Value ([string]$automated.generatedAt)
+        $automatedGeneratedAt = ConvertTo-EvidenceTimestamp -Value $automated.generatedAt
         $automatedStatus = if ([string]$automated.automatedStatus -in @('PASS', 'FAIL')) {
             [string]$automated.automatedStatus
         }
@@ -1025,7 +1067,7 @@ function Get-PublicationRecord {
     $runtimeStatus = 'PARTIAL'
     $smokeGeneratedAt = $null
     if ($null -ne $smoke -and [string]$smoke.sourceSha -eq $sourceSha) {
-        $smokeGeneratedAt = ConvertTo-EvidenceTimestamp -Value ([string]$smoke.generatedAt)
+        $smokeGeneratedAt = ConvertTo-EvidenceTimestamp -Value $smoke.generatedAt
         $smokeOutcome = [string]$smoke.outcome
         $smokeRuntimeStatus = [string]$smoke.runtimeStatus
         if (
@@ -1346,9 +1388,9 @@ function Get-GitHubWorkflowRun {
         Path = [string]$run.path
         Event = [string]$run.event
         Conclusion = $conclusion
-        CreatedAt = ConvertTo-EvidenceTimestamp -Value ([string](
+        CreatedAt = ConvertTo-EvidenceTimestamp -Value (
             Get-RequiredPropertyValue -Object $run -Name 'created_at'
-        ))
+        )
         PrNumber = $pullRequestNumber
         SourceSha = $sourceSha
         HeadRepository = $headRepositoryName
@@ -1405,15 +1447,15 @@ function Assert-WorkflowArtifact {
 
     $now = [DateTimeOffset]::UtcNow
     $created = [DateTimeOffset]::Parse($(
-        ConvertTo-EvidenceTimestamp -Value ([string](
+        ConvertTo-EvidenceTimestamp -Value (
             Get-RequiredPropertyValue -Object $artifact -Name 'created_at'
-        ))
+        )
     ))
     $runCreated = [DateTimeOffset]::Parse($Run.CreatedAt)
     $expires = [DateTimeOffset]::Parse($(
-        ConvertTo-EvidenceTimestamp -Value ([string](
+        ConvertTo-EvidenceTimestamp -Value (
             Get-RequiredPropertyValue -Object $artifact -Name 'expires_at'
-        ))
+        )
     ))
     if ($created -lt $runCreated.AddMinutes(-5) -or $created -gt $now.AddMinutes(5)) {
         throw 'Workflow transport artifact timestamp is inconsistent with its run.'
@@ -1421,7 +1463,6 @@ function Assert-WorkflowArtifact {
     if ($expires -le $now) {
         throw 'Workflow transport artifact has expired.'
     }
-
     return [pscustomobject]@{
         Id = [long](Get-RequiredPropertyValue -Object $artifact -Name 'id')
         Name = $artifactName
@@ -1518,15 +1559,12 @@ function Read-PrTransportRecord {
         throw 'Verification transport workflow identity does not match the authoritative run.'
     }
 
-    $generatedAt = ConvertTo-EvidenceTimestamp -Value ([string](
+    $generatedAt = ConvertTo-EvidenceTimestamp -Value (
         Get-RequiredPropertyValue -Object $transport -Name 'generatedAt'
-    ))
+    )
     $generated = [DateTimeOffset]::Parse($generatedAt)
     $now = [DateTimeOffset]::UtcNow
     $runCreated = [DateTimeOffset]::Parse($Run.CreatedAt)
-    if ($generated -lt $now.AddMinutes(-$FreshnessMinutes)) {
-        throw "Verification transport is stale: generated at $generatedAt."
-    }
     if ($generated -lt $runCreated.AddMinutes(-5)) {
         throw 'Verification transport predates its authoritative workflow run.'
     }
@@ -1535,13 +1573,28 @@ function Read-PrTransportRecord {
     }
 
     $evidence = Get-RequiredPropertyValue -Object $transport -Name 'evidence'
-    Assert-AutomatedEvidence -Evidence $evidence
+    if ([string](Get-RequiredPropertyValue -Object $evidence -Name 'evidenceKind') -eq 'pr-workflow-result') {
+        $expectedFields = @('schemaVersion', 'evidenceKind', 'generatedAt', 'sourceSha', 'automatedStatus')
+        if (@($evidence.PSObject.Properties.Name | Where-Object { $_ -notin $expectedFields }).Count -ne 0) {
+            throw 'Trusted PR workflow result contains unexpected evidence fields.'
+        }
+        if (
+            [int](Get-RequiredPropertyValue -Object $evidence -Name 'schemaVersion') -ne 1 -or
+            [string](Get-RequiredPropertyValue -Object $evidence -Name 'sourceSha') -ne $Run.SourceSha
+        ) {
+            throw 'Trusted PR workflow result has an invalid schema or source SHA.'
+        }
+    }
+    else {
+        Assert-AutomatedEvidence -Evidence $evidence `
+            -AllowMissingBuildHashes:($Run.Conclusion -eq 'failure')
+    }
     if ([string]$evidence.sourceSha -ne $Run.SourceSha) {
         throw 'Verification transport evidence source SHA does not match the authoritative run.'
     }
-    $evidenceGeneratedAt = ConvertTo-EvidenceTimestamp -Value ([string](
+    $evidenceGeneratedAt = ConvertTo-EvidenceTimestamp -Value (
         Get-RequiredPropertyValue -Object $evidence -Name 'generatedAt'
-    ))
+    )
     if ($evidenceGeneratedAt -ne $generatedAt) {
         throw 'Verification transport and evidence timestamps disagree.'
     }
@@ -1670,6 +1723,28 @@ function Get-TargetComments {
         throw 'Existing comments are malformed.'
     }
     return @($comments | ForEach-Object { $_ })
+}
+
+function Test-TrustedEvidenceComment {
+    param(
+        [Parameter(Mandatory)]
+        [object] $Comment,
+        [switch] $AutomatedOrdering
+    )
+
+    $userProperty = $Comment.PSObject.Properties['user']
+    if ($null -eq $userProperty -or $null -eq $userProperty.Value) {
+        return $false
+    }
+    $loginProperty = $userProperty.Value.PSObject.Properties['login']
+    if ($null -ne $loginProperty -and [string]$loginProperty.Value -eq 'github-actions[bot]') {
+        return $true
+    }
+    if ($AutomatedOrdering) {
+        return $false
+    }
+    $associationProperty = $Comment.PSObject.Properties['author_association']
+    return $null -ne $associationProperty -and [string]$associationProperty.Value -eq 'OWNER'
 }
 
 function Get-CommentEvidenceRecord {
@@ -1809,10 +1884,10 @@ function Assert-PublicationFreshness {
         -not [string]::IsNullOrWhiteSpace([string]$incomingRunCreatedProperty.Value)
     ) {
         $existingRunCreated = [DateTimeOffset]::Parse($(
-            ConvertTo-EvidenceTimestamp -Value ([string]$existingRunCreatedProperty.Value)
+            ConvertTo-EvidenceTimestamp -Value $existingRunCreatedProperty.Value
         ))
         $incomingRunCreated = [DateTimeOffset]::Parse($(
-            ConvertTo-EvidenceTimestamp -Value ([string]$incomingRunCreatedProperty.Value)
+            ConvertTo-EvidenceTimestamp -Value $incomingRunCreatedProperty.Value
         ))
         if ($existingRunCreated -gt $incomingRunCreated) {
             throw 'Stale publication: an older verification run cannot replace newer evidence.'
@@ -1832,8 +1907,8 @@ function Assert-PublicationFreshness {
         return
     }
 
-    $existingGeneratedAt = ConvertTo-EvidenceTimestamp -Value ([string]$ExistingRecord.generatedAt)
-    $incomingGeneratedAt = ConvertTo-EvidenceTimestamp -Value ([string]$IncomingRecord.generatedAt)
+    $existingGeneratedAt = ConvertTo-EvidenceTimestamp -Value $ExistingRecord.generatedAt
+    $incomingGeneratedAt = ConvertTo-EvidenceTimestamp -Value $IncomingRecord.generatedAt
     if ($existingGeneratedAt -ge $incomingGeneratedAt) {
         throw 'Stale publication: an older record cannot replace newer evidence.'
     }
@@ -1850,17 +1925,20 @@ function Test-NewerPublishedEvidence {
     try {
         $comments = Get-TargetComments -RepositoryName $RepositoryName -TargetNumber $Run.PrNumber
         $marker = "<!-- codex-evidence:$EvidenceKind -->"
-        $markerComments = @($comments | Where-Object { [string]$_.body -like "*$marker*" })
+        $markerComments = @($comments | Where-Object {
+            [string]$_.body -like "*$marker*" -and
+            (Test-TrustedEvidenceComment -Comment $_ -AutomatedOrdering)
+        })
         if ($markerComments.Count -eq 0) {
             return $false
         }
         if ($markerComments.Count -ne 1) {
-            return $true
+            return $false
         }
 
         $existingRecord = Get-CommentEvidenceRecord -Body ([string]$markerComments[0].body)
         if ([string]$existingRecord.evidenceKind -ne $EvidenceKind) {
-            return $true
+            return $false
         }
         if ([string]$existingRecord.sourceSha -ne $Run.SourceSha) {
             return $false
@@ -1873,7 +1951,7 @@ function Test-NewerPublishedEvidence {
             -not [string]::IsNullOrWhiteSpace([string]$existingRunCreatedProperty.Value)
         ) {
             $existingCreated = [DateTimeOffset]::Parse($(
-                ConvertTo-EvidenceTimestamp -Value ([string]$existingRunCreatedProperty.Value)
+                ConvertTo-EvidenceTimestamp -Value $existingRunCreatedProperty.Value
             ))
             if ($existingCreated -ne $incomingCreated) {
                 return $existingCreated -gt $incomingCreated
@@ -1886,11 +1964,11 @@ function Test-NewerPublishedEvidence {
             )
         }
 
-        $existingGeneratedAt = ConvertTo-EvidenceTimestamp -Value ([string]$existingRecord.generatedAt)
+        $existingGeneratedAt = ConvertTo-EvidenceTimestamp -Value $existingRecord.generatedAt
         return [DateTimeOffset]::Parse($existingGeneratedAt) -ge $incomingCreated
     }
     catch {
-        return $true
+        return $false
     }
 }
 
@@ -1898,6 +1976,7 @@ function Invoke-Publication {
     param(
         [object] $RecordOverride,
         [switch] $UseRecordOverride,
+        [switch] $AutomatedPublication,
         [ValidateSet('success', 'failure')]
         [string] $CheckConclusion
     )
@@ -1933,7 +2012,10 @@ function Invoke-Publication {
     $targetNumber = if ($targetType -eq 'pr') { $PrNumber } else { $pr.EvidenceIssue }
     $comments = Get-TargetComments -RepositoryName $repositoryName -TargetNumber $targetNumber
     $marker = "<!-- codex-evidence:$EvidenceKind -->"
-    $markerComments = @($comments | Where-Object { [string]$_.body -like "*$marker*" })
+    $markerComments = @($comments | Where-Object {
+        [string]$_.body -like "*$marker*" -and
+        (Test-TrustedEvidenceComment -Comment $_ -AutomatedOrdering:$AutomatedPublication)
+    })
     if ($markerComments.Count -gt 1) {
         throw "Target has multiple marker comments for evidence kind '$EvidenceKind'."
     }
@@ -2067,10 +2149,22 @@ function Invoke-PrEvidencePublication {
     }
 
     $repositoryName = $null
-    $authoritativeSource = $null
+    $authoritativeSource = if ($SourceSha -match '^[0-9a-f]{40}$') {
+        $SourceSha
+    }
+    else {
+        $null
+    }
+    $run = $null
     try {
         $repositoryName = Get-RepositoryName -Override $Repository
         $run = Get-GitHubWorkflowRun -RepositoryName $repositoryName
+        if (
+            -not [string]::IsNullOrWhiteSpace($authoritativeSource) -and
+            $run.SourceSha -ne $authoritativeSource
+        ) {
+            throw 'Workflow run head SHA does not match the trusted event source SHA.'
+        }
         $authoritativeSource = $run.SourceSha
         if ($run.Conclusion -notin @('success', 'failure')) {
             throw "Unsupported verification run conclusion: '$($run.Conclusion)'."
@@ -2090,7 +2184,17 @@ function Invoke-PrEvidencePublication {
 
         $artifact = Assert-WorkflowArtifact -RepositoryName $repositoryName -Run $run
         $transport = Read-PrTransportRecord -RepositoryName $repositoryName -Run $run
-        $record = Get-PublicationRecord -AutomatedEvidence $transport.evidence -UseSuppliedEvidence
+        $automatedStatus = if ($run.Conclusion -eq 'success') { 'PASS' } else { 'FAIL' }
+        $overallStatus = if ($automatedStatus -eq 'FAIL') { 'FAIL' } else { 'PARTIAL' }
+        $record = [ordered]@{
+            schemaVersion = 1
+            evidenceKind = 'pr-head-automated'
+            sourceSha = $run.SourceSha
+            generatedAt = $transport.generatedAt
+            automatedStatus = $automatedStatus
+            runtimeStatus = 'PARTIAL'
+            overallStatus = $overallStatus
+        }
         $record.prNumber = $run.PrNumber
         $record.evidenceIssue = $pr.EvidenceIssue
         $record.workflowRunId = $run.Id
@@ -2102,22 +2206,22 @@ function Invoke-PrEvidencePublication {
         $record.transportArtifactSize = $artifact.Size
 
         $PrNumber = $run.PrNumber
-        $checkConclusion = if ($record.automatedStatus -eq 'PASS') {
-            'success'
-        }
-        else {
-            'failure'
-        }
-        Invoke-Publication -RecordOverride $record -UseRecordOverride -CheckConclusion $checkConclusion
+        Invoke-Publication -RecordOverride $record -UseRecordOverride -AutomatedPublication `
+            -CheckConclusion $run.Conclusion
         return 0
     }
     catch {
         $message = $_.Exception.Message
+        $newerEvidenceSuppressesFailure = $false
+        if ($null -ne $run -and $run.PrNumber -gt 0) {
+            $newerEvidenceSuppressesFailure = Test-NewerPublishedEvidence `
+                -RepositoryName $repositoryName -Run $run
+        }
         if (
             -not [string]::IsNullOrWhiteSpace($repositoryName) -and
             $authoritativeSource -match '^[0-9a-f]{40}$' -and
             $message -notmatch '(?i)\bstale\b' -and
-            -not (Test-NewerPublishedEvidence -RepositoryName $repositoryName -Run $run)
+            -not $newerEvidenceSuppressesFailure
         ) {
             try {
                 Set-CommitCheck -RepositoryName $repositoryName -Sha $authoritativeSource -Conclusion failure `
@@ -2199,7 +2303,7 @@ function Invoke-DevPublication {
                 evidenceKind = 'dev-automated'
                 sourceSha = $finalSha
                 mergedSha = $finalSha
-                generatedAt = ConvertTo-EvidenceTimestamp -Value ([string]$evidence.generatedAt)
+                generatedAt = ConvertTo-EvidenceTimestamp -Value $evidence.generatedAt
                 automatedStatus = 'FAIL'
                 runtimeStatus = 'PARTIAL'
                 overallStatus = 'FAIL'
@@ -2350,6 +2454,12 @@ function Invoke-DevPublication {
 function Invoke-AutomatedVerification {
 $exitCode = 1
 $script:evidence.generatedAt = Get-EvidenceTimestamp -Value $GeneratedAt
+if (-not [string]::IsNullOrWhiteSpace($SourceSha)) {
+    if ($SourceSha -notmatch '^[0-9a-f]{40}$') {
+        throw "SourceSha is malformed: '$SourceSha'."
+    }
+    $script:evidence.sourceSha = $SourceSha
+}
 Write-Evidence
 Push-Location $repoRoot
 try {
@@ -2455,7 +2565,8 @@ try {
         'automated' { Invoke-AutomatedVerification }
         'smoke' { Invoke-SmokeVerification }
         'publish' { Invoke-Publication }
-        'transport' { Invoke-TransportCreation }
+        'transport' { Invoke-TransportCreation -StatusOnly:$StatusOnly }
+        'check-pr-artifact' { Invoke-PrArtifactPreflight }
         'publish-pr' { Invoke-PrEvidencePublication }
         'publish-dev' { Invoke-DevPublication }
     }

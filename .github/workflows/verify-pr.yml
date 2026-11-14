@@ -42,31 +42,50 @@ jobs:
     - name: Verify reviewed head
       shell: pwsh
       env:
-        PR_NUMBER: ${{ github.event.pull_request.number }}
         SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
       run: |
         $ErrorActionPreference = 'Stop'
         $trustedScript = Join-Path $env:GITHUB_WORKSPACE 'trusted\scripts\verify.ps1'
         $sourceRoot = Join-Path $env:GITHUB_WORKSPACE 'source'
-        $transportPath = Join-Path $env:GITHUB_WORKSPACE 'transport\pr-verification-transport.json'
 
-        & $trustedScript -RepoRoot $sourceRoot
-        $verifyExit = $LASTEXITCODE
-        $conclusion = if ($verifyExit -eq 0) { 'success' } else { 'failure' }
+        & $trustedScript -RepoRoot $sourceRoot -SourceSha $env:SOURCE_SHA
+        exit $LASTEXITCODE
 
-        & $trustedScript -RepoRoot $sourceRoot -Mode transport `
+  transport:
+    needs: verify
+    if: ${{ always() }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout trusted transport builder
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        path: trusted
+        persist-credentials: false
+
+    - name: Build verification transport
+      shell: pwsh
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        VERIFY_RESULT: ${{ needs.verify.result }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $trustedRoot = Join-Path $env:GITHUB_WORKSPACE 'trusted'
+        $conclusion = if ($env:VERIFY_RESULT -eq 'success') { 'success' } else { 'failure' }
+        & (Join-Path $trustedRoot 'scripts\verify.ps1') -RepoRoot $trustedRoot -Mode transport `
+          -StatusOnly `
           -PrNumber $env:PR_NUMBER -SourceSha $env:SOURCE_SHA `
           -Repository $env:GITHUB_REPOSITORY `
           -WorkflowRunId $env:GITHUB_RUN_ID -WorkflowRunAttempt $env:GITHUB_RUN_ATTEMPT `
           -WorkflowName 'PR verification' -WorkflowPath '.github/workflows/verify-pr.yml' `
           -WorkflowEvent 'pull_request_target' -WorkflowConclusion $conclusion `
-          -TransportOutputPath $transportPath
-        $transportExit = $LASTEXITCODE
-
-        if ($verifyExit -ne 0) {
-          exit $verifyExit
-        }
-        exit $transportExit
+          -TransportOutputPath (Join-Path $env:GITHUB_WORKSPACE 'transport\pr-verification-transport.json')
+        exit $LASTEXITCODE
 
     - name: Upload verification transport
       if: always()

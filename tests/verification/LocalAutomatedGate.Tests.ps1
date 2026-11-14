@@ -70,6 +70,9 @@ if ($args[0] -in @('build', 'test') -and ($args -join ' ') -notmatch 'DisableDev
 
 switch ($args[0]) {
     'build' {
+        if ($env:FAKE_BUILD_MODE -eq 'fail') {
+            exit 1
+        }
         $dll = Join-Path (Get-Location) 'Blasphemous.EditorMode\bin\Release\EditorMode.dll'
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dll) | Out-Null
         [IO.File]::WriteAllBytes($dll, [Text.Encoding]::UTF8.GetBytes('fixture-dll'))
@@ -336,7 +339,8 @@ exit /b 1
         param(
             [Parameter(Mandatory)]
             [pscustomobject] $Fixture,
-            [hashtable] $Environment = @{}
+            [hashtable] $Environment = @{},
+            [string[]] $Arguments = @()
         )
 
         $originalPath = $env:PATH
@@ -364,7 +368,7 @@ exit /b 1
             $env:PATH = "$($Fixture.Bin);$originalPath"
             Push-Location $Fixture.Repo
             try {
-                $output = & $script:pwshPath -NoProfile -NonInteractive -File (Join-Path $Fixture.Repo 'scripts\verify.ps1') 2>&1
+                $output = & $script:pwshPath -NoProfile -NonInteractive -File (Join-Path $Fixture.Repo 'scripts\verify.ps1') @Arguments 2>&1
                 $exitCode = $LASTEXITCODE
             }
             finally {
@@ -391,6 +395,42 @@ exit /b 1
         )
 
         Get-Content -Raw -LiteralPath $Fixture.Evidence | ConvertFrom-Json
+    }
+}
+
+Describe 'trusted PR transport builder' {
+    It 'builds a failure transport when the build fails before hashes exist' {
+        $fixture = New-GateFixture
+        $verifyResult = Invoke-FixtureGate -Fixture $fixture `
+            -Environment @{ FAKE_BUILD_MODE = 'fail' } `
+            -Arguments @('-SourceSha', $script:sourceSha)
+        $evidence = Read-FixtureEvidence -Fixture $fixture
+
+        $verifyResult.ExitCode | Should -Not -Be 0
+        $evidence.sourceSha | Should -Be $script:sourceSha
+        $evidence.automatedStatus | Should -Be 'FAIL'
+        $evidence.buildDllSha256 | Should -BeNullOrEmpty
+
+        $transportPath = Join-Path $fixture.Root 'transport\pr.json'
+        $result = Invoke-FixtureGate -Fixture $fixture -Arguments @(
+            '-Mode', 'transport'
+            '-PrNumber', '42'
+            '-SourceSha', $script:sourceSha
+            '-Repository', 'owner/repo'
+            '-WorkflowRunId', '1234'
+            '-WorkflowRunAttempt', '1'
+            '-WorkflowName', 'PR verification'
+            '-WorkflowPath', '.github/workflows/verify-pr.yml'
+            '-WorkflowEvent', 'pull_request_target'
+            '-WorkflowConclusion', 'failure'
+            '-TransportOutputPath', $transportPath
+        )
+        $transport = Get-Content -Raw -LiteralPath $transportPath | ConvertFrom-Json
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $transport.workflow.conclusion | Should -Be 'failure'
+        $transport.evidence.automatedStatus | Should -Be 'FAIL'
+        $transport.evidence.buildDllSha256 | Should -BeNullOrEmpty
     }
 }
 
