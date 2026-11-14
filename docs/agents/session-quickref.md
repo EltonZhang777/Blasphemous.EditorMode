@@ -73,3 +73,13 @@ A handoff does not authorize issue creation, issue status changes, issue linking
 ## Commands
 
 Use PowerShell for Git and repository commands in a Windows checkout. The examples here do not require WSL or a Bash shell.
+
+## Closure evidence
+
+The field and status contract is defined by [#29](https://github.com/EltonZhang777/Blasphemous.EditorMode/issues/29); the canonical verification entrypoint is defined by [#31](https://github.com/EltonZhang777/Blasphemous.EditorMode/issues/31). This section does not repeat or invent build, test, whitespace, profile-smoke, or workflow commands.
+
+Every close record identifies the evidence kind, the full 40-character source SHA, the final merged SHA where applicable, the automated status, the runtime status, and evidence links.
+
+A completed close requires current automated and runtime PASS evidence at the exact HEAD and no open remaining scope. Automated failures and zero-test runs are FAIL. Missing, stale, mismatched, or incomplete runtime evidence is PARTIAL, never PASS. A later HEAD or changed verification scope invalidates the record and requires re-verification.
+
+An explicit PARTIAL close records the delivered scope, remaining scope, and links to follow-up coverage that already exists. Keep the ticket open when that coverage or issue write permission is unavailable.
