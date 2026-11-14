@@ -79,6 +79,6 @@
     <WriteLinesToFile Lines="$(GeneratedText)" File="$(GeneratedFilePath)" WriteOnlyWhenDifferent="true" Overwrite="true" />
 
   </Target>
-  
+
 </Project>
 
