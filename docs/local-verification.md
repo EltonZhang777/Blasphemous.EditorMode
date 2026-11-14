@@ -210,6 +210,47 @@ fork pull request, and only then activate a `dev` ruleset requiring
 `Trusted verification evidence`. Ruleset activation is a separate external
 configuration action and is not performed by the verification scripts.
 
+## Final dev verification
+
+`.github/workflows/verify-dev.yml` runs on every push to `dev`. It checks out
+the exact `github.sha`, runs the same automated gate as local users, and then
+invokes:
+
+```powershell
+pwsh -NoProfile -File scripts/verify.ps1 -Mode publish-dev `
+  -SourceSha <final-dev-sha> -Repository owner/repo `
+  -WorkflowRunId <run-id> -WorkflowRunAttempt <attempt> `
+  -WorkflowName 'Dev verification' `
+  -WorkflowPath '.github/workflows/verify-dev.yml' `
+  -WorkflowEvent push -Publish
+```
+
+The publisher resolves the final commit through the GitHub commit-to-pull
+request association. A unique association must be merged, target `dev`, expose
+the same reviewed head as the pull request's current `headRefOid`, and declare
+one `Evidence issue: #N`. Before writing, it also requires the requested source
+SHA to still be the current `dev` head, so a rerun of an older commit cannot
+replace newer evidence. The final record uses `sourceSha` and `mergedSha` for
+the final `dev` commit and records `prHeadSha` for the reviewed head. The
+marker links the final commit, reviewed head, and evidence issue. It publishes
+the `dev-automated` marker to the declared issue and reuses the normal freshness
+checks, so reruns update the existing marker rather than creating duplicates.
+Workflow concurrency serializes runs for the same ref instead of creating
+competing marker updates.
+
+If the final commit has no unique PR association or has malformed association
+metadata, the publisher writes `artifacts/dev-publication-preview.json` and
+`artifacts/dev-publication-result.json` with top-level `PARTIAL` status and
+exits non-zero without writing issue evidence. Incomplete automated evidence
+with a valid association and issue publishes a `PARTIAL` marker and exits
+non-zero; the operation result still records `PUBLISHED`. A failed automated
+gate still publishes `FAIL` evidence when the PR association is valid,
+including an early failure that occurs before build hashes exist. Early failure
+evidence must still contain the traceability fields for tests, whitespace, SDK,
+runner, and errors; missing tracing fields downgrade it to `PARTIAL`. The
+workflow never performs an automatic revert, and it has no
+repository-administration permission.
+
 Run the Pester coverage with:
 
 ```powershell

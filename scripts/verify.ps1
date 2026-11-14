@@ -2,7 +2,7 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet('automated', 'smoke', 'publish', 'transport', 'publish-pr')]
+    [ValidateSet('automated', 'smoke', 'publish', 'transport', 'publish-pr', 'publish-dev')]
     [string] $Mode = 'automated',
 
     [string] $RepoRoot,
@@ -80,6 +80,8 @@ else {
     [IO.Path]::GetFullPath($TransportPath)
 }
 $checkRunRequestPath = Join-Path $repoRoot 'artifacts\check-run-request.json'
+$devPublicationPreviewPath = Join-Path $repoRoot 'artifacts\dev-publication-preview.json'
+$devPublicationResultPath = Join-Path $repoRoot 'artifacts\dev-publication-result.json'
 $testResultsDirectory = Join-Path $repoRoot 'artifacts\test-results'
 
 $runtimeDependencies = @(
@@ -96,6 +98,17 @@ $buildProfileFiles = @(
     'Blasphemous.EditorMode/packages.lock.json'
     'tests/Blasphemous.EditorMode.Tests/Blasphemous.EditorMode.Tests.csproj'
     'tests/Blasphemous.EditorMode.Tests/packages.lock.json'
+)
+
+$devEvidenceFields = @(
+    'sourceTreeStatus'
+    'buildDllSha256'
+    'buildProfileDigest'
+    'tests'
+    'whitespace'
+    'sdkVersion'
+    'runner'
+    'errors'
 )
 
 $whitespaceExtensions = @(
@@ -735,7 +748,8 @@ function Get-RequiredPropertyValue {
 function Assert-AutomatedEvidence {
     param(
         [Parameter(Mandatory)]
-        [object] $Evidence
+        [object] $Evidence,
+        [switch] $AllowMissingBuildHashes
     )
 
     if (
@@ -744,11 +758,19 @@ function Assert-AutomatedEvidence {
     ) {
         throw 'Automated evidence has an invalid schema or evidence kind.'
     }
-    if (
-        [string](Get-RequiredPropertyValue -Object $Evidence -Name 'sourceSha') -notmatch '^[0-9a-f]{40}$' -or
-        [string](Get-RequiredPropertyValue -Object $Evidence -Name 'buildDllSha256') -notmatch '^[0-9a-f]{64}$' -or
-        [string](Get-RequiredPropertyValue -Object $Evidence -Name 'buildProfileDigest') -notmatch '^[0-9a-f]{64}$'
-    ) {
+    $sourceSha = [string](Get-RequiredPropertyValue -Object $Evidence -Name 'sourceSha')
+    $buildDllSha256 = [string](Get-RequiredPropertyValue -Object $Evidence -Name 'buildDllSha256')
+    $buildProfileDigest = [string](Get-RequiredPropertyValue -Object $Evidence -Name 'buildProfileDigest')
+    $buildHashesValid = $true
+    foreach ($hash in @($buildDllSha256, $buildProfileDigest)) {
+        if ([string]::IsNullOrWhiteSpace($hash)) {
+            $buildHashesValid = $buildHashesValid -and $AllowMissingBuildHashes.IsPresent
+        }
+        elseif ($hash -notmatch '^[0-9a-f]{64}$') {
+            $buildHashesValid = $false
+        }
+    }
+    if ($sourceSha -notmatch '^[0-9a-f]{40}$' -or -not $buildHashesValid) {
         throw 'Automated evidence has malformed SHA fields.'
     }
     [void](ConvertTo-EvidenceTimestamp -Value ([string](Get-RequiredPropertyValue -Object $Evidence -Name 'generatedAt')))
@@ -823,6 +845,32 @@ function Assert-AutomatedEvidence {
         ) {
             throw 'Automated PASS evidence is internally inconsistent.'
         }
+    }
+}
+
+function Test-IncompleteDevFailureEvidence {
+    param(
+        [object] $Evidence,
+        [Parameter(Mandatory)]
+        [string] $FinalSha
+    )
+
+    if ($null -eq $Evidence) {
+        return $false
+    }
+
+    try {
+        Assert-AutomatedEvidence -Evidence $Evidence -AllowMissingBuildHashes
+        if (
+            [string](Get-RequiredPropertyValue -Object $Evidence -Name 'sourceSha') -ne $FinalSha -or
+            [string](Get-RequiredPropertyValue -Object $Evidence -Name 'automatedStatus') -ne 'FAIL'
+        ) {
+            return $false
+        }
+        return $true
+    }
+    catch {
+        return $false
     }
 }
 
@@ -1032,6 +1080,9 @@ function Get-PublicationRecord {
         'outcome'
         'errors'
     )
+    if ($EvidenceKind -eq 'dev-automated') {
+        $record.mergedSha = $sourceSha
+    }
     return $record
 }
 
@@ -1083,6 +1134,65 @@ function Get-PrMetadata {
         IsDraft = [bool]$metadata.isDraft
         EvidenceIssue = $evidenceIssue
     }
+}
+
+function Get-DevPullRequestAssociations {
+    param(
+        [Parameter(Mandatory)]
+        [string] $RepositoryName,
+        [Parameter(Mandatory)]
+        [string] $CommitSha
+    )
+
+    if ($CommitSha -notmatch '^[0-9a-f]{40}$') {
+        throw "Final dev SHA is malformed: '$CommitSha'."
+    }
+
+    $result = Invoke-NativeCommand -Command 'gh' -Arguments @(
+        'api'
+        '--method'
+        'GET'
+        "repos/$RepositoryName/commits/$CommitSha/pulls"
+    )
+    if ($result.ExitCode -ne 0) {
+        throw "Pull request association lookup failed with exit code $($result.ExitCode)."
+    }
+    try {
+        $pulls = (($result.Output | ForEach-Object { $_.ToString() }) -join "`n") | ConvertFrom-Json
+    }
+    catch {
+        throw 'Pull request association response is malformed.'
+    }
+    return @($pulls | ForEach-Object { $_ })
+}
+
+function Get-DevHeadSha {
+    param(
+        [Parameter(Mandatory)]
+        [string] $RepositoryName
+    )
+
+    $result = Invoke-NativeCommand -Command 'gh' -Arguments @(
+        'api'
+        '--method'
+        'GET'
+        "repos/$RepositoryName/git/ref/heads/dev"
+    )
+    if ($result.ExitCode -ne 0) {
+        throw "Dev head lookup failed with exit code $($result.ExitCode)."
+    }
+    try {
+        $reference = (($result.Output | ForEach-Object { $_.ToString() }) -join "`n") | ConvertFrom-Json
+    }
+    catch {
+        throw 'Dev head response is malformed.'
+    }
+    $object = Get-RequiredPropertyValue -Object $reference -Name 'object'
+    $sha = [string](Get-RequiredPropertyValue -Object $object -Name 'sha')
+    if ($sha -notmatch '^[0-9a-f]{40}$') {
+        throw 'Dev head SHA is malformed.'
+    }
+    return $sha
 }
 
 function Get-GitHubWorkflowRun {
@@ -1584,6 +1694,19 @@ function Get-CommentEvidenceRecord {
     }
 }
 
+function Format-EvidenceLink {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Text,
+        [string] $Url
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Url)) {
+        return $Text
+    }
+    return '[{0}]({1})' -f $Text, $Url
+}
+
 function New-EvidenceCommentBody {
     param(
         [Parameter(Mandatory)]
@@ -1591,11 +1714,73 @@ function New-EvidenceCommentBody {
     )
 
     $json = $Record | ConvertTo-Json -Depth 12 -Compress
+    $sourceSha = [string]$Record.sourceSha
+    $sourceText = '`{0}`' -f $sourceSha
+    $sourceUrl = if ($Record -is [Collections.IDictionary] -and $Record.Contains('sourceShaUrl')) {
+        [string]$Record['sourceShaUrl']
+    }
+    else {
+        $null
+    }
+    $sourceLine = Format-EvidenceLink -Text $sourceText -Url $sourceUrl
     $lines = @(
         "<!-- codex-evidence:$EvidenceKind -->"
         "## Verification evidence: $EvidenceKind"
         ''
-        ('- Source SHA: `{0}`' -f $Record.sourceSha)
+        "- Source SHA: $sourceLine"
+    )
+    if (
+        $EvidenceKind -eq 'dev-automated' -and
+        $Record -is [Collections.IDictionary] -and
+        $Record.Contains('mergedSha')
+    ) {
+        $mergedSha = [string]$Record.mergedSha
+        $mergedText = '`{0}`' -f $mergedSha
+        $mergedUrl = if ($Record.Contains('mergedShaUrl')) {
+            [string]$Record.mergedShaUrl
+        }
+        else {
+            $null
+        }
+        $mergedLine = Format-EvidenceLink -Text $mergedText -Url $mergedUrl
+        $lines += @(
+            "- Final dev SHA: $mergedLine"
+        )
+    }
+    if (
+        $EvidenceKind -eq 'dev-automated' -and
+        $Record -is [Collections.IDictionary] -and
+        $Record.Contains('prHeadSha') -and
+        -not [string]::IsNullOrWhiteSpace([string]$Record.prHeadSha)
+    ) {
+        $reviewedSha = [string]$Record.prHeadSha
+        $reviewedText = '`{0}`' -f $reviewedSha
+        $reviewedUrl = if ($Record.Contains('prHeadShaUrl')) {
+            [string]$Record.prHeadShaUrl
+        }
+        else {
+            $null
+        }
+        $reviewedLine = Format-EvidenceLink -Text $reviewedText -Url $reviewedUrl
+        $lines += "- Reviewed PR head: $reviewedLine"
+    }
+    if (
+        $EvidenceKind -eq 'dev-automated' -and
+        $Record -is [Collections.IDictionary] -and
+        $Record.Contains('evidenceIssue')
+    ) {
+        $issueText = '#{0}' -f $Record.evidenceIssue
+        $issueUrl = if ($Record.Contains('evidenceIssueUrl')) {
+            [string]$Record.evidenceIssueUrl
+        }
+        else {
+            $null
+        }
+        $issueLine = Format-EvidenceLink -Text $issueText -Url $issueUrl
+        $lines += "- Evidence issue: $issueLine"
+    }
+    $lines += @(
+        ''
         ('- Automated: `{0}`' -f $Record.automatedStatus)
         ('- Runtime: `{0}`' -f $Record.runtimeStatus)
         ('- Overall: `{0}`' -f $Record.overallStatus)
@@ -1731,6 +1916,17 @@ function Invoke-Publication {
     $pr = Get-PrMetadata -RepositoryName $repositoryName -Number $PrNumber
     if ($EvidenceKind -eq 'pr-head-automated' -and $pr.HeadRefOid -ne $record.sourceSha) {
         throw "PR head SHA '$($pr.HeadRefOid)' does not match evidence SHA '$($record.sourceSha)'."
+    }
+
+    if ($EvidenceKind -eq 'dev-automated') {
+        $record.repository = $repositoryName
+        $record.sourceShaUrl = "https://github.com/$repositoryName/commit/$($record.sourceSha)"
+    }
+    if ($EvidenceKind -eq 'dev-automated' -and $record.Contains('mergedSha')) {
+        $record.mergedShaUrl = "https://github.com/$repositoryName/commit/$($record.mergedSha)"
+    }
+    if ($EvidenceKind -eq 'dev-automated' -and $record.Contains('evidenceIssue')) {
+        $record.evidenceIssueUrl = "https://github.com/$repositoryName/issues/$($record.evidenceIssue)"
     }
 
     $targetType = if ($EvidenceKind -eq 'pr-head-automated') { 'pr' } else { 'issue' }
@@ -1936,6 +2132,221 @@ function Invoke-PrEvidencePublication {
     }
 }
 
+function Write-DevUnpublishedResult {
+    param(
+        [Parameter(Mandatory)]
+        [object] $Record,
+        [Parameter(Mandatory)]
+        [string] $FinalSha,
+        [Parameter(Mandatory)]
+        [string] $Reason
+    )
+
+    $Record.errors = @($Record.errors) + @($Reason)
+    if ($Record.automatedStatus -ne 'FAIL') {
+        $Record.automatedStatus = 'PARTIAL'
+        $Record.runtimeStatus = 'PARTIAL'
+        $Record.overallStatus = 'PARTIAL'
+    }
+
+    $preview = [ordered]@{
+        schemaVersion = 1
+        evidenceKind = 'dev-automated'
+        sourceSha = $FinalSha
+        status = 'PARTIAL'
+        reason = $Reason
+        target = [ordered]@{
+            type = 'none'
+            number = $null
+        }
+        record = $Record
+    }
+    Write-JsonFile -Path $devPublicationPreviewPath -Value $preview
+    Write-JsonFile -Path $devPublicationResultPath -Value $preview
+    Write-Host "Final dev evidence: $($preview.status); $Reason"
+    return 1
+}
+
+function Invoke-DevPublication {
+    $EvidenceKind = 'dev-automated'
+    $repositoryName = Get-RepositoryName -Override $Repository
+    $finalSha = if ([string]::IsNullOrWhiteSpace($SourceSha)) {
+        Get-SourceSha
+    }
+    else {
+        $SourceSha
+    }
+    if ($finalSha -notmatch '^[0-9a-f]{40}$') {
+        throw "Final dev SHA is malformed: '$finalSha'."
+    }
+
+    $evidence = $null
+    $record = $null
+    $validationError = $null
+    try {
+        $evidence = Read-JsonFile -Path $evidencePath
+        Assert-AutomatedEvidence -Evidence $evidence
+        if ([string]$evidence.sourceSha -ne $finalSha) {
+            throw "Automated evidence SHA '$($evidence.sourceSha)' does not match final dev SHA '$finalSha'."
+        }
+        $record = Get-PublicationRecord -AutomatedEvidence $evidence -UseSuppliedEvidence
+    }
+    catch {
+        $validationError = $_.Exception.Message
+        if (Test-IncompleteDevFailureEvidence -Evidence $evidence -FinalSha $finalSha) {
+            $record = [ordered]@{
+                schemaVersion = 1
+                evidenceKind = 'dev-automated'
+                sourceSha = $finalSha
+                mergedSha = $finalSha
+                generatedAt = ConvertTo-EvidenceTimestamp -Value ([string]$evidence.generatedAt)
+                automatedStatus = 'FAIL'
+                runtimeStatus = 'PARTIAL'
+                overallStatus = 'FAIL'
+                errors = @()
+            }
+            Copy-EvidenceFields -Target $record -Evidence $evidence -Fields $devEvidenceFields
+            $validationError = $null
+        }
+    }
+
+    if ($null -eq $record) {
+        $record = [ordered]@{
+            schemaVersion = 1
+            evidenceKind = 'dev-automated'
+            sourceSha = $finalSha
+            mergedSha = $finalSha
+            generatedAt = Get-EvidenceTimestamp -Value $null
+            automatedStatus = 'PARTIAL'
+            runtimeStatus = 'PARTIAL'
+            overallStatus = 'PARTIAL'
+            errors = @()
+        }
+        if ($null -ne $evidence) {
+            Copy-EvidenceFields -Target $record -Evidence $evidence -Fields $devEvidenceFields
+        }
+        if (-not [string]::IsNullOrWhiteSpace($validationError)) {
+            $record.errors = @($validationError)
+        }
+    }
+    $record.repository = $repositoryName
+    $record.sourceShaUrl = "https://github.com/$repositoryName/commit/$finalSha"
+    $record.mergedShaUrl = "https://github.com/$repositoryName/commit/$finalSha"
+
+    try {
+        $devHeadSha = Get-DevHeadSha -RepositoryName $repositoryName
+        if ($devHeadSha -ne $finalSha) {
+            throw "Final dev SHA '$finalSha' is no longer the current dev head '$devHeadSha'."
+        }
+    }
+    catch {
+        return Write-DevUnpublishedResult -Record $record -FinalSha $finalSha `
+            -Reason $_.Exception.Message
+    }
+
+    $associations = @()
+    try {
+        $associations = @(Get-DevPullRequestAssociations -RepositoryName $repositoryName -CommitSha $finalSha)
+    }
+    catch {
+        return Write-DevUnpublishedResult -Record $record -FinalSha $finalSha `
+            -Reason "Pull request association lookup failed: $($_.Exception.Message)"
+    }
+
+    if ($associations.Count -ne 1) {
+        return Write-DevUnpublishedResult -Record $record -FinalSha $finalSha `
+            -Reason "Expected exactly one associated pull request for final dev SHA; found $($associations.Count)."
+    }
+
+    $association = $associations[0]
+    try {
+        $prNumber = [int](Get-RequiredPropertyValue -Object $association -Name 'number')
+        $mergedAt = [string](Get-RequiredPropertyValue -Object $association -Name 'merged_at')
+        $associationHead = Get-RequiredPropertyValue -Object $association -Name 'head'
+        $associationHeadSha = [string](Get-RequiredPropertyValue -Object $associationHead -Name 'sha')
+        if ($prNumber -le 0 -or $associationHeadSha -notmatch '^[0-9a-f]{40}$') {
+            throw 'Associated pull request number or head SHA is malformed.'
+        }
+        if ([string]::IsNullOrWhiteSpace($mergedAt)) {
+            throw 'Associated pull request is not merged.'
+        }
+    }
+    catch {
+        return Write-DevUnpublishedResult -Record $record -FinalSha $finalSha `
+            -Reason "Associated pull request metadata is malformed: $($_.Exception.Message)"
+    }
+
+    $pr = $null
+    try {
+        $pr = Get-PrMetadata -RepositoryName $repositoryName -Number $prNumber
+    }
+    catch {
+        $record.prHeadSha = $associationHeadSha
+        return Write-DevUnpublishedResult -Record $record -FinalSha $finalSha `
+            -Reason $_.Exception.Message
+    }
+
+    $record.prNumber = $prNumber
+    $record.evidenceIssue = $pr.EvidenceIssue
+    $record.prHeadSha = $associationHeadSha
+    $record.mergedSha = $finalSha
+    $record.prHeadShaUrl = "https://github.com/$repositoryName/commit/$associationHeadSha"
+    $record.evidenceIssueUrl = "https://github.com/$repositoryName/issues/$($pr.EvidenceIssue)"
+    if ($WorkflowRunId -gt 0) {
+        $record.workflowRunId = $WorkflowRunId
+    }
+    if ($WorkflowRunAttempt -gt 0) {
+        $record.workflowRunAttempt = $WorkflowRunAttempt
+    }
+    $record.workflowName = $WorkflowName
+    $record.workflowPath = $WorkflowPath
+    $record.workflowEvent = $WorkflowEvent
+    $record.workflowConclusion = if ($record.automatedStatus -eq 'PASS') {
+        'success'
+    }
+    elseif ($record.automatedStatus -eq 'FAIL') {
+        'failure'
+    }
+    else {
+        $null
+    }
+
+    $reasons = @()
+    if ($pr.State -ne 'MERGED') {
+        $reasons += "Associated pull request state '$($pr.State)' is not MERGED."
+    }
+    if ($pr.BaseRefName -ne 'dev') {
+        $reasons += "Associated pull request targets '$($pr.BaseRefName)', not dev."
+    }
+    if ($pr.HeadRefOid -notmatch '^[0-9a-f]{40}$') {
+        $reasons += 'Associated reviewed PR head SHA is malformed.'
+    }
+    elseif ($pr.HeadRefOid -ne $associationHeadSha) {
+        $reasons += "Association head SHA '$associationHeadSha' does not match reviewed PR head '$($pr.HeadRefOid)'."
+    }
+    if ($reasons.Count -gt 0) {
+        return Write-DevUnpublishedResult -Record $record -FinalSha $finalSha `
+            -Reason ($reasons -join ' ')
+    }
+
+    try {
+        Assert-EvidenceIssue -RepositoryName $repositoryName -Number $pr.EvidenceIssue
+    }
+    catch {
+        return Write-DevUnpublishedResult -Record $record -FinalSha $finalSha `
+            -Reason "Evidence issue is not publishable: $($_.Exception.Message)"
+    }
+
+    $PrNumber = $prNumber
+    $publicationPreviewPath = $devPublicationPreviewPath
+    $publicationResultPath = $devPublicationResultPath
+    [void](Invoke-Publication -RecordOverride $record -UseRecordOverride)
+    if ($record.automatedStatus -eq 'PARTIAL') {
+        return 1
+    }
+    return 0
+}
+
 function Invoke-AutomatedVerification {
 $exitCode = 1
 $script:evidence.generatedAt = Get-EvidenceTimestamp -Value $GeneratedAt
@@ -2046,6 +2457,7 @@ try {
         'publish' { Invoke-Publication }
         'transport' { Invoke-TransportCreation }
         'publish-pr' { Invoke-PrEvidencePublication }
+        'publish-dev' { Invoke-DevPublication }
     }
 }
 catch {
