@@ -1362,10 +1362,10 @@ function Get-GitHubWorkflowRun {
         $pullSourceSha = [string](Get-RequiredPropertyValue -Object $pullHead -Name 'sha')
         $baseRef = [string](Get-RequiredPropertyValue -Object $pullBase -Name 'ref')
         $pullState = [string](Get-RequiredPropertyValue -Object $pull -Name 'state')
+        # pull_request_target run head_sha is the base commit; the matched PR carries the reviewed head.
         if (
             $pullRequestNumber -le 0 -or
             $pullState -ne 'open' -or
-            $pullSourceSha -ne $sourceSha -or
             $pullHeadRepositoryName -ne $headRepositoryName -or
             $pullHeadRef -ne $headBranch
         ) {
@@ -1937,35 +1937,48 @@ function Test-NewerPublishedEvidence {
         }
 
         $existingRecord = Get-CommentEvidenceRecord -Body ([string]$markerComments[0].body)
-        if ([string]$existingRecord.evidenceKind -ne $EvidenceKind) {
+        if (
+            [int]$existingRecord.schemaVersion -ne 1 -or
+            [string]$existingRecord.evidenceKind -ne $EvidenceKind -or
+            [string]$existingRecord.sourceSha -ne $Run.SourceSha -or
+            [int]$existingRecord.prNumber -ne $Run.PrNumber -or
+            [string]$existingRecord.automatedStatus -notin @('PASS', 'FAIL') -or
+            [string]$existingRecord.workflowConclusion -notin @('success', 'failure') -or
+            [long]$existingRecord.workflowRunId -le 0 -or
+            [int]$existingRecord.workflowRunAttempt -le 0 -or
+            (
+                ([string]$existingRecord.automatedStatus -eq 'PASS') -ne
+                ([string]$existingRecord.workflowConclusion -eq 'success')
+            )
+        ) {
             return $false
         }
-        if ([string]$existingRecord.sourceSha -ne $Run.SourceSha) {
+
+        $existingGeneratedAt = [DateTimeOffset]::Parse($(
+            ConvertTo-EvidenceTimestamp -Value $existingRecord.generatedAt
+        ))
+        $existingCreated = [DateTimeOffset]::Parse($(
+            ConvertTo-EvidenceTimestamp -Value $existingRecord.workflowRunCreatedAt
+        ))
+        $now = [DateTimeOffset]::UtcNow
+        if (
+            $existingCreated -gt $now.AddMinutes(5) -or
+            $existingGeneratedAt -gt $now.AddMinutes(5) -or
+            $existingGeneratedAt -lt $existingCreated.AddMinutes(-5)
+        ) {
             return $false
         }
 
         $incomingCreated = [DateTimeOffset]::Parse($Run.CreatedAt)
-        $existingRunCreatedProperty = $existingRecord.PSObject.Properties['workflowRunCreatedAt']
-        if (
-            $null -ne $existingRunCreatedProperty -and
-            -not [string]::IsNullOrWhiteSpace([string]$existingRunCreatedProperty.Value)
-        ) {
-            $existingCreated = [DateTimeOffset]::Parse($(
-                ConvertTo-EvidenceTimestamp -Value $existingRunCreatedProperty.Value
-            ))
-            if ($existingCreated -ne $incomingCreated) {
-                return $existingCreated -gt $incomingCreated
-            }
-            $existingRunId = [long]$existingRecord.workflowRunId
-            $existingAttempt = [int]$existingRecord.workflowRunAttempt
-            return (
-                $existingRunId -gt $Run.Id -or
-                ($existingRunId -eq $Run.Id -and $existingAttempt -gt $Run.RunAttempt)
-            )
+        if ($existingCreated -ne $incomingCreated) {
+            return $existingCreated -gt $incomingCreated
         }
-
-        $existingGeneratedAt = ConvertTo-EvidenceTimestamp -Value $existingRecord.generatedAt
-        return [DateTimeOffset]::Parse($existingGeneratedAt) -ge $incomingCreated
+        $existingRunId = [long]$existingRecord.workflowRunId
+        $existingAttempt = [int]$existingRecord.workflowRunAttempt
+        return (
+            $existingRunId -gt $Run.Id -or
+            ($existingRunId -eq $Run.Id -and $existingAttempt -gt $Run.RunAttempt)
+        )
     }
     catch {
         return $false
@@ -2463,7 +2476,14 @@ if (-not [string]::IsNullOrWhiteSpace($SourceSha)) {
 Write-Evidence
 Push-Location $repoRoot
 try {
-    $script:evidence.sourceSha = Get-SourceSha
+    $observedSourceSha = Get-SourceSha
+    if (
+        -not [string]::IsNullOrWhiteSpace($SourceSha) -and
+        $observedSourceSha -ne $SourceSha
+    ) {
+        throw "Checked-out source SHA '$observedSourceSha' does not match requested SHA '$SourceSha'."
+    }
+    $script:evidence.sourceSha = $observedSourceSha
     Assert-CleanSourceTree -Phase 'at start'
     $script:evidence.buildProfileDigest = Get-BuildProfileDigest
     Test-WhitespaceInputs

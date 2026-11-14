@@ -435,6 +435,19 @@ Describe 'trusted PR transport builder' {
 }
 
 Describe 'local automated verification gate' {
+    It 'fails when an explicit source SHA does not match the checked-out HEAD' {
+        $fixture = New-GateFixture
+        $requestedSha = 'fedcba9876543210fedcba9876543210fedcba98'
+        $result = Invoke-FixtureGate -Fixture $fixture -Arguments @('-SourceSha', $requestedSha)
+        $evidence = Read-FixtureEvidence -Fixture $fixture
+
+        $result.ExitCode | Should -Not -Be 0
+        @($evidence.errors) -join "`n" | Should -Match 'does not match requested SHA'
+        $evidence.sourceSha | Should -Be $requestedSha
+        $evidence.automatedStatus | Should -Be 'FAIL'
+        (Test-Path -LiteralPath $fixture.DotNetLog) | Should -BeFalse
+    }
+
     It 'passes with canonical evidence when build, tests, and whitespace succeed' {
         $fixture = New-GateFixture
         $result = Invoke-FixtureGate -Fixture $fixture

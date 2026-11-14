@@ -681,7 +681,8 @@ Describe 'trusted PR evidence publication' {
         $result = Invoke-FixtureScript -Fixture $fixture `
             -Arguments (New-PublishArguments -Fixture $fixture) `
             -Environment (New-PublishEnvironment -Fixture $fixture -RunJson (
-                New-RunJson -Fixture $fixture -HeadRepository 'contributor/Blasphemous.EditorMode' -EmptyPullRequests
+                New-RunJson -Fixture $fixture -HeadRepository 'contributor/Blasphemous.EditorMode' `
+                    -SourceSha $script:otherSha -EmptyPullRequests
             ) -PullsJson (
                 New-PullJson -HeadRepository 'contributor/Blasphemous.EditorMode'
             ))
@@ -878,6 +879,69 @@ Describe 'trusted PR evidence publication' {
         $result = Invoke-FixtureScript -Fixture $fixture `
             -Arguments (New-PublishArguments -Fixture $fixture) `
             -Environment (New-PublishEnvironment -Fixture $fixture -CommentsJson $comments)
+        $checkRequest = Read-FixtureJson -Path $fixture.CheckRunRequest
+        $log = @(Get-Content -LiteralPath $fixture.GhLog)
+
+        $result.ExitCode | Should -Not -Be 0
+        $checkRequest.conclusion | Should -Be 'failure'
+        @($log | Where-Object { $_ -match 'issues/42/comments.*--method (POST|PATCH)' }).Count | Should -Be 0
+    }
+
+    It 'fails closed when multiple bot markers exist before a publication failure' {
+        $fixture = New-TransportFixture
+        $comments = @(
+            [ordered]@{
+                id = 86
+                body = New-CommentMarkerJson
+                user = [ordered]@{ login = 'github-actions[bot]' }
+            }
+            [ordered]@{
+                id = 87
+                body = New-CommentMarkerJson -RunId 1235
+                user = [ordered]@{ login = 'github-actions[bot]' }
+            }
+        ) | ConvertTo-Json -Depth 6 -Compress
+
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PublishArguments -Fixture $fixture) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -CommentsJson $comments `
+                -ArtifactsJson '{"total_count":0,"artifacts":[]}')
+        $checkRequest = Read-FixtureJson -Path $fixture.CheckRunRequest
+        $log = @(Get-Content -LiteralPath $fixture.GhLog)
+
+        $result.ExitCode | Should -Not -Be 0
+        $checkRequest.conclusion | Should -Be 'failure'
+        @($log | Where-Object { $_ -match 'issues/42/comments.*--method (POST|PATCH)' }).Count | Should -Be 0
+    }
+
+    It 'fails closed when a structurally incomplete newer bot marker exists' {
+        $fixture = New-TransportFixture
+        $newerRunCreatedAt = [DateTimeOffset]::UtcNow.AddMinutes(5).ToString('O')
+        $record = [ordered]@{
+            schemaVersion = 1
+            evidenceKind = 'pr-head-automated'
+            sourceSha = $script:sourceSha
+            generatedAt = [DateTimeOffset]::UtcNow.AddMinutes(4).ToString('O')
+            workflowRunCreatedAt = $newerRunCreatedAt
+            workflowRunId = 1235
+            workflowRunAttempt = 1
+        }
+        $body = @(
+            '<!-- codex-evidence:pr-head-automated -->'
+            '<!-- codex-evidence-json:start -->'
+            ($record | ConvertTo-Json -Depth 4 -Compress)
+            '<!-- codex-evidence-json:end -->'
+        ) -join "`n"
+        $comments = @([ordered]@{
+            id = 90
+            body = $body
+            user = [ordered]@{ login = 'github-actions[bot]' }
+        }) | ConvertTo-Json -Depth 6 -Compress
+
+        $result = Invoke-FixtureScript -Fixture $fixture `
+            -Arguments (New-PublishArguments -Fixture $fixture) `
+            -Environment (New-PublishEnvironment -Fixture $fixture -CommentsJson $comments `
+                -ArtifactsJson '{"total_count":0,"artifacts":[]}')
         $checkRequest = Read-FixtureJson -Path $fixture.CheckRunRequest
         $log = @(Get-Content -LiteralPath $fixture.GhLog)
 
@@ -1174,6 +1238,7 @@ Describe 'trusted PR workflow boundaries' {
         $workflow | Should -Match 'retention-days: 1'
         $workflow | Should -Match 'ready_for_review, edited'
         $workflow | Should -Not -Match 'pull_request\.draft'
+        @([regex]::Matches($workflow, 'allow-unsafe-pr-checkout: true')).Count | Should -Be 1
         @([regex]::Matches($workflow, '& \$trustedScript')).Count | Should -Be 1
         $workflow | Should -Match '-SourceSha \$env:SOURCE_SHA'
         $workflow | Should -Not -Match 'Upload automated evidence'
@@ -1201,7 +1266,8 @@ Describe 'trusted PR workflow boundaries' {
         $workflow | Should -Match 'checks: write'
         $workflow | Should -Match 'pull-requests: write'
         $workflow | Should -Not -Match 'issues: write'
-        $workflow | Should -Match 'SOURCE_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}'
+        $workflow | Should -Match 'SOURCE_SHA: \$\{\{ github\.event\.workflow_run\.head_commit\.id \}\}'
+        $workflow | Should -Not -Match 'SOURCE_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}'
         $workflow | Should -Match '-SourceSha \$env:SOURCE_SHA'
         $workflow | Should -Match 'Reject unsafe transport before download'
         $workflow | Should -Match '-Mode check-pr-artifact'

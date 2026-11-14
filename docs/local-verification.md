@@ -180,6 +180,9 @@ commit, and separately checks out the exact
 `contents: read`, has no secrets, and does not persist checkout credentials.
 
 The trusted verifier runs the normal automated gate against the reviewed head.
+The reviewed-head checkout explicitly uses `allow-unsafe-pr-checkout` only in
+this read-only job; the trusted transport and publisher jobs never check out or
+execute pull-request code.
 A separate transport job starts on a fresh runner, checks out only the trusted
 base commit, and uses the verification job's GitHub result to generate the
 transport. Pull-request code never runs in that job, and no evidence file from
@@ -214,7 +217,10 @@ administration permission.
 
 An older run cannot replace newer evidence, including when it finishes later.
 Any non-stale validation or publication failure attempts a failed fixed check
-using the trusted workflow-event source SHA even when the run lookup fails.
+using the reviewed PR head carried in the workflow event even when the run
+lookup fails. The event's `workflow_run.head_commit.id` remains the reviewed PR
+head, while `workflow_run.head_sha` is the base commit for
+`pull_request_target`, so the latter is not treated as the reviewed head.
 Only one valid Actions-bot marker that proves a strictly newer automated run
 can suppress that failed check. Malformed, duplicate, or uncertain markers do
 not count as proof. A stale run does not write a failure check because that
