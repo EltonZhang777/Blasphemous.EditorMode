@@ -40,11 +40,16 @@ internal sealed class ApplyReportPublisher
 {
     private readonly ApplyReportSurface _surface;
     private readonly Action<ApplySeverity, string> _log;
+    private readonly bool _verboseDiagnostics;
 
-    internal ApplyReportPublisher(ApplyReportSurface surface, Action<ApplySeverity, string> log)
+    internal ApplyReportPublisher(
+        ApplyReportSurface surface,
+        Action<ApplySeverity, string> log,
+        bool verboseDiagnostics)
     {
         _surface = surface ?? throw new ArgumentNullException(nameof(surface));
         _log = log;
+        _verboseDiagnostics = verboseDiagnostics;
     }
 
     internal ApplyReportSurface Surface { get { return _surface; } }
@@ -58,6 +63,9 @@ internal sealed class ApplyReportPublisher
         _log(
             report.HasErrors ? ApplySeverity.Error : report.IsPartial ? ApplySeverity.Warning : ApplySeverity.Info,
             _surface.UiText);
+        if (!_verboseDiagnostics)
+            return;
+
         foreach (ApplyReportEntry entry in report.Entries)
         {
             _log(entry.Severity, string.Format(

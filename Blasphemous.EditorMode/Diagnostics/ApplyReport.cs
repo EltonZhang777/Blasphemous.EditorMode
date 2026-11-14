@@ -50,18 +50,26 @@ internal sealed class ApplyReport
     internal int AppliedCount { get; private set; }
     internal int SkippedCount { get; private set; }
 
-    internal bool HasErrors
+    internal int FailedCount
     {
         get
         {
+            int count = 0;
             foreach (ApplyReportEntry entry in _entries)
             {
                 if (entry.Severity == ApplySeverity.Error)
-                    return true;
+                    count++;
             }
 
-            return false;
+            return count;
         }
+    }
+
+    internal int DiagnosticCount { get { return _entries.Count; } }
+
+    internal bool HasErrors
+    {
+        get { return FailedCount > 0; }
     }
 
     internal bool IsPartial
@@ -128,12 +136,13 @@ internal sealed class ApplyReport
     {
         string status = HasErrors ? "failed" : IsPartial ? "partial" : "passed";
         return string.Format(
-            "{0} {1}: {2} applied, {3} skipped, {4} diagnostic(s).",
+            "{0} {1}: Applied={2} item(s), Skipped={3} item(s), Failed={4} error(s), Diagnostic={5} entry(ies).",
             operation,
             status,
             AppliedCount,
             SkippedCount,
-            _entries.Count);
+            FailedCount,
+            DiagnosticCount);
     }
 
     private void Add(

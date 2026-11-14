@@ -56,6 +56,7 @@ internal class EditorMode : BlasMod
     }
 
     private static bool _isStartingEditorWidget = false;
+    private bool _verboseDiagnostics;
     private BlasphemousLifecycleBridge _lifecycleBridge;
     private EditorModeGuard _editorGuard;
     private ApplyReportPublisher _reportPublisher;
@@ -70,6 +71,20 @@ internal class EditorMode : BlasMod
 
     protected override void OnInitialize()
     {
+        EditorModeConfig config;
+        try
+        {
+            config = ConfigHandler.Load<EditorModeConfig>() ?? new EditorModeConfig();
+        }
+        catch (System.Exception exception)
+        {
+            ModLog.Warn(
+                "Unable to load Editor Mode configuration; using defaults. "
+                + exception.GetType().Name + ": " + exception.Message);
+            config = new EditorModeConfig();
+        }
+
+        _verboseDiagnostics = config.VerboseDiagnostics;
         _reportPublisher = new ApplyReportPublisher(
             new ApplyReportSurface(),
             (severity, message) =>
@@ -80,7 +95,8 @@ internal class EditorMode : BlasMod
                     ModLog.Warn(message);
                 else
                     ModLog.Info(message);
-            });
+            },
+            _verboseDiagnostics);
         _editorGuard = new EditorModeGuard(
             BlasphemousEditorRuntimeState.Capture,
             BlasphemousEditorRuntimeState.Apply);
@@ -181,8 +197,9 @@ internal class EditorMode : BlasMod
             metadata => UnityPreviewFactory.Create(
                 metadata,
                 FindCurrentObjectHolder,
-                CursorWorldPosition));
-        _runtimeFactory = new UnityRuntimePlacementFactory(FindCurrentObjectHolder);
+                CursorWorldPosition,
+                _verboseDiagnostics));
+        _runtimeFactory = new UnityRuntimePlacementFactory(FindCurrentObjectHolder, _verboseDiagnostics);
         _overlayReconciler = new RoomOverlayReconciler(Catalog, _runtimeFactory);
         if (_lifecycleBridge.CurrentRoom != null)
         {
@@ -675,7 +692,7 @@ internal class EditorMode : BlasMod
         PublishReport("Room import", result.Report);
         if (!result.Succeeded)
         {
-            ModLog.Warn("Room Overlay session was not created: " + result.StatusMessage);
+            ModLog.Warn("Room Overlay session was not created; see the Room import summary.");
             return false;
         }
 
@@ -800,8 +817,11 @@ internal class EditorMode : BlasMod
         return UnityScreenCoordinateMapper.ToWorldPosition(Camera.main, cameraPixels);
     }
 
-    private static void LogCursorPosition(string action, Vector3 worldPosition)
+    private void LogCursorPosition(string action, Vector3 worldPosition)
     {
+        if (!_verboseDiagnostics)
+            return;
+
         Camera camera = Camera.main;
         Vector2 screenPosition = Input.mousePosition;
         Vector2 cameraPixels = UnityScreenCoordinateMapper.ToCameraPixels(camera, screenPosition);

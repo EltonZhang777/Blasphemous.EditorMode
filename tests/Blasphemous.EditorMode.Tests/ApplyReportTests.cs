@@ -27,6 +27,116 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
+    public void Counts_track_applied_skipped_failed_and_diagnostics_independently()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Applied();
+        report.Applied();
+        report.Info("INFO", "item[0]", "info entry");
+        report.Warning("SKIPPED_WARNING", "item[1]", "skipped warning", true);
+        report.Error("SKIPPED_ERROR", "item[2]", "skipped error");
+        report.Error("FAILED_ERROR", "item[3]", "failed error", false);
+
+        Assert.Equal(2, report.AppliedCount);
+        Assert.Equal(2, report.SkippedCount);
+        Assert.Equal(2, report.FailedCount);
+        Assert.Equal(4, report.DiagnosticCount);
+        Assert.True(report.HasErrors);
+        Assert.True(report.IsPartial);
+    }
+
+    [Fact]
+    public void Summary_has_stable_keys_units_counts_and_failure_status()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Applied();
+        report.Warning("SKIPPED_WARNING", "item[1]", "skipped warning", true);
+        report.Error("SKIPPED_ERROR", "item[2]", "skipped error");
+        report.Error("FAILED_ERROR", "item[3]", "failed error", false);
+
+        Assert.Equal(
+            "import failed: Applied=1 item(s), Skipped=2 item(s), Failed=2 error(s), Diagnostic=3 entry(ies).",
+            report.ToSummary("import"));
+    }
+
+    [Fact]
+    public void Summary_severity_tracks_passed_partial_and_failed()
+    {
+        ApplyReport passed = new ApplyReport();
+        passed.Info("INFO", "item[0]", "info entry");
+        AssertSummarySeverity(passed, "passed", ApplySeverity.Info);
+
+        ApplyReport partial = new ApplyReport();
+        partial.Warning("WARNING", "item[1]", "warning entry");
+        AssertSummarySeverity(partial, "partial", ApplySeverity.Warning);
+
+        ApplyReport failed = new ApplyReport();
+        failed.Warning("SKIPPED_WARNING", "item[1]", "skipped warning", true);
+        failed.Error("ERROR", "item[2]", "error entry");
+        AssertSummarySeverity(failed, "failed", ApplySeverity.Error);
+    }
+
+    [Fact]
+    public void Verbose_off_publishes_only_the_summary()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Warning("HIDDEN_WARNING", "item[1]", "warning entry");
+        report.Error("HIDDEN_ERROR", "item[2]", "error entry");
+        ApplyReportSurface surface = new ApplyReportSurface();
+        List<(ApplySeverity Severity, string Message)> logs = new List<(ApplySeverity Severity, string Message)>();
+        ApplyReportPublisher publisher = new ApplyReportPublisher(
+            surface,
+            (severity, message) => logs.Add((severity, message)),
+            false);
+
+        publisher.Publish("import", report);
+
+        (ApplySeverity Severity, string Message) log = Assert.Single(logs);
+        Assert.Equal(ApplySeverity.Error, log.Severity);
+        Assert.Equal(surface.UiText, log.Message);
+        Assert.DoesNotContain("HIDDEN_WARNING", log.Message);
+        Assert.DoesNotContain("HIDDEN_ERROR", log.Message);
+    }
+
+    [Fact]
+    public void Verbose_on_publishes_summary_then_entries_with_their_own_severity()
+    {
+        ApplyReport report = new ApplyReport();
+        report.Warning("VERBOSE_WARNING", "item[1]", "warning entry");
+        report.Info("VERBOSE_INFO", "item[2]", "info entry");
+        report.Error("VERBOSE_ERROR", "item[3]", "error entry", false);
+        ApplyReportSurface surface = new ApplyReportSurface();
+        List<(ApplySeverity Severity, string Message)> logs = new List<(ApplySeverity Severity, string Message)>();
+        ApplyReportPublisher publisher = new ApplyReportPublisher(
+            surface,
+            (severity, message) => logs.Add((severity, message)),
+            true);
+
+        publisher.Publish("import", report);
+
+        Assert.Equal(4, logs.Count);
+        Assert.Equal(ApplySeverity.Error, logs[0].Severity);
+        Assert.Equal(surface.UiText, logs[0].Message);
+        Assert.Equal(
+            (ApplySeverity.Warning, "[Warning] VERBOSE_WARNING item[1]: warning entry"),
+            logs[1]);
+        Assert.Equal(
+            (ApplySeverity.Info, "[Info] VERBOSE_INFO item[2]: info entry"),
+            logs[2]);
+        Assert.Equal(
+            (ApplySeverity.Error, "[Error] VERBOSE_ERROR item[3]: error entry"),
+            logs[3]);
+    }
+
+    [Fact]
+    public void Verbose_diagnostics_is_disabled_by_default()
+    {
+        EditorModeConfig config = new EditorModeConfig();
+
+        Assert.False(config.VerboseDiagnostics);
+    }
+
+    [Fact]
     public void The_same_report_is_published_to_ui_and_log_surfaces()
     {
         ApplyReport report = new ApplyReport();
@@ -34,7 +144,10 @@ public sealed class ApplyReportTests
         report.Warning("TEST_WARNING", "item[1]", "visible warning");
         ApplyReportSurface surface = new ApplyReportSurface();
         List<(ApplySeverity Severity, string Message)> logs = new List<(ApplySeverity Severity, string Message)>();
-        ApplyReportPublisher publisher = new ApplyReportPublisher(surface, (severity, message) => logs.Add((severity, message)));
+        ApplyReportPublisher publisher = new ApplyReportPublisher(
+            surface,
+            (severity, message) => logs.Add((severity, message)),
+            true);
 
         publisher.Publish("import", report);
 
@@ -79,5 +192,26 @@ public sealed class ApplyReportTests
         Assert.False(recovery.Run("export", () => { throw new InvalidOperationException("write"); }, () => false, report));
         Assert.Equal(EditorFlowState.RoomLoaded, recovery.State);
         Assert.Contains(report.Entries, x => x.Code == "FLOW_RECOVERY_FAILED");
+    }
+
+    private static void AssertSummarySeverity(
+        ApplyReport report,
+        string status,
+        ApplySeverity expectedSeverity)
+    {
+        ApplyReportSurface surface = new ApplyReportSurface();
+        List<(ApplySeverity Severity, string Message)> logs = new List<(ApplySeverity Severity, string Message)>();
+        ApplyReportPublisher publisher = new ApplyReportPublisher(
+            surface,
+            (severity, message) => logs.Add((severity, message)),
+            false);
+
+        publisher.Publish("test", report);
+
+        (ApplySeverity Severity, string Message) log = Assert.Single(logs);
+        Assert.Equal(expectedSeverity, log.Severity);
+        Assert.True(
+            log.Message.StartsWith("test " + status + ": Applied=", StringComparison.Ordinal),
+            log.Message);
     }
 }

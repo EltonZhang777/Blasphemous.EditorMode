@@ -22,13 +22,15 @@ internal sealed class UnityRuntimePlacementFactory :
     IRuntimePlacementAdoptionPass
 {
     private readonly Func<Transform> _holderProvider;
+    private readonly bool _verboseDiagnostics;
     private bool _adoptionPassActive;
     private Transform _adoptionPassHolder;
     private Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> _adoptionMarkers;
 
-    internal UnityRuntimePlacementFactory(Func<Transform> holderProvider)
+    internal UnityRuntimePlacementFactory(Func<Transform> holderProvider, bool verboseDiagnostics)
     {
         _holderProvider = holderProvider ?? FindCurrentObjectHolder;
+        _verboseDiagnostics = verboseDiagnostics;
     }
 
     public void BeginAdoptionPass()
@@ -265,25 +267,28 @@ internal sealed class UnityRuntimePlacementFactory :
         Vector2 cameraPixels = UnityScreenCoordinateMapper.ToCameraPixels(camera, screenPoint);
         Vector3 world = UnityScreenCoordinateMapper.ToWorldPosition(camera, cameraPixels);
         Ray screenRay = camera.ScreenPointToRay(cameraPixels);
-        string targetTextureSize = camera.targetTexture == null
-            ? "<none>"
-            : camera.targetTexture.width + "x" + camera.targetTexture.height;
         RuntimePlacementMarker marker = FindMarkerAtScreenPoint(
             holder,
             new Vector2(world.x, world.y),
             screenRay);
-        ModLog.Debug(
-            "[DIAG] PICK_HIT_TEST screenPosition=" + screenPoint
-            + " cameraPixelPosition=" + cameraPixels
-            + " screenSize=" + Screen.width + "x" + Screen.height
-            + " targetTextureSize=" + targetTextureSize
-            + " worldPosition=" + world
-            + " camera=" + camera.name
-            + " orthographic=" + camera.orthographic
-            + " pixelRect=" + camera.pixelRect
-            + " rayOrigin=" + screenRay.origin
-            + " rayDirection=" + screenRay.direction
-            + " result=" + (marker == null ? "<none>" : marker.PlacementId));
+        if (_verboseDiagnostics)
+        {
+            string targetTextureSize = camera.targetTexture == null
+                ? "<none>"
+                : camera.targetTexture.width + "x" + camera.targetTexture.height;
+            ModLog.Debug(
+                "[DIAG] PICK_HIT_TEST screenPosition=" + screenPoint
+                + " cameraPixelPosition=" + cameraPixels
+                + " screenSize=" + Screen.width + "x" + Screen.height
+                + " targetTextureSize=" + targetTextureSize
+                + " worldPosition=" + world
+                + " camera=" + camera.name
+                + " orthographic=" + camera.orthographic
+                + " pixelRect=" + camera.pixelRect
+                + " rayOrigin=" + screenRay.origin
+                + " rayDirection=" + screenRay.direction
+                + " result=" + (marker == null ? "<none>" : marker.PlacementId));
+        }
         if (marker == null)
             return false;
 
