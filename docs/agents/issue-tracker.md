@@ -8,10 +8,10 @@ Use PowerShell for all `gh` operations. Issue reads are summary-first. For the d
 
 - **Create an issue**: Use a PowerShell here-string:
   ```powershell
-  $body = @'
-  ...
-  '@
-  $body | gh issue create --title "..." --body-file -
+$body = @'
+...
+'@
+$body | gh issue create --title "..." --body-file -
   ```
   After creation, perform the authoritative summary read required by the linked cache policy.
 - **Read an issue**: Use the summary query from [Issue queries and cache](session-quickref.md#issue-queries-and-cache); request only task-specific additional fields.

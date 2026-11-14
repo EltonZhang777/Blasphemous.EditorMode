@@ -86,6 +86,15 @@ Assert-True ($issueTracker.IndexOf('retrievedAt', [StringComparison]::Ordinal) -
 Assert-True ($issueTracker.IndexOf('non-authoritative', [StringComparison]::Ordinal) -lt 0) 'issue-tracker must not repeat the cache policy'
 Assert-True (-not ([regex]::IsMatch($issueTracker, 'gh issue view\b'))) 'issue-tracker must link the default read instead of duplicating it'
 
+$powerShellBlocks = [regex]::Matches($issueTracker, '(?ms)^[ \t]*```powershell[ \t]*\r?\n(?<code>.*?)^[ \t]*```[ \t]*\r?$')
+Assert-True ($powerShellBlocks.Count -gt 0) 'issue-tracker must contain a PowerShell example'
+foreach ($block in $powerShellBlocks) {
+    $tokens = $null
+    $errors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseInput($block.Groups['code'].Value, [ref]$tokens, [ref]$errors)
+    Assert-Equal 0 $errors.Count 'every documented PowerShell example must parse'
+}
+
 Push-Location $repoRoot
 try {
     git check-ignore -q -- '.temp/issues/42.json'
@@ -98,6 +107,16 @@ $remoteReads = 0
 $remoteFields = @()
 $cacheKey = '42'
 $source = 'EltonZhang777/Blasphemous.EditorMode'
+$fixtureRepo = Join-Path ([IO.Path]::GetTempPath()) "Blasphemous.EditorMode-issue-cache-$([guid]::NewGuid().ToString('N'))"
+$fixtureCacheDirectory = Join-Path $fixtureRepo '.temp\issues'
+$cachePath = Join-Path $fixtureCacheDirectory "$cacheKey.json"
+
+$null = New-Item -ItemType Directory -Path $fixtureCacheDirectory -Force
+[IO.File]::WriteAllText((Join-Path $fixtureRepo '.gitignore'), ".temp/`n", [Text.UTF8Encoding]::new($false))
+git -C $fixtureRepo init --quiet
+Assert-Equal 0 $LASTEXITCODE 'temporary fixture repository must initialize'
+git -C $fixtureRepo check-ignore -q -- '.temp/issues/42.json'
+Assert-Equal 0 $LASTEXITCODE 'temporary issue cache must be Git-ignored'
 
 function Get-FixtureRemoteSummary {
     param(
@@ -130,6 +149,21 @@ function Get-FixtureRemoteSummary {
     return [pscustomobject]$summary
 }
 
+function Read-FixtureCacheEntry {
+    if (-not (Test-Path -LiteralPath $cachePath)) {
+        return $null
+    }
+
+    return Get-Content -LiteralPath $cachePath -Raw | ConvertFrom-Json
+}
+
+function Write-FixtureCacheEntry {
+    param([object]$Entry)
+
+    $json = $Entry | ConvertTo-Json -Depth 6 -Compress
+    [IO.File]::WriteAllText($cachePath, $json, [Text.UTF8Encoding]::new($false))
+}
+
 function Get-FixtureSummary {
     param(
         [string]$Key,
@@ -138,13 +172,15 @@ function Get-FixtureSummary {
         [switch]$Refresh
     )
 
-    if (-not $Refresh -and $script:cacheStore.ContainsKey($Key)) {
-        $candidate = $script:cacheStore[$Key] | ConvertFrom-Json
-        $sameIssue = [string]$candidate.issue -eq $Key
-        $sameSource = [string]$candidate.source -eq $Source
-        $sameFields = (@($candidate.fields | Sort-Object) -join ',') -eq (@($Fields | Sort-Object) -join ',')
-        if ($sameIssue -and $sameSource -and $sameFields) {
-            return $candidate.summary
+    if (-not $Refresh) {
+        $candidate = Read-FixtureCacheEntry
+        if ($null -ne $candidate) {
+            $sameIssue = [string]$candidate.issue -eq $Key
+            $sameSource = [string]$candidate.source -eq $Source
+            $sameFields = (@($candidate.fields | Sort-Object) -join ',') -eq (@($Fields | Sort-Object) -join ',')
+            if ($sameIssue -and $sameSource -and $sameFields) {
+                return $candidate.summary
+            }
         }
     }
 
@@ -156,20 +192,21 @@ function Get-FixtureSummary {
         fields = @($Fields)
         summary = $summary
     }
-    $script:cacheStore[$Key] = $entry | ConvertTo-Json -Depth 5 -Compress
+    Write-FixtureCacheEntry $entry
 
     return $summary
 }
 
-$cacheStore = @{}
 $alternateSource = 'example/other-repository'
 $partialFields = @('number', 'title', 'state')
 $first = Get-FixtureSummary -Key $cacheKey -Source $source -Fields $defaultFields
+$firstCacheText = Get-Content -LiteralPath $cachePath -Raw
 $second = Get-FixtureSummary -Key $cacheKey -Source $source -Fields $defaultFields
-$initialEntry = $cacheStore[$cacheKey] | ConvertFrom-Json
+$initialEntry = Read-FixtureCacheEntry
 $initialRemoteFields = @($remoteFields)
 
 Assert-Equal 1 $remoteReads 'a repeated summary read must use the local cache'
+Assert-Equal $firstCacheText (Get-Content -LiteralPath $cachePath -Raw) 'a cached read must not rewrite the cache file'
 Assert-Equal $cacheKey ([string]$initialEntry.issue) 'cache must record issue identity'
 Assert-Equal $source $initialEntry.source 'cache must record the source'
 Assert-True (-not [string]::IsNullOrWhiteSpace($initialEntry.retrievedAt)) 'cache must record retrieval time'
@@ -180,12 +217,12 @@ Assert-Equal ($defaultFields -join ',') ($initialRemoteFields -join ',') 'defaul
 $sourceMismatch = Get-FixtureSummary -Key $cacheKey -Source $alternateSource -Fields $defaultFields
 Assert-Equal 2 $remoteReads 'a source mismatch must force a remote summary read'
 Assert-True ($sourceMismatch.title -ne $second.title) 'a source mismatch must return a fresh summary'
-Assert-Equal $alternateSource (($cacheStore[$cacheKey] | ConvertFrom-Json).source) 'a source mismatch must replace the incompatible entry'
+Assert-Equal $alternateSource ((Read-FixtureCacheEntry).source) 'a source mismatch must replace the incompatible entry'
 
 $fieldsMismatch = Get-FixtureSummary -Key $cacheKey -Source $alternateSource -Fields $partialFields
 Assert-Equal 3 $remoteReads 'a field mismatch must force a remote summary read'
 Assert-True ($fieldsMismatch.title -ne $sourceMismatch.title) 'a field mismatch must return a fresh summary'
-$beforeRefresh = $cacheStore[$cacheKey] | ConvertFrom-Json
+$beforeRefresh = Read-FixtureCacheEntry
 Assert-Equal ($partialFields -join ',') ($beforeRefresh.fields -join ',') 'a field mismatch must replace the incompatible entry'
 Assert-Equal ($partialFields -join ',') ($remoteFields -join ',') 'field-mismatch read must use the newly requested fields'
 
@@ -193,10 +230,10 @@ $null = Get-FixtureSummary -Key $cacheKey -Source $alternateSource -Fields $part
 Assert-Equal 3 $remoteReads 'normal repeated reads must use a matching cache entry'
 
 $refreshed = Get-FixtureSummary -Key $cacheKey -Source $alternateSource -Fields $partialFields -Refresh
-$afterRefresh = $cacheStore[$cacheKey] | ConvertFrom-Json
+$afterRefresh = Read-FixtureCacheEntry
 
 Assert-Equal 4 $remoteReads 'explicit refresh must fetch a fresh summary'
-Assert-Equal 1 $cacheStore.Count 'explicit refresh must replace rather than duplicate the issue entry'
+Assert-Equal 1 @(Get-ChildItem -LiteralPath $fixtureCacheDirectory -File).Count 'explicit refresh must replace rather than duplicate the issue entry'
 Assert-Equal $cacheKey ([string]$afterRefresh.issue) 'refresh must retain issue identity'
 Assert-Equal $alternateSource $afterRefresh.source 'refresh must retain the source'
 Assert-Equal ($partialFields -join ',') ($afterRefresh.fields -join ',') 'refresh must retain the requested fields'
@@ -208,4 +245,5 @@ $repeatAfterRefresh = Get-FixtureSummary -Key $cacheKey -Source $alternateSource
 Assert-Equal 4 $remoteReads 'normal repeated reads must use the refreshed cache entry'
 Assert-Equal $refreshed.title $repeatAfterRefresh.title 'repeated reads must return the refreshed summary'
 
-Write-Output "PASS: remote_reads=$remoteReads cache_entries=$($cacheStore.Count); source/field mismatches refetched; refresh updated retrievedAt and summary; post-refresh repeat reused cache"
+$cacheFiles = @(Get-ChildItem -LiteralPath $fixtureCacheDirectory -File)
+Write-Output "PASS: remote_reads=$remoteReads cache_entries=$($cacheFiles.Count) cache_path=$cachePath; source/field mismatches refetched; refresh updated retrievedAt and summary; post-refresh repeat reused cache"
