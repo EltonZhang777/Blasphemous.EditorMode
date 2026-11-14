@@ -117,8 +117,8 @@ internal sealed class ApplyReport
         {
             Error(
                 diagnostic.Reason == DependencyFailureReason.Missing
-                    ? "DEPENDENCY_MISSING"
-                    : "DEPENDENCY_VERSION",
+                    ? ReportCodes.DependencyMissing
+                    : ReportCodes.DependencyVersion,
                 diagnostic.Id,
                 diagnostic.Message);
         }
@@ -145,7 +145,7 @@ internal sealed class ApplyReport
     {
         _entries.Add(new ApplyReportEntry(
             severity,
-            code ?? "UNKNOWN",
+            code ?? ReportCodes.Unknown,
             location ?? "$",
             message ?? string.Empty,
             skipped));

@@ -25,7 +25,7 @@ internal static class PlacementValidation
     {
         if (placement == null || creator == null || !creator.IsSupported)
         {
-            report.Error("PLACEMENT_INVALID", placement == null ? "$" : placement.Id, "Placement or creator is invalid.");
+            report.Error(ReportCodes.PlacementInvalid, placement == null ? "$" : placement.Id, "Placement or creator is invalid.");
             return false;
         }
 
@@ -33,19 +33,19 @@ internal static class PlacementValidation
         if (!HasTransform(creator.TransformCapabilities, TransformCapabilities.Position)
             && !IsZero(placement.Transform.PositionX, placement.Transform.PositionY, placement.Transform.PositionZ))
         {
-            report.Error("TRANSFORM_UNSUPPORTED", placement.Id, "Creator does not support position editing.");
+            report.Error(ReportCodes.TransformUnsupported, placement.Id, "Creator does not support position editing.");
             valid = false;
         }
         if (!HasTransform(creator.TransformCapabilities, TransformCapabilities.Rotation)
             && !IsZero(placement.Transform.RotationX, placement.Transform.RotationY, placement.Transform.RotationZ))
         {
-            report.Error("TRANSFORM_UNSUPPORTED", placement.Id, "Creator does not support rotation editing.");
+            report.Error(ReportCodes.TransformUnsupported, placement.Id, "Creator does not support rotation editing.");
             valid = false;
         }
         if (!HasTransform(creator.TransformCapabilities, TransformCapabilities.Scale)
             && !IsOne(placement.Transform.ScaleX, placement.Transform.ScaleY, placement.Transform.ScaleZ))
         {
-            report.Error("TRANSFORM_UNSUPPORTED", placement.Id, "Creator does not support scale editing.");
+            report.Error(ReportCodes.TransformUnsupported, placement.Id, "Creator does not support scale editing.");
             valid = false;
         }
 
@@ -54,7 +54,7 @@ internal static class PlacementValidation
             if (!creator.TryValidateProperty(property, out string error))
             {
                 report.Error(
-                    "PROPERTY_UNSUPPORTED",
+                    ReportCodes.PropertyUnsupported,
                     placement.Id,
                     "Creator does not support property '" + property + "': " + error);
                 valid = false;
@@ -72,7 +72,7 @@ internal static class PlacementValidation
     {
         if (transform == null)
         {
-            report.Error("TRANSFORM_INVALID", location, "Transform is required.");
+            report.Error(ReportCodes.TransformInvalid, location, "Transform is required.");
             return false;
         }
 
@@ -87,7 +87,7 @@ internal static class PlacementValidation
             transform.ScaleY,
             transform.ScaleZ))
         {
-            report.Error("TRANSFORM_INVALID", location, "Transform values must be finite.");
+            report.Error(ReportCodes.TransformInvalid, location, "Transform values must be finite.");
             return false;
         }
 
@@ -113,19 +113,19 @@ internal static class PlacementValidation
         int colon = condition.IndexOf(':');
         if (colon <= 0 || colon == condition.Length - 1)
         {
-            report.Error("CONDITION_INVALID", location, "Condition must use flag:<id>, penitence:<id>, or gamemode:<id>.");
+            report.Error(ReportCodes.ConditionInvalid, location, "Condition must use flag:<id>, penitence:<id>, or gamemode:<id>.");
             return false;
         }
 
         string kind = condition.Substring(0, colon);
         if (kind != "flag" && kind != "penitence" && kind != "gamemode")
         {
-            report.Error("CONDITION_INVALID", location, "Unsupported condition kind: " + kind);
+            report.Error(ReportCodes.ConditionInvalid, location, "Unsupported condition kind: " + kind);
             return false;
         }
         if (condition.Substring(colon + 1).Trim().Length == 0)
         {
-            report.Error("CONDITION_INVALID", location, "Condition value cannot be blank.");
+            report.Error(ReportCodes.ConditionInvalid, location, "Condition value cannot be blank.");
             return false;
         }
 

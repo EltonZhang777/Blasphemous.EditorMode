@@ -106,13 +106,13 @@ internal sealed class LevelEditSession
         ApplyReport report = new();
         if (room == null)
         {
-            report.Error("ROOM_REQUIRED", "$", "Current Room Identity is required.");
+            report.Error(ReportCodes.RoomRequired, "$", "Current Room Identity is required.");
             return Failed(report, null);
         }
 
         if (file == null)
         {
-            report.Error("FILE_REQUIRED", "$", "A Level Export file is required.");
+            report.Error(ReportCodes.FileRequired, "$", "A Level Export file is required.");
             return Failed(report, null);
         }
 
@@ -122,7 +122,7 @@ internal sealed class LevelEditSession
             StringComparison.OrdinalIgnoreCase))
         {
             report.Error(
-                "ROOM_SCOPE",
+                ReportCodes.RoomScope,
                 file.Path,
                 "Level Export does not match the current Room Identity.");
             return Failed(report, file.OriginalText);
@@ -132,7 +132,7 @@ internal sealed class LevelEditSession
         {
             report.MergeFrameworkDiagnostics(file.Diagnostics);
             report.Error(
-                "IMPORT_INVALID",
+                ReportCodes.ImportInvalid,
                 file.Path,
                 "Level Export cannot be imported; the source remains unchanged.");
             return Failed(report, file.OriginalText);
@@ -158,7 +158,7 @@ internal sealed class LevelEditSession
                     && !creators.TryGetValue(data.Type, out originalCreator))
                 {
                     report.Error(
-                        "CREATOR_UNSUPPORTED",
+                        ReportCodes.CreatorUnsupported,
                         location,
                         "Creator '" + data.Type + "' is unavailable in the current profile.");
                 }
@@ -169,7 +169,7 @@ internal sealed class LevelEditSession
                         PlacementValidation.Validate(data, originalCreator, report);
                     }
                     report.Error(
-                        "ADDITION_UNEDITABLE_PRESERVED",
+                        ReportCodes.AdditionUneditablePreserved,
                         location,
                         "The source addition cannot be represented by this editor profile and was retained unchanged.");
                 }
@@ -179,7 +179,7 @@ internal sealed class LevelEditSession
             if (!creators.TryGetValue(data.Type, out CreatorMetadata creator))
             {
                 report.Error(
-                    "CREATOR_UNSUPPORTED",
+                    ReportCodes.CreatorUnsupported,
                     "additions[" + data.Id + "]",
                     "Creator '" + data.Type + "' is unavailable in the current profile.");
                 continue;
@@ -191,7 +191,7 @@ internal sealed class LevelEditSession
             if (!ids.Add(data.Id))
             {
                 report.Error(
-                    "PLACEMENT_DUPLICATE_ID",
+                    ReportCodes.PlacementDuplicateId,
                     "additions[" + data.Id + "]",
                     "Placement id is duplicated in the session.");
                 continue;
@@ -211,7 +211,7 @@ internal sealed class LevelEditSession
         if (file.Document.Modifications.Count > 0 || file.Document.Deletions.Count > 0)
         {
             report.Warning(
-                "ORIGINAL_OBJECT_READ_ONLY",
+                ReportCodes.OriginalObjectReadOnly,
                 "$",
                 "Original-object modifications and deletions were retained for round-trip but are not editable.");
         }
@@ -249,17 +249,17 @@ internal sealed class LevelEditSession
     {
         if (placement == null)
         {
-            report.Error("PLACEMENT_REQUIRED", "$", "Placement is required.");
+            report.Error(ReportCodes.PlacementRequired, "$", "Placement is required.");
             return false;
         }
         if (placement.Ownership != PlacementOwnership.ArchitectOwned)
         {
-            report.Error("OWNERSHIP_REJECTED", placement.Id, "Only Architect-owned placements can be edited.");
+            report.Error(ReportCodes.OwnershipRejected, placement.Id, "Only Architect-owned placements can be edited.");
             return false;
         }
         if (TryGetPlacement(placement.Id, out _))
         {
-            report.Error("PLACEMENT_DUPLICATE_ID", placement.Id, "Placement id already exists.");
+            report.Error(ReportCodes.PlacementDuplicateId, placement.Id, "Placement id already exists.");
             return false;
         }
 
@@ -272,7 +272,7 @@ internal sealed class LevelEditSession
     {
         if (placement == null || placement.Ownership != PlacementOwnership.ArchitectOwned)
         {
-            report.Error("OWNERSHIP_REJECTED", placement == null ? "$" : placement.Id, "Placement is not editable.");
+            report.Error(ReportCodes.OwnershipRejected, placement == null ? "$" : placement.Id, "Placement is not editable.");
             return false;
         }
 
@@ -286,7 +286,7 @@ internal sealed class LevelEditSession
             return true;
         }
 
-        report.Error("PLACEMENT_NOT_FOUND", placement.Id, "Placement is not present in the session.");
+        report.Error(ReportCodes.PlacementNotFound, placement.Id, "Placement is not present in the session.");
         return false;
     }
 
@@ -300,7 +300,7 @@ internal sealed class LevelEditSession
                 continue;
             if (placement.Ownership != PlacementOwnership.ArchitectOwned)
             {
-                report.Error("OWNERSHIP_REJECTED", id, "Original objects cannot be removed.");
+                report.Error(ReportCodes.OwnershipRejected, id, "Original objects cannot be removed.");
                 return false;
             }
 
@@ -310,7 +310,7 @@ internal sealed class LevelEditSession
             return true;
         }
 
-        report.Error("PLACEMENT_NOT_FOUND", id, "Placement is not present in the session.");
+        report.Error(ReportCodes.PlacementNotFound, id, "Placement is not present in the session.");
         return false;
     }
 
@@ -381,7 +381,7 @@ internal sealed class LevelEditSession
         ApplyReport report = new();
         if (State == LevelEditSessionState.Failed)
         {
-            report.Error("EXPORT_SESSION_FAILED", path, "A failed session cannot be exported.");
+            report.Error(ReportCodes.ExportSessionFailed, path, "A failed session cannot be exported.");
             return new LevelEditSessionExportResult(null, report, null);
         }
 
@@ -394,7 +394,7 @@ internal sealed class LevelEditSession
         if (!frameworkResult.Succeeded)
         {
             report.Error(
-                "EXPORT_FAILED",
+                ReportCodes.ExportFailed,
                 path,
                 "Export failed; the previous valid file remains available.");
             LastReport = report;
@@ -407,7 +407,7 @@ internal sealed class LevelEditSession
                 || _preservedAdditionIds.Contains(addition.Id))
             {
                 report.Warning(
-                    "UNEDITABLE_ADDITION_PRESERVED",
+                    ReportCodes.UneditableAdditionPreserved,
                     addition.Id,
                     "An uneditable source addition was retained unchanged.",
                     true);
@@ -417,7 +417,7 @@ internal sealed class LevelEditSession
         State = report.IsPartial ? LevelEditSessionState.Partial : LevelEditSessionState.Clean;
         LastReport = report;
         report.Applied();
-        report.Info("EXPORT_SUCCEEDED", path, "Framework-compatible Level Export written; Original Save was not changed.");
+        report.Info(ReportCodes.ExportSucceeded, path, "Framework-compatible Level Export written; Original Save was not changed.");
         return new LevelEditSessionExportResult(frameworkResult, report, document);
     }
 

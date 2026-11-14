@@ -125,17 +125,17 @@ internal static class RoomOverlayComparer
     {
         if (expected == null || actual == null)
         {
-            report.Error("ROUND_TRIP_INVALID", "$", "Both round-trip sessions are required.");
+            report.Error(ReportCodes.RoundTripInvalid, "$", "Both round-trip sessions are required.");
             return false;
         }
         if (!expected.Room.Equals(actual.Room))
         {
-            report.Error("ROUND_TRIP_SCOPE", "$", "Room Identity changed during round-trip.");
+            report.Error(ReportCodes.RoundTripScope, "$", "Room Identity changed during round-trip.");
             return false;
         }
         if (expected.Placements.Count != actual.Placements.Count)
         {
-            report.Error("ROUND_TRIP_COUNT", "$", "Placement count changed during round-trip.");
+            report.Error(ReportCodes.RoundTripCount, "$", "Placement count changed during round-trip.");
             return false;
         }
 
@@ -147,7 +147,7 @@ internal static class RoomOverlayComparer
         {
             if (!actualById.TryGetValue(expectedPlacement.Id, out PlacementRecord actualPlacement))
             {
-                report.Error("ROUND_TRIP_ID", expectedPlacement.Id, "Placement identity was not preserved.");
+                report.Error(ReportCodes.RoundTripId, expectedPlacement.Id, "Placement identity was not preserved.");
                 return false;
             }
             if (!string.Equals(expectedPlacement.Type, actualPlacement.Type, StringComparison.Ordinal)
@@ -157,12 +157,12 @@ internal static class RoomOverlayComparer
                 || !string.Equals(expectedPlacement.Condition, actualPlacement.Condition, StringComparison.Ordinal)
                 || !SameProperties(expectedPlacement.Properties, actualPlacement.Properties))
             {
-                report.Error("ROUND_TRIP_STATE", expectedPlacement.Id, "Placement transform, properties, ownership, lock, or condition changed.");
+                report.Error(ReportCodes.RoundTripState, expectedPlacement.Id, "Placement transform, properties, ownership, lock, or condition changed.");
                 return false;
             }
         }
 
-        report.Info("ROUND_TRIP_MATCH", expected.Room.ExportFileKey, "Observable Room Overlay state matches.");
+        report.Info(ReportCodes.RoundTripMatch, expected.Room.ExportFileKey, "Observable Room Overlay state matches.");
         return true;
     }
 

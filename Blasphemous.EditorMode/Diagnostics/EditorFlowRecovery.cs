@@ -38,13 +38,13 @@ internal sealed class EditorFlowRecovery
         }
         catch (Exception exception)
         {
-            report.Error("FLOW_FAILED", operation, exception.Message);
+            report.Error(ReportCodes.FlowFailed, operation, exception.Message);
         }
 
         if (succeeded)
             return true;
 
-        report.Error("FLOW_FAILED", operation, "Operation failed; attempting safe state recovery.");
+        report.Error(ReportCodes.FlowFailed, operation, "Operation failed; attempting safe state recovery.");
         bool recovered = false;
         try
         {
@@ -52,18 +52,18 @@ internal sealed class EditorFlowRecovery
         }
         catch (Exception exception)
         {
-            report.Error("FLOW_RECOVERY_FAILED", operation, exception.Message);
+            report.Error(ReportCodes.FlowRecoveryFailed, operation, exception.Message);
         }
 
         if (recovered)
         {
             State = previous;
-            report.Warning("FLOW_RECOVERED", operation, "Operation failed; safe editor state was restored.");
+            report.Warning(ReportCodes.FlowRecovered, operation, "Operation failed; safe editor state was restored.");
         }
         else
         {
             State = EditorFlowState.RoomLoaded;
-            report.Error("FLOW_RECOVERY_FAILED", operation, "Recovery failed; editor state was reduced to RoomLoaded.");
+            report.Error(ReportCodes.FlowRecoveryFailed, operation, "Recovery failed; editor state was reduced to RoomLoaded.");
         }
 
         return false;

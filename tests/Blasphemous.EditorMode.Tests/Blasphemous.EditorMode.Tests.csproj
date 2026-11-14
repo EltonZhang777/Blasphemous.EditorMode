@@ -26,6 +26,7 @@
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\EditorRuntimeState.cs" Link="Lifecycle\EditorRuntimeState.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Framework\LevelFrameworkAdapter.cs" Link="Framework\LevelFrameworkAdapter.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\ApplyReport.cs" Link="Diagnostics\ApplyReport.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\ReportCodes.cs" Link="Diagnostics\ReportCodes.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\ApplyReportSurface.cs" Link="Diagnostics\ApplyReportSurface.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\EditorFlowRecovery.cs" Link="Diagnostics\EditorFlowRecovery.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\P0AcceptanceGate.cs" Link="Diagnostics\P0AcceptanceGate.cs" />
