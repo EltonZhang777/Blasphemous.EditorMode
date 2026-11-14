@@ -178,7 +178,13 @@ exit /b %errorlevel%
             }
             automatedStatus = $Status
             sdkVersion = '10.0.401'
-            runner = [ordered]@{ os = 'Windows'; machineName = 'fixture' }
+    runner = [ordered]@{
+        os = 'Windows'
+        osVersion = '10.0.26100'
+        architecture = 'X64'
+        powershellVersion = '7.5.0'
+        machineName = 'fixture'
+    }
             errors = @()
         })
     }
@@ -215,6 +221,9 @@ exit /b %errorlevel%
         [ordered]@{
             body = $Body
             headRefOid = $HeadSha
+            baseRefName = 'dev'
+            state = 'OPEN'
+            isDraft = $false
         } | ConvertTo-Json -Compress
     }
 
@@ -528,10 +537,9 @@ Describe 'evidence capture and publication' {
     It 'rejects multiple marker comments for one evidence kind' {
         $fixture = New-EvidenceFixture
         $existingBody = New-ExistingMarkerBody -Kind 'runtime-smoke' -GeneratedAt '2026-11-14T09:00:00.0000000Z'
-        $comments = ConvertTo-Json -Compress -AsArray @(
-            [ordered]@{ id = 77; body = $existingBody }
-            [ordered]@{ id = 78; body = $existingBody }
-        )
+        $firstPage = ConvertTo-Json -Compress -AsArray @([ordered]@{ id = 77; body = $existingBody })
+        $secondPage = ConvertTo-Json -Compress -AsArray @([ordered]@{ id = 78; body = $existingBody })
+        $comments = "[$firstPage,$secondPage]"
         Write-AutomatedEvidence -Fixture $fixture
         Write-SmokeEvidence -Fixture $fixture
 

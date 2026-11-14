@@ -1,0 +1,57 @@
+name: Publish PR verification
+
+on:
+  workflow_run:
+    workflows: [ "PR verification" ]
+    types: [ completed ]
+
+permissions: {}
+
+concurrency:
+  group: publish-pr-${{ github.event.workflow_run.head_repository.full_name || github.event.workflow_run.id }}-${{ github.event.workflow_run.head_branch || github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: ${{ github.event.workflow_run.event == 'pull_request_target' }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout trusted publisher
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.repository.default_branch }}
+        persist-credentials: false
+
+    - name: Download verification transport
+      continue-on-error: true
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RUN_ID: ${{ github.event.workflow_run.id }}
+        RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+      run: |
+        $artifactName = "pr-verification-$env:RUN_ID-$env:RUN_ATTEMPT"
+        gh run download $env:RUN_ID --repo $env:GITHUB_REPOSITORY --name $artifactName --dir transport
+
+    - name: Publish trusted evidence
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RUN_ID: ${{ github.event.workflow_run.id }}
+        RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        & ./scripts/verify.ps1 -Mode publish-pr `
+          -Repository $env:GITHUB_REPOSITORY `
+          -WorkflowRunId $env:RUN_ID -WorkflowRunAttempt $env:RUN_ATTEMPT `
+          -TransportPath 'transport\pr-verification-transport.json' `
+          -Publish
+        exit $LASTEXITCODE

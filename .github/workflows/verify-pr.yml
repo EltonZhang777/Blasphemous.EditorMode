@@ -1,0 +1,78 @@
+name: PR verification
+
+on:
+  pull_request_target:
+    branches: [ "dev" ]
+    types: [ opened, synchronize, reopened, ready_for_review, edited ]
+
+permissions: {}
+
+concurrency:
+  group: verify-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout trusted verifier
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        path: trusted
+        persist-credentials: false
+
+    - name: Checkout reviewed head
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ github.event.pull_request.head.repo.full_name }}
+        ref: ${{ github.event.pull_request.head.sha }}
+        path: source
+        persist-credentials: false
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Verify reviewed head
+      shell: pwsh
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $trustedScript = Join-Path $env:GITHUB_WORKSPACE 'trusted\scripts\verify.ps1'
+        $sourceRoot = Join-Path $env:GITHUB_WORKSPACE 'source'
+        $transportPath = Join-Path $env:GITHUB_WORKSPACE 'transport\pr-verification-transport.json'
+
+        & $trustedScript -RepoRoot $sourceRoot
+        $verifyExit = $LASTEXITCODE
+        $conclusion = if ($verifyExit -eq 0) { 'success' } else { 'failure' }
+
+        & $trustedScript -RepoRoot $sourceRoot -Mode transport `
+          -PrNumber $env:PR_NUMBER -SourceSha $env:SOURCE_SHA `
+          -Repository $env:GITHUB_REPOSITORY `
+          -WorkflowRunId $env:GITHUB_RUN_ID -WorkflowRunAttempt $env:GITHUB_RUN_ATTEMPT `
+          -WorkflowName 'PR verification' -WorkflowPath '.github/workflows/verify-pr.yml' `
+          -WorkflowEvent 'pull_request_target' -WorkflowConclusion $conclusion `
+          -TransportOutputPath $transportPath
+        $transportExit = $LASTEXITCODE
+
+        if ($verifyExit -ne 0) {
+          exit $verifyExit
+        }
+        exit $transportExit
+
+    - name: Upload verification transport
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pr-verification-${{ github.run_id }}-${{ github.run_attempt }}
+        path: transport/pr-verification-transport.json
+        if-no-files-found: error
+        retention-days: 1

@@ -166,6 +166,50 @@ record:
 <!-- codex-evidence-json:end -->
 ```
 
+PR-head records also carry the authoritative `prNumber`, `evidenceIssue`,
+`workflowRunId`, `workflowRunAttempt`, `workflowRunCreatedAt`, and
+`workflowConclusion` used for ordering and stale-run rejection, plus the
+validated transport artifact ID, name, and byte size.
+
+## Trusted PR verification
+
+`.github/workflows/verify-pr.yml` handles pull requests targeting `dev`. It
+runs on `windows-latest`, checks the trusted verifier out from the PR base
+commit, and separately checks out the exact
+`github.event.pull_request.head.sha`. The verification job has only
+`contents: read`, has no secrets, and does not persist checkout credentials.
+
+The trusted verifier runs the normal automated gate against the reviewed head.
+Successful and failed runs both produce one small non-authoritative transport
+record. The artifact is named
+`pr-verification-<run-id>-<run-attempt>`, is retained for one day, and is never
+treated as the authoritative evidence record.
+
+`.github/workflows/publish-pr.yml` runs from the default branch on
+`workflow_run`. It does not check out or execute pull request code. Before any
+GitHub write it queries the workflow run and pull request association, requires
+a current open PR targeting `dev`, validates the declared evidence
+issue, and checks the transport artifact and evidence schema, size, hash
+formats and cross-field consistency, run identity, and freshness. It then
+upserts one PR marker comment and only after that completes or updates the
+fixed check named `Trusted verification evidence`.
+
+An older run cannot replace newer evidence, including when it finishes later.
+Any non-stale validation or publication failure attempts a failed fixed check
+when a validated run head is available. A stale run does not write a failure
+check because that would let an old run downgrade newer evidence. A cancelled,
+missing, stale, malformed, or otherwise untrusted result therefore cannot
+produce a successful required check. Same-repository and fork pull requests
+use the same trusted-base workflow; the only difference is the repository of
+the reviewed head.
+
+GitHub requires the `workflow_run` publisher workflow to exist on the default
+branch before it can trigger. The activation order is therefore: merge and
+exercise these workflows, confirm publication for both a same-repository and a
+fork pull request, and only then activate a `dev` ruleset requiring
+`Trusted verification evidence`. Ruleset activation is a separate external
+configuration action and is not performed by the verification scripts.
+
 Run the Pester coverage with:
 
 ```powershell
