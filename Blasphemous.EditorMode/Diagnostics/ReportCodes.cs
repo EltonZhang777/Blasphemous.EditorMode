@@ -1,4 +1,17 @@
+using System;
+using System.Collections.Generic;
+
 namespace Blasphemous.EditorMode.Diagnostics;
+
+internal enum P0AcceptanceCheck
+{
+    Seam,
+    Dependency,
+    RoomSafety,
+    OriginalSave,
+    Recovery,
+    NoDuplicate
+}
 
 internal static class ReportCodes
 {
@@ -6,6 +19,13 @@ internal static class ReportCodes
 
     internal const string DependencyMissing = "DEPENDENCY_MISSING";
     internal const string DependencyVersion = "DEPENDENCY_VERSION";
+
+    internal const string FrameworkJson = "FRAMEWORK_JSON";
+    internal const string JsonSyntax = "JSON_SYNTAX";
+    internal const string JsonSchema = "JSON_SCHEMA";
+    internal const string ExportIo = "EXPORT_IO";
+    internal const string FileIo = "FILE_IO";
+    internal const string JsonUnknownField = "JSON_UNKNOWN_FIELD";
 
     internal const string FlowFailed = "FLOW_FAILED";
     internal const string FlowRecoveryFailed = "FLOW_RECOVERY_FAILED";
@@ -70,4 +90,48 @@ internal static class ReportCodes
     internal const string PreviewFailed = "PREVIEW_FAILED";
     internal const string PreviewCreated = "PREVIEW_CREATED";
     internal const string PreviewDisposed = "PREVIEW_DISPOSED";
+
+    internal const string SeamPassed = "SEAM_PASSED";
+    internal const string SeamFailed = "SEAM_FAILED";
+    internal const string DependencyPassed = "DEPENDENCY_PASSED";
+    internal const string DependencyFailed = "DEPENDENCY_FAILED";
+    internal const string RoomSafetyPassed = "ROOM_SAFETY_PASSED";
+    internal const string RoomSafetyFailed = "ROOM_SAFETY_FAILED";
+    internal const string OriginalSavePassed = "ORIGINAL_SAVE_PASSED";
+    internal const string OriginalSaveFailed = "ORIGINAL_SAVE_FAILED";
+    internal const string RecoveryPassed = "RECOVERY_PASSED";
+    internal const string RecoveryFailed = "RECOVERY_FAILED";
+    internal const string NoDuplicatePassed = "NO_DUPLICATE_PASSED";
+    internal const string NoDuplicateFailed = "NO_DUPLICATE_FAILED";
+
+    internal const string RealGamePending = "REAL_GAME_PENDING";
+    internal const string RealGamePassed = "REAL_GAME_PASSED";
+
+    internal static KeyValuePair<string, string> P0Code(
+        P0AcceptanceCheck check,
+        bool passed)
+    {
+        return check switch
+        {
+            P0AcceptanceCheck.Seam => new KeyValuePair<string, string>(
+                passed ? SeamPassed : SeamFailed,
+                "SEAM"),
+            P0AcceptanceCheck.Dependency => new KeyValuePair<string, string>(
+                passed ? DependencyPassed : DependencyFailed,
+                "DEPENDENCY"),
+            P0AcceptanceCheck.RoomSafety => new KeyValuePair<string, string>(
+                passed ? RoomSafetyPassed : RoomSafetyFailed,
+                "ROOM_SAFETY"),
+            P0AcceptanceCheck.OriginalSave => new KeyValuePair<string, string>(
+                passed ? OriginalSavePassed : OriginalSaveFailed,
+                "ORIGINAL_SAVE"),
+            P0AcceptanceCheck.Recovery => new KeyValuePair<string, string>(
+                passed ? RecoveryPassed : RecoveryFailed,
+                "RECOVERY"),
+            P0AcceptanceCheck.NoDuplicate => new KeyValuePair<string, string>(
+                passed ? NoDuplicatePassed : NoDuplicateFailed,
+                "NO_DUPLICATE"),
+            _ => throw new ArgumentOutOfRangeException(nameof(check), check, "Unknown P0 acceptance check.")
+        };
+    }
 }

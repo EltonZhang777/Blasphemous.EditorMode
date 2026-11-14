@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Blasphemous.EditorMode.Diagnostics;
 
@@ -40,26 +41,26 @@ internal static class P0AcceptanceGate
             throw new ArgumentNullException(nameof(evidence));
 
         ApplyReport report = new();
-        Check(report, "SEAM", evidence.SeamPassed, "LevelEditSession import/edit/undo/redo/export/re-import seam");
-        Check(report, "DEPENDENCY", evidence.DependencySafetyPassed, "dependency absence and version safety");
-        Check(report, "ROOM_SAFETY", evidence.RoomSafetyPassed, "room identity and lifecycle safety");
-        Check(report, "ORIGINAL_SAVE", evidence.OriginalSaveProtected, "Original Save protection");
-        Check(report, "RECOVERY", evidence.RecoveryPassed, "failure recovery");
-        Check(report, "NO_DUPLICATE", evidence.NoDuplicateOrLeakPassed, "duplicate/leak prevention");
+        Check(report, P0AcceptanceCheck.Seam, evidence.SeamPassed, "LevelEditSession import/edit/undo/redo/export/re-import seam");
+        Check(report, P0AcceptanceCheck.Dependency, evidence.DependencySafetyPassed, "dependency absence and version safety");
+        Check(report, P0AcceptanceCheck.RoomSafety, evidence.RoomSafetyPassed, "room identity and lifecycle safety");
+        Check(report, P0AcceptanceCheck.OriginalSave, evidence.OriginalSaveProtected, "Original Save protection");
+        Check(report, P0AcceptanceCheck.Recovery, evidence.RecoveryPassed, "failure recovery");
+        Check(report, P0AcceptanceCheck.NoDuplicate, evidence.NoDuplicateOrLeakPassed, "duplicate/leak prevention");
 
         bool pureChecksPassed = !report.HasErrors;
         bool runtimePending = !evidence.RealGameSmokePassed;
         if (runtimePending)
         {
             report.Warning(
-                "REAL_GAME_PENDING",
+                ReportCodes.RealGamePending,
                 "target-profile",
                 "Target-game smoke evidence is pending; P0 is not release-ready.");
         }
         else
         {
             report.Info(
-                "REAL_GAME_PASSED",
+                ReportCodes.RealGamePassed,
                 "target-profile",
                 "Target-game smoke evidence was supplied.");
         }
@@ -67,11 +68,16 @@ internal static class P0AcceptanceGate
         return new P0AcceptanceResult(report, pureChecksPassed, runtimePending);
     }
 
-    private static void Check(ApplyReport report, string code, bool passed, string description)
+    private static void Check(
+        ApplyReport report,
+        P0AcceptanceCheck check,
+        bool passed,
+        string description)
     {
+        KeyValuePair<string, string> codeAndIdentity = ReportCodes.P0Code(check, passed);
         if (passed)
-            report.Info(code + "_PASSED", code, description + " passed.");
+            report.Info(codeAndIdentity.Key, codeAndIdentity.Value, description + " passed.");
         else
-            report.Error(code + "_FAILED", code, description + " has no passing evidence.");
+            report.Error(codeAndIdentity.Key, codeAndIdentity.Value, description + " has no passing evidence.");
     }
 }

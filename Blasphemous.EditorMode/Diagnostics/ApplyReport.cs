@@ -156,31 +156,31 @@ internal sealed class ApplyReport
     private static string ClassifyFrameworkDiagnostic(string message)
     {
         if (message == null)
-            return "FRAMEWORK_JSON";
+            return ReportCodes.FrameworkJson;
         if (message.IndexOf("syntax", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "JSON_SYNTAX";
+            return ReportCodes.JsonSyntax;
         if (message.IndexOf("does not match Room Identity", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "ROOM_SCOPE";
+            return ReportCodes.RoomScope;
         if (message.IndexOf("Required top-level array", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("Top-level field", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("Required string field", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("path", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "JSON_SCHEMA";
+            return ReportCodes.JsonSchema;
         if (message.IndexOf("Atomic Level Export", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("export", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "EXPORT_IO";
+            return ReportCodes.ExportIo;
         if (message.IndexOf("file could not be read", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "FILE_IO";
+            return ReportCodes.FileIo;
         if (message.IndexOf("condition", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "CONDITION_INVALID";
+            return ReportCodes.ConditionInvalid;
         if (message.IndexOf("transform", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "TRANSFORM_INVALID";
+            return ReportCodes.TransformInvalid;
         if (message.IndexOf("property", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "PROPERTY_INVALID";
+            return ReportCodes.PropertyInvalid;
         if (message.IndexOf("Duplicate object id", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "PLACEMENT_DUPLICATE_ID";
+            return ReportCodes.PlacementDuplicateId;
         if (message.IndexOf("Unknown", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "JSON_UNKNOWN_FIELD";
-        return "FRAMEWORK_JSON";
+            return ReportCodes.JsonUnknownField;
+        return ReportCodes.FrameworkJson;
     }
 }

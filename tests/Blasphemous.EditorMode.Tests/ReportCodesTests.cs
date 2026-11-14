@@ -15,6 +15,12 @@ public sealed class ReportCodesTests
         Dictionary<string, string> expected = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["Unknown"] = "UNKNOWN",
+            ["FrameworkJson"] = "FRAMEWORK_JSON",
+            ["JsonSyntax"] = "JSON_SYNTAX",
+            ["JsonSchema"] = "JSON_SCHEMA",
+            ["ExportIo"] = "EXPORT_IO",
+            ["FileIo"] = "FILE_IO",
+            ["JsonUnknownField"] = "JSON_UNKNOWN_FIELD",
             ["DependencyMissing"] = "DEPENDENCY_MISSING",
             ["DependencyVersion"] = "DEPENDENCY_VERSION",
             ["FlowFailed"] = "FLOW_FAILED",
@@ -73,7 +79,21 @@ public sealed class ReportCodesTests
             ["SelectionFailed"] = "SELECTION_FAILED",
             ["PreviewFailed"] = "PREVIEW_FAILED",
             ["PreviewCreated"] = "PREVIEW_CREATED",
-            ["PreviewDisposed"] = "PREVIEW_DISPOSED"
+            ["PreviewDisposed"] = "PREVIEW_DISPOSED",
+            ["SeamPassed"] = "SEAM_PASSED",
+            ["SeamFailed"] = "SEAM_FAILED",
+            ["DependencyPassed"] = "DEPENDENCY_PASSED",
+            ["DependencyFailed"] = "DEPENDENCY_FAILED",
+            ["RoomSafetyPassed"] = "ROOM_SAFETY_PASSED",
+            ["RoomSafetyFailed"] = "ROOM_SAFETY_FAILED",
+            ["OriginalSavePassed"] = "ORIGINAL_SAVE_PASSED",
+            ["OriginalSaveFailed"] = "ORIGINAL_SAVE_FAILED",
+            ["RecoveryPassed"] = "RECOVERY_PASSED",
+            ["RecoveryFailed"] = "RECOVERY_FAILED",
+            ["NoDuplicatePassed"] = "NO_DUPLICATE_PASSED",
+            ["NoDuplicateFailed"] = "NO_DUPLICATE_FAILED",
+            ["RealGamePending"] = "REAL_GAME_PENDING",
+            ["RealGamePassed"] = "REAL_GAME_PASSED"
         };
 
         FieldInfo[] fields = typeof(ReportCodes)
@@ -89,5 +109,12 @@ public sealed class ReportCodesTests
                 "Unexpected ReportCodes member: " + field.Name);
             Assert.Equal(value, field.GetRawConstantValue());
         }
+    }
+
+    [Fact]
+    public void P0_code_factory_rejects_an_invalid_check_identity()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ReportCodes.P0Code((P0AcceptanceCheck)int.MaxValue, true));
     }
 }
