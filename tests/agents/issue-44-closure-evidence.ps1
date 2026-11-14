@@ -26,6 +26,32 @@ function Assert-Equal {
     }
 }
 
+function Test-NonEmptyText {
+    param([object]$Value)
+
+    return $Value -is [string] -and -not [string]::IsNullOrWhiteSpace($Value)
+}
+
+function Test-NonEmptyTextCollection {
+    param(
+        [object]$Values,
+        [switch]$AllowEmpty
+    )
+
+    $items = @($Values)
+    if ($items.Count -eq 0) {
+        return [bool]$AllowEmpty
+    }
+
+    foreach ($item in $items) {
+        if (-not (Test-NonEmptyText ([string]$item))) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
 function Get-ClosureDisposition {
     param(
         [hashtable]$Record,
@@ -38,27 +64,60 @@ function Get-ClosureDisposition {
     foreach ($field in 'evidenceKind', 'sourceSha', 'automatedStatus', 'evidenceLinks') {
         Assert-True ($Record.ContainsKey($field) -and $null -ne $Record[$field]) "closure record has $field"
     }
-    Assert-True (@($Record.evidenceLinks).Count -gt 0) 'closure record has evidence links'
     Assert-True ($Record.sourceSha -match '^[0-9a-f]{40}$') 'source SHA is a full 40-character SHA'
 
-    $automatedStatus = $Record.automatedStatus
+    $evidenceKind = [string]$Record.evidenceKind
+    $sourceSha = [string]$Record.sourceSha
+    $automatedStatus = [string]$Record.automatedStatus
     $runtimeStatus = if ($Record.ContainsKey('runtimeStatus')) { [string]$Record.runtimeStatus } else { '' }
     if ([string]::IsNullOrWhiteSpace($runtimeStatus)) {
         $runtimeStatus = 'MISSING'
     }
 
+    $deliveredScope = @()
+    $remainingScope = @()
+    $followUpLinks = @()
+    if ($Record.ContainsKey('deliveredScope')) {
+        $deliveredScope = @($Record.deliveredScope)
+    }
+    if ($Record.ContainsKey('remainingScope')) {
+        $remainingScope = @($Record.remainingScope)
+    }
+    if ($Record.ContainsKey('followUpLinks')) {
+        $followUpLinks = @($Record.followUpLinks)
+    }
+
     $finalMergedSha = if ($Record.ContainsKey('finalMergedSha')) { [string]$Record.finalMergedSha } else { '' }
-    $mergeEvidence = $Record.evidenceKind -eq 'final-dev-automated'
+    $mergeEvidence = $evidenceKind -ceq 'final-dev-automated'
     $finalMergedShaValid = -not $mergeEvidence -or $finalMergedSha -match '^[0-9a-f]{40}$'
 
-    $overallStatus = if ($Record.zeroTests -or $automatedStatus -eq 'FAIL' -or $runtimeStatus -eq 'FAIL') {
+    $supportedEvidenceKinds = @('pr-head-automated', 'final-dev-automated', 'runtime-smoke', 'documentation-only-automated')
+    $documentationOnly = $evidenceKind -ceq 'documentation-only-automated'
+    $recordValid = (
+        ($supportedEvidenceKinds -ccontains $evidenceKind) -and
+        (Test-NonEmptyTextCollection $Record.evidenceLinks) -and
+        (Test-NonEmptyTextCollection $deliveredScope) -and
+        (Test-NonEmptyTextCollection $remainingScope -AllowEmpty) -and
+        (Test-NonEmptyTextCollection $followUpLinks -AllowEmpty) -and
+        ($runtimeStatus -cin @('PASS', 'FAIL', 'N/A', 'MISSING', 'PARTIAL'))
+    )
+    $runtimeCompatible = if ($documentationOnly) {
+        $runtimeStatus -ceq 'N/A'
+    }
+    else {
+        $runtimeStatus -ceq 'PASS'
+    }
+    $zeroTests = $Record.ContainsKey('zeroTests') -and [bool]$Record.zeroTests
+
+    $overallStatus = if ($zeroTests -or $automatedStatus -eq 'FAIL' -or $runtimeStatus -eq 'FAIL') {
         'FAIL'
     }
     elseif (
+        -not $recordValid -or
         $VerificationScopeChanged -or
-        $Record.sourceSha -ne $CurrentHead -or
+        $sourceSha -cne $CurrentHead -or
         $automatedStatus -ne 'PASS' -or
-        $runtimeStatus -ne 'PASS' -or
+        -not $runtimeCompatible -or
         -not $finalMergedShaValid
     ) {
         'PARTIAL'
@@ -67,17 +126,18 @@ function Get-ClosureDisposition {
         'PASS'
     }
 
-    $closure = if (-not $CanWriteIssue -or $VerificationScopeChanged -or $Record.sourceSha -ne $CurrentHead) {
+    $closure = if (-not $CanWriteIssue -or $VerificationScopeChanged -or $sourceSha -cne $CurrentHead) {
         'OPEN'
     }
-    elseif ($overallStatus -eq 'PASS' -and $Record.remainingScope.Count -eq 0) {
+    elseif ($overallStatus -eq 'PASS' -and $remainingScope.Count -eq 0) {
         'COMPLETE'
     }
     elseif (
         $overallStatus -ne 'FAIL' -and
-        $Record.deliveredScope.Count -gt 0 -and
-        $Record.remainingScope.Count -gt 0 -and
-        $Record.followUpLinks.Count -gt 0 -and
+        $recordValid -and
+        $deliveredScope.Count -gt 0 -and
+        $remainingScope.Count -gt 0 -and
+        $followUpLinks.Count -gt 0 -and
         $FollowUpsExist
     ) {
         'PARTIAL'
@@ -114,9 +174,13 @@ $requiredText = @(
     @{ Pattern = '(?i)remaining scope'; Message = 'PARTIAL closure records remaining scope' },
     @{ Pattern = '(?i)follow-up coverage'; Message = 'PARTIAL closure links existing follow-up coverage' },
     @{ Pattern = '(?i)issue write permission'; Message = 'unavailable issue write access keeps the ticket open' },
+    @{ Pattern = 'documentation-only-automated'; Message = 'documentation-only evidence kind is explicit' },
+    @{ Pattern = 'runtime `N/A`'; Message = 'documentation-only runtime N/A is explicit' },
+    @{ Pattern = '(?i)non-empty evidence link'; Message = 'evidence links cannot be blank' },
     @{ Pattern = '(?i)stale'; Message = 'stale evidence is handled' },
     @{ Pattern = '(?i)mismatched'; Message = 'mismatched evidence is handled' },
     @{ Pattern = '(?i)incomplete'; Message = 'incomplete evidence is handled' },
+    @{ Pattern = '(?i)unsupported'; Message = 'unsupported evidence is rejected' },
     @{ Pattern = '(?i)zero-test'; Message = 'zero-test runs are handled' },
     @{ Pattern = '(?i)re-verification'; Message = 'HEAD and scope changes require re-verification' }
 )
@@ -220,5 +284,64 @@ $nonMergeRecord.evidenceKind = 'pr-head-automated'
 $nonMergeRecord.Remove('finalMergedSha')
 $nonMerge = Get-ClosureDisposition -Record $nonMergeRecord -CurrentHead $exactHead -FollowUpsExist $true -CanWriteIssue $true
 Assert-Equal 'COMPLETE' $nonMerge.Closure 'non-merge evidence does not require a final merged SHA'
+
+$documentationRecord = $completedRecord.Clone()
+$documentationRecord.evidenceKind = 'documentation-only-automated'
+$documentationRecord.Remove('finalMergedSha')
+$documentationRecord.runtimeStatus = 'N/A'
+$documentation = Get-ClosureDisposition -Record $documentationRecord -CurrentHead $exactHead -FollowUpsExist $true -CanWriteIssue $true
+Assert-Equal 'PASS' $documentation.OverallStatus 'documentation-only runtime N/A is valid evidence'
+Assert-Equal 'COMPLETE' $documentation.Closure 'documentation-only evidence can complete without a runtime surface'
+
+$missingDocumentationRuntime = $documentationRecord.Clone()
+$missingDocumentationRuntime.Remove('runtimeStatus')
+$missingDocumentation = Get-ClosureDisposition -Record $missingDocumentationRuntime -CurrentHead $exactHead -FollowUpsExist $true -CanWriteIssue $true
+Assert-Equal 'PARTIAL' $missingDocumentation.OverallStatus 'missing documentation runtime status is not inferred as N/A'
+Assert-Equal 'OPEN' $missingDocumentation.Closure 'missing documentation runtime status cannot complete'
+
+$runtimeNotApplicableRecord = $completedRecord.Clone()
+$runtimeNotApplicableRecord.runtimeStatus = 'N/A'
+$runtimeNotApplicable = Get-ClosureDisposition -Record $runtimeNotApplicableRecord -CurrentHead $exactHead -FollowUpsExist $true -CanWriteIssue $true
+Assert-Equal 'PARTIAL' $runtimeNotApplicable.OverallStatus 'runtime N/A is invalid for runtime-bearing evidence'
+Assert-Equal 'OPEN' $runtimeNotApplicable.Closure 'runtime N/A cannot complete runtime-bearing evidence'
+
+$unsupportedEvidenceKind = $completedRecord.Clone()
+$unsupportedEvidenceKind.evidenceKind = 'manual-assertion'
+$unsupported = Get-ClosureDisposition -Record $unsupportedEvidenceKind -CurrentHead $exactHead -FollowUpsExist $true -CanWriteIssue $true
+Assert-Equal 'PARTIAL' $unsupported.OverallStatus 'unsupported evidence kinds are rejected'
+Assert-Equal 'OPEN' $unsupported.Closure 'unsupported evidence kinds cannot close a ticket'
+
+$unsupportedRuntimeStatus = $completedRecord.Clone()
+$unsupportedRuntimeStatus.runtimeStatus = 'GREEN'
+$unsupportedRuntime = Get-ClosureDisposition -Record $unsupportedRuntimeStatus -CurrentHead $exactHead -FollowUpsExist $true -CanWriteIssue $true
+Assert-Equal 'PARTIAL' $unsupportedRuntime.OverallStatus 'unsupported runtime statuses are rejected'
+Assert-Equal 'OPEN' $unsupportedRuntime.Closure 'unsupported runtime statuses cannot close a ticket'
+
+$blankFieldCases = @(
+    @{ Name = 'blank evidence kind'; Field = 'evidenceKind'; Value = ' ' },
+    @{ Name = 'blank evidence link'; Field = 'evidenceLinks'; Value = @(' ') },
+    @{ Name = 'blank delivered scope'; Field = 'deliveredScope'; Value = @(' ') },
+    @{ Name = 'blank remaining scope'; Field = 'remainingScope'; Value = @(' ') },
+    @{ Name = 'blank follow-up link'; Field = 'followUpLinks'; Value = @(' ') }
+)
+foreach ($case in $blankFieldCases) {
+    $candidate = $completedRecord.Clone()
+    $candidate[$case.Field] = $case.Value
+    $decision = Get-ClosureDisposition -Record $candidate -CurrentHead $exactHead -FollowUpsExist $true -CanWriteIssue $true
+    Assert-Equal 'PARTIAL' $decision.OverallStatus "a $($case.Name) is rejected"
+    Assert-Equal 'OPEN' $decision.Closure "a $($case.Name) cannot close a ticket"
+}
+
+$emptyEvidenceLinks = $completedRecord.Clone()
+$emptyEvidenceLinks.evidenceLinks = @()
+$emptyEvidence = Get-ClosureDisposition -Record $emptyEvidenceLinks -CurrentHead $exactHead -FollowUpsExist $true -CanWriteIssue $true
+Assert-Equal 'PARTIAL' $emptyEvidence.OverallStatus 'empty evidence links are rejected'
+Assert-Equal 'OPEN' $emptyEvidence.Closure 'empty evidence links cannot close a ticket'
+
+$emptyDeliveredScope = $completedRecord.Clone()
+$emptyDeliveredScope.deliveredScope = @()
+$emptyScope = Get-ClosureDisposition -Record $emptyDeliveredScope -CurrentHead $exactHead -FollowUpsExist $true -CanWriteIssue $true
+Assert-Equal 'PARTIAL' $emptyScope.OverallStatus 'empty delivered scope is rejected'
+Assert-Equal 'OPEN' $emptyScope.Closure 'empty delivered scope cannot close a ticket'
 
 Write-Output 'issue-44 closure evidence fixture: PASS'
