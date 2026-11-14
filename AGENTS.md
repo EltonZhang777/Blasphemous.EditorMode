@@ -1,6 +1,6 @@
-## local instructions
+## Session start
 
-See [AGENTS.local.md](AGENTS.local.md)
+Read [docs/agents/session-quickref.md](docs/agents/session-quickref.md) before working in a ticket worktree.
 
 ## Agent skills
 
