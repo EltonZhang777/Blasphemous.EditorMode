@@ -1,7 +1,28 @@
 #Requires -Version 7.2
 
 [CmdletBinding()]
-param()
+param(
+    [ValidateSet('automated', 'smoke', 'publish')]
+    [string] $Mode = 'automated',
+
+    [string] $ProfileRoot,
+
+    [ValidateSet('PASS', 'FAIL', 'PARTIAL')]
+    [string] $SmokeOutcome = 'PARTIAL',
+
+    [ValidateSet('pr-head-automated', 'dev-automated', 'runtime-smoke')]
+    [string] $EvidenceKind = 'pr-head-automated',
+
+    [int] $PrNumber = 0,
+
+    [string] $Repository,
+
+    [string] $SourceSha,
+
+    [string] $GeneratedAt,
+
+    [switch] $Publish
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -12,7 +33,17 @@ $testProject = Join-Path $repoRoot 'tests\Blasphemous.EditorMode.Tests\Blasphemo
 $testProjectRelative = 'tests/Blasphemous.EditorMode.Tests/Blasphemous.EditorMode.Tests.csproj'
 $buildDll = Join-Path $repoRoot 'Blasphemous.EditorMode\bin\Release\EditorMode.dll'
 $evidencePath = Join-Path $repoRoot 'artifacts\automated-evidence.json'
+$smokeEvidencePath = Join-Path $repoRoot 'artifacts\smoke-evidence.json'
+$publicationPreviewPath = Join-Path $repoRoot 'artifacts\publication-preview.json'
+$publicationResultPath = Join-Path $repoRoot 'artifacts\publication-result.json'
 $testResultsDirectory = Join-Path $repoRoot 'artifacts\test-results'
+
+$runtimeDependencies = @(
+    [pscustomobject]@{ logicalName = 'Blasphemous.ModdingAPI'; file = 'ModdingAPI.dll'; required = $true }
+    [pscustomobject]@{ logicalName = 'Blasphemous.Framework.Levels'; file = 'LevelFramework.dll'; required = $true }
+    [pscustomobject]@{ logicalName = 'Blasphemous.Framework.UI'; file = 'UIFramework.dll'; required = $true }
+    [pscustomobject]@{ logicalName = 'LevelFrameworkExtended'; file = 'LevelFrameworkExtended.dll'; required = $false }
+)
 
 $buildProfileFiles = @(
     'NuGet.Config'
@@ -36,6 +67,9 @@ $whitespaceExtensions = @(
 )
 
 $script:evidence = [ordered]@{
+    schemaVersion = 1
+    evidenceKind = 'automated'
+    generatedAt = $null
     sourceSha = $null
     sourceTreeStatus = $null
     buildDllSha256 = $null
@@ -354,7 +388,663 @@ function Read-TestCounts {
     }
 }
 
+function ConvertTo-EvidenceTimestamp {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Value
+    )
+
+    $parsed = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse(
+        $Value,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind,
+        [ref] $parsed
+    )) {
+        throw "Evidence timestamp is malformed: '$Value'."
+    }
+
+    return $parsed.UtcDateTime.ToString(
+        'yyyy-MM-ddTHH:mm:ss.fffffffZ',
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+}
+
+function Get-EvidenceTimestamp {
+    param(
+        [string] $Value
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return [DateTimeOffset]::UtcNow.UtcDateTime.ToString(
+            'yyyy-MM-ddTHH:mm:ss.fffffffZ',
+            [Globalization.CultureInfo]::InvariantCulture
+        )
+    }
+
+    return ConvertTo-EvidenceTimestamp -Value $Value
+}
+
+function Get-FileSha256 {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Path,
+        [switch] $Upper
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "File is missing: $Path"
+    }
+
+    $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    if ($Upper) {
+        return $hash.ToUpperInvariant()
+    }
+    return $hash.ToLowerInvariant()
+}
+
+function Get-StringSha256 {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Value,
+        [switch] $Upper
+    )
+
+    $hash = [Convert]::ToHexString(
+        [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Value))
+    )
+    if ($Upper) {
+        return $hash.ToUpperInvariant()
+    }
+    return $hash.ToLowerInvariant()
+}
+
+function Write-JsonFile {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Path,
+        [Parameter(Mandatory)]
+        [object] $Value
+    )
+
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
+    $json = $Value | ConvertTo-Json -Depth 12
+    [IO.File]::WriteAllText($Path, $json + "`n", [Text.UTF8Encoding]::new($false))
+}
+
+function Read-JsonFile {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "JSON file is missing: $Path"
+    }
+
+    try {
+        return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+    }
+    catch {
+        throw "JSON file is malformed: $Path"
+    }
+}
+
+function Get-RepositoryName {
+    param(
+        [string] $Override
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($Override)) {
+        if ($Override -notmatch '^[^/\s]+/[^/\s]+$') {
+            throw "Repository must use owner/name form: '$Override'."
+        }
+        return $Override
+    }
+
+    $result = Invoke-NativeCommand -Command 'git' -Arguments @('remote', 'get-url', 'origin')
+    if ($result.ExitCode -ne 0) {
+        throw "git remote get-url origin failed with exit code $($result.ExitCode)."
+    }
+
+    $url = (($result.Output | ForEach-Object { $_.ToString() }) -join '').Trim()
+    if ($url -notmatch 'github\.com[:/](?<owner>[^/]+)/(?<repo>[^/]+?)(?:\.git)?$') {
+        throw "Origin remote is not a GitHub repository: '$url'."
+    }
+    return "$($Matches.owner)/$($Matches.repo)"
+}
+
+function Get-RuntimeProfile {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Root
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Root)) {
+        throw 'ProfileRoot is required.'
+    }
+
+    $profileRoot = [IO.Path]::GetFullPath($Root)
+    if (-not (Test-Path -LiteralPath $profileRoot -PathType Container)) {
+        throw "ProfileRoot is missing: $profileRoot"
+    }
+
+    $moddingRoot = if (Test-Path -LiteralPath (Join-Path $profileRoot 'Modding') -PathType Container) {
+        Join-Path $profileRoot 'Modding'
+    }
+    else {
+        $profileRoot
+    }
+    $pluginRoot = Join-Path $moddingRoot 'plugins'
+    $entries = [Collections.Generic.List[object]]::new()
+    $errors = [Collections.Generic.List[string]]::new()
+
+    foreach ($dependency in $runtimeDependencies) {
+        $path = Join-Path $pluginRoot $dependency.file
+        $status = 'present'
+        $sha256 = $null
+
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            try {
+                $sha256 = Get-FileSha256 -Path $path -Upper
+            }
+            catch {
+                $status = 'unreadable'
+                $errors.Add("$($dependency.logicalName) is unreadable: $path")
+            }
+        }
+        elseif ($dependency.required) {
+            $status = 'missing'
+            $errors.Add("Required dependency is missing: $($dependency.file)")
+        }
+        else {
+            $status = 'absent'
+        }
+
+        $entries.Add([ordered]@{
+            logicalName = $dependency.logicalName
+            file = "plugins/$($dependency.file)"
+            status = $status
+            sha256 = $sha256
+        })
+    }
+
+    $canonical = @(
+        $entries | ForEach-Object {
+            if ($_.status -eq 'present') {
+                "$($_.logicalName)|$($_.sha256)"
+            }
+            else {
+                "$($_.logicalName)|$($_.status.ToUpperInvariant())"
+            }
+        }
+    ) -join "`n"
+    $profileHash = Get-StringSha256 -Value ($canonical + "`n") -Upper
+
+    [pscustomobject]@{
+        PluginRoot = $pluginRoot
+        DeployedDllPath = Join-Path $pluginRoot 'EditorMode.dll'
+        Entries = @($entries)
+        ProfileHash = $profileHash
+        Errors = @($errors)
+    }
+}
+
+function Invoke-SmokeVerification {
+    $errors = [Collections.Generic.List[string]]::new()
+    $source = $null
+    $profile = $null
+    $deployedDllSha256 = $null
+
+    try {
+        if ([string]::IsNullOrWhiteSpace($SourceSha)) {
+            $source = Get-SourceSha
+        }
+        elseif ($SourceSha -match '^[0-9a-f]{40}$') {
+            $source = $SourceSha
+        }
+        else {
+            throw "SourceSha is malformed: '$SourceSha'."
+        }
+    }
+    catch {
+        $errors.Add($_.Exception.Message)
+    }
+
+    try {
+        $profile = Get-RuntimeProfile -Root $ProfileRoot
+        foreach ($profileError in $profile.Errors) {
+            $errors.Add($profileError)
+        }
+        if (Test-Path -LiteralPath $profile.DeployedDllPath -PathType Leaf) {
+            $deployedDllSha256 = Get-FileSha256 -Path $profile.DeployedDllPath
+        }
+        else {
+            $errors.Add("Deployed mod DLL is missing: $($profile.DeployedDllPath)")
+        }
+    }
+    catch {
+        $errors.Add($_.Exception.Message)
+    }
+
+    $status = if ($errors.Count -gt 0) {
+        'FAIL'
+    }
+    else {
+        $SmokeOutcome
+    }
+    $evidence = [ordered]@{
+        schemaVersion = 1
+        evidenceKind = 'runtime-smoke'
+        generatedAt = Get-EvidenceTimestamp -Value $GeneratedAt
+        sourceSha = $source
+        deployedDllSha256 = $deployedDllSha256
+        runtimeProfileHash = $(if ($profile) { $profile.ProfileHash } else { $null })
+        dependencies = $(if ($profile) { @($profile.Entries) } else { @() })
+        runtimeStatus = $status
+        outcome = $status
+        errors = @($errors)
+    }
+
+    Write-JsonFile -Path $smokeEvidencePath -Value $evidence
+    Write-Host "Smoke evidence: $smokeEvidencePath"
+    Write-Host "Runtime status: $status"
+    if ($status -eq 'PASS') {
+        return 0
+    }
+    return 1
+}
+
+function Copy-EvidenceFields {
+    param(
+        [Parameter(Mandatory)]
+        [Collections.Specialized.OrderedDictionary] $Target,
+        [Parameter(Mandatory)]
+        [object] $Evidence,
+        [Parameter(Mandatory)]
+        [string[]] $Fields
+    )
+
+    foreach ($field in $Fields) {
+        $property = $Evidence.PSObject.Properties[$field]
+        if ($null -ne $property) {
+            $Target[$field] = $property.Value
+        }
+    }
+}
+
+function Get-PublicationRecord {
+    $automated = if (Test-Path -LiteralPath $evidencePath -PathType Leaf) {
+        Read-JsonFile -Path $evidencePath
+    }
+    else {
+        $null
+    }
+    $smoke = if (Test-Path -LiteralPath $smokeEvidencePath -PathType Leaf) {
+        Read-JsonFile -Path $smokeEvidencePath
+    }
+    else {
+        $null
+    }
+
+    $primary = if ($EvidenceKind -eq 'runtime-smoke') { $smoke } else { $automated }
+    if ($null -eq $primary) {
+        throw "Requested evidence is missing for kind '$EvidenceKind'."
+    }
+    if ($null -ne $automated -and (
+        [int]$automated.schemaVersion -ne 1 -or
+        [string]$automated.evidenceKind -ne 'automated'
+    )) {
+        throw 'Automated evidence has an invalid schema or evidence kind.'
+    }
+    if ($null -ne $smoke -and (
+        [int]$smoke.schemaVersion -ne 1 -or
+        [string]$smoke.evidenceKind -ne 'runtime-smoke'
+    )) {
+        throw 'Smoke evidence has an invalid schema or evidence kind.'
+    }
+    if ([int]$primary.schemaVersion -ne 1) {
+        throw "Unsupported evidence schema version: '$($primary.schemaVersion)'."
+    }
+
+    $sourceSha = [string]$primary.sourceSha
+    if ($sourceSha -notmatch '^[0-9a-f]{40}$') {
+        throw "Evidence source SHA is malformed: '$sourceSha'."
+    }
+    $generatedAt = ConvertTo-EvidenceTimestamp -Value ([string]$primary.generatedAt)
+
+    if ($EvidenceKind -eq 'runtime-smoke') {
+        if ([string]$primary.evidenceKind -ne 'runtime-smoke') {
+            throw 'Smoke evidence has the wrong evidence kind.'
+        }
+        if ([string]$primary.deployedDllSha256 -notmatch '^[0-9a-f]{64}$' -or
+            [string]$primary.runtimeProfileHash -notmatch '^[0-9A-F]{64}$') {
+            throw 'Smoke evidence hashes are malformed.'
+        }
+    }
+    else {
+        if ([string]$primary.evidenceKind -ne 'automated') {
+            throw 'Automated evidence has the wrong evidence kind.'
+        }
+        if ([string]$primary.buildDllSha256 -notmatch '^[0-9a-f]{64}$' -or
+            [string]$primary.buildProfileDigest -notmatch '^[0-9a-f]{64}$') {
+            throw 'Automated evidence hashes are malformed.'
+        }
+    }
+
+    $automatedStatus = 'PARTIAL'
+    $automatedGeneratedAt = $null
+    if ($null -ne $automated -and [string]$automated.sourceSha -eq $sourceSha) {
+        $automatedGeneratedAt = ConvertTo-EvidenceTimestamp -Value ([string]$automated.generatedAt)
+        $automatedStatus = if ([string]$automated.automatedStatus -in @('PASS', 'FAIL')) {
+            [string]$automated.automatedStatus
+        }
+        else {
+            'PARTIAL'
+        }
+    }
+
+    $runtimeStatus = 'PARTIAL'
+    $smokeGeneratedAt = $null
+    if ($null -ne $smoke -and [string]$smoke.sourceSha -eq $sourceSha) {
+        $smokeGeneratedAt = ConvertTo-EvidenceTimestamp -Value ([string]$smoke.generatedAt)
+        $smokeOutcome = [string]$smoke.outcome
+        $smokeRuntimeStatus = [string]$smoke.runtimeStatus
+        if (
+            $smokeOutcome -notin @('PASS', 'FAIL', 'PARTIAL') -or
+            $smokeRuntimeStatus -notin @('PASS', 'FAIL', 'PARTIAL')
+        ) {
+            throw 'Smoke evidence has an invalid runtime status.'
+        }
+        if ($smokeOutcome -ne $smokeRuntimeStatus) {
+            throw 'Smoke evidence has inconsistent runtime status fields.'
+        }
+        $runtimeStatus = $smokeOutcome
+        if (
+            $runtimeStatus -eq 'PASS' -and
+            $null -ne $automatedGeneratedAt -and
+            [DateTimeOffset]::Parse($smokeGeneratedAt) -lt [DateTimeOffset]::Parse($automatedGeneratedAt)
+        ) {
+            $runtimeStatus = 'PARTIAL'
+        }
+    }
+
+    $overallStatus = if ($automatedStatus -eq 'FAIL' -or $runtimeStatus -eq 'FAIL') {
+        'FAIL'
+    }
+    elseif ($automatedStatus -eq 'PASS' -and $runtimeStatus -eq 'PASS') {
+        'PASS'
+    }
+    else {
+        'PARTIAL'
+    }
+
+    $record = [ordered]@{
+        schemaVersion = 1
+        evidenceKind = $EvidenceKind
+        sourceSha = $sourceSha
+        generatedAt = $generatedAt
+        automatedStatus = $automatedStatus
+        runtimeStatus = $runtimeStatus
+        overallStatus = $overallStatus
+    }
+    Copy-EvidenceFields -Target $record -Evidence $primary -Fields @(
+        'sourceTreeStatus'
+        'buildDllSha256'
+        'buildProfileDigest'
+        'tests'
+        'whitespace'
+        'sdkVersion'
+        'runner'
+        'deployedDllSha256'
+        'runtimeProfileHash'
+        'dependencies'
+        'outcome'
+        'errors'
+    )
+    return $record
+}
+
+function Get-PrMetadata {
+    param(
+        [Parameter(Mandatory)]
+        [string] $RepositoryName,
+        [Parameter(Mandatory)]
+        [int] $Number
+    )
+
+    $result = Invoke-NativeCommand -Command 'gh' -Arguments @(
+        'pr'
+        'view'
+        "$Number"
+        '--repo'
+        $RepositoryName
+        '--json'
+        'body,headRefOid'
+    )
+    if ($result.ExitCode -ne 0) {
+        throw "gh pr view failed with exit code $($result.ExitCode)."
+    }
+
+    try {
+        $metadata = (($result.Output | ForEach-Object { $_.ToString() }) -join "`n") | ConvertFrom-Json
+    }
+    catch {
+        throw 'Pull request metadata is malformed.'
+    }
+
+    $matches = @([regex]::Matches(
+        [string]$metadata.body,
+        '(?im)^[ \t]*Evidence issue:[ \t]*#(?<number>\d+)[ \t]*$'
+    ))
+    if ($matches.Count -ne 1) {
+        throw "Pull request must contain exactly one 'Evidence issue: #N' line; found $($matches.Count)."
+    }
+
+    $evidenceIssue = [int]$matches[0].Groups['number'].Value
+    if ($evidenceIssue -eq 1) {
+        throw 'Issue #1 is not a valid evidence issue.'
+    }
+
+    [pscustomobject]@{
+        HeadRefOid = [string]$metadata.headRefOid
+        EvidenceIssue = $evidenceIssue
+    }
+}
+
+function Get-TargetComments {
+    param(
+        [Parameter(Mandatory)]
+        [string] $RepositoryName,
+        [Parameter(Mandatory)]
+        [int] $TargetNumber
+    )
+
+    $result = Invoke-NativeCommand -Command 'gh' -Arguments @(
+        'api'
+        "repos/$RepositoryName/issues/$TargetNumber/comments?per_page=100"
+    )
+    if ($result.ExitCode -ne 0) {
+        throw "gh api comments failed with exit code $($result.ExitCode)."
+    }
+
+    try {
+        $comments = (($result.Output | ForEach-Object { $_.ToString() }) -join "`n") | ConvertFrom-Json
+    }
+    catch {
+        throw 'Existing comments are malformed.'
+    }
+    return @($comments)
+}
+
+function Get-CommentEvidenceRecord {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Body
+    )
+
+    $matches = @([regex]::Matches(
+        $Body,
+        '(?s)<!-- codex-evidence-json:start -->\r?\n(?<json>.*?)\r?\n<!-- codex-evidence-json:end -->'
+    ))
+    if ($matches.Count -ne 1) {
+        throw 'Existing marker comment has malformed evidence JSON delimiters.'
+    }
+
+    try {
+        return $matches[0].Groups['json'].Value | ConvertFrom-Json
+    }
+    catch {
+        throw 'Existing marker comment has malformed evidence JSON.'
+    }
+}
+
+function New-EvidenceCommentBody {
+    param(
+        [Parameter(Mandatory)]
+        [object] $Record
+    )
+
+    $json = $Record | ConvertTo-Json -Depth 12 -Compress
+    $lines = @(
+        "<!-- codex-evidence:$EvidenceKind -->"
+        "## Verification evidence: $EvidenceKind"
+        ''
+        ('- Source SHA: `{0}`' -f $Record.sourceSha)
+        ('- Automated: `{0}`' -f $Record.automatedStatus)
+        ('- Runtime: `{0}`' -f $Record.runtimeStatus)
+        ('- Overall: `{0}`' -f $Record.overallStatus)
+        ''
+        '<!-- codex-evidence-json:start -->'
+        $json
+        '<!-- codex-evidence-json:end -->'
+    )
+    return $lines -join "`n"
+}
+
+function Invoke-Publication {
+    if ($PrNumber -le 0) {
+        throw 'PrNumber must be a positive issue number.'
+    }
+
+    $repositoryName = Get-RepositoryName -Override $Repository
+    $record = Get-PublicationRecord
+    $pr = Get-PrMetadata -RepositoryName $repositoryName -Number $PrNumber
+    if ($EvidenceKind -eq 'pr-head-automated' -and $pr.HeadRefOid -ne $record.sourceSha) {
+        throw "PR head SHA '$($pr.HeadRefOid)' does not match evidence SHA '$($record.sourceSha)'."
+    }
+
+    $targetType = if ($EvidenceKind -eq 'pr-head-automated') { 'pr' } else { 'issue' }
+    $targetNumber = if ($targetType -eq 'pr') { $PrNumber } else { $pr.EvidenceIssue }
+    $comments = Get-TargetComments -RepositoryName $repositoryName -TargetNumber $targetNumber
+    $marker = "<!-- codex-evidence:$EvidenceKind -->"
+    $markerComments = @($comments | Where-Object { [string]$_.body -like "*$marker*" })
+    if ($markerComments.Count -gt 1) {
+        throw "Target has multiple marker comments for evidence kind '$EvidenceKind'."
+    }
+
+    $commentBody = New-EvidenceCommentBody -Record $record
+    $existingCommentId = $null
+    $action = 'create'
+    if ($markerComments.Count -eq 1) {
+        $existing = $markerComments[0]
+        $existingCommentId = [long]$existing.id
+        if ([string]$existing.body -eq $commentBody) {
+            $action = 'unchanged'
+        }
+        else {
+            $existingRecord = Get-CommentEvidenceRecord -Body ([string]$existing.body)
+            if ([string]$existingRecord.evidenceKind -ne $EvidenceKind) {
+                throw 'Existing marker comment has the wrong evidence kind.'
+            }
+            $existingGeneratedAt = ConvertTo-EvidenceTimestamp -Value ([string]$existingRecord.generatedAt)
+            $incomingGeneratedAt = ConvertTo-EvidenceTimestamp -Value ([string]$record.generatedAt)
+            if ($existingGeneratedAt -ge $incomingGeneratedAt) {
+                throw 'Publication is stale and cannot overwrite newer evidence.'
+            }
+            $action = 'update'
+        }
+    }
+
+    $preview = [ordered]@{
+        schemaVersion = 1
+        repository = $repositoryName
+        evidenceKind = $EvidenceKind
+        target = [ordered]@{
+            type = $targetType
+            number = $targetNumber
+        }
+        action = $action
+        commentId = $existingCommentId
+        marker = $marker
+        record = $record
+        commentBody = $commentBody
+    }
+    Write-JsonFile -Path $publicationPreviewPath -Value $preview
+    Write-Host "Publication preview: $publicationPreviewPath"
+
+    if (-not $Publish) {
+        Write-Host ($preview | ConvertTo-Json -Depth 8)
+        return 0
+    }
+
+    if ($action -eq 'unchanged') {
+        Write-Host "Publication unchanged: comment $existingCommentId"
+        Write-JsonFile -Path $publicationResultPath -Value ([ordered]@{
+            status = 'UNCHANGED'
+            action = $action
+            commentId = $existingCommentId
+            target = $preview.target
+        })
+        return 0
+    }
+
+    $arguments = if ($action -eq 'create') {
+        @(
+            'api'
+            "repos/$repositoryName/issues/$targetNumber/comments"
+            '--method'
+            'POST'
+            '--field'
+            "body=$commentBody"
+        )
+    }
+    else {
+        @(
+            'api'
+            "repos/$repositoryName/issues/comments/$existingCommentId"
+            '--method'
+            'PATCH'
+            '--field'
+            "body=$commentBody"
+        )
+    }
+    $result = Invoke-NativeCommand -Command 'gh' -Arguments $arguments
+    if ($result.ExitCode -ne 0) {
+        throw "gh api publication failed with exit code $($result.ExitCode)."
+    }
+
+    try {
+        $response = (($result.Output | ForEach-Object { $_.ToString() }) -join "`n") | ConvertFrom-Json
+    }
+    catch {
+        throw 'Published comment response is malformed.'
+    }
+
+    $resultRecord = [ordered]@{
+        status = 'PUBLISHED'
+        action = $action
+        commentId = [long]$response.id
+        target = $preview.target
+    }
+    Write-JsonFile -Path $publicationResultPath -Value $resultRecord
+    Write-Host "Publication result: $publicationResultPath"
+    return 0
+}
+
+function Invoke-AutomatedVerification {
 $exitCode = 1
+$script:evidence.generatedAt = Get-EvidenceTimestamp -Value $GeneratedAt
 Write-Evidence
 Push-Location $repoRoot
 try {
@@ -449,6 +1139,22 @@ finally {
     Pop-Location
     Write-Evidence
     Write-Host "Evidence: $evidencePath"
+}
+
+return $exitCode
+}
+
+$exitCode = 1
+try {
+    $exitCode = switch ($Mode) {
+        'automated' { Invoke-AutomatedVerification }
+        'smoke' { Invoke-SmokeVerification }
+        'publish' { Invoke-Publication }
+    }
+}
+catch {
+    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    $exitCode = 1
 }
 
 exit $exitCode
