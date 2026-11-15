@@ -269,15 +269,14 @@ internal class EditorMode : BlasMod
 
     private void ExitEditorMode()
     {
-        if (!_editorGuard.TryExit(out string error))
-        {
+        bool exited = _editorGuard.TryExit(out string error);
+        if (!exited)
             ModLog.Error(error);
-            return;
-        }
 
         DisposePreview();
         _lifecycleBridge.EndEditing();
-        EditorWidget?.gameObject.SetActive(false);
+        if (EditorWidget.IsAlive())
+            EditorWidget.gameObject.SetActive(false);
     }
 
     internal LevelEditSessionExportResult ExportCurrentRoom()

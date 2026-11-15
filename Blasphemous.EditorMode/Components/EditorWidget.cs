@@ -1,6 +1,7 @@
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
+using Blasphemous.EditorMode.Lifecycle;
 using Blasphemous.Framework.UI;
 using Blasphemous.ModdingAPI;
 using Framework.Managers;
@@ -113,26 +114,18 @@ internal class EditorWidget : MonoBehaviour
 
     private void OnDisable()
     {
-        _canvasRaycaster?.enabled = !_addedCanvasRaycaster && _canvasRaycasterWasEnabled;
-
-        if (_standaloneInputModuleWasAdded && _standaloneInputModule != null)
-        {
-            _standaloneInputModule.enabled = false;
-            _standaloneInputModuleWasAdded = false;
-        }
-
-        if (_inputModulesBeforeEditor != null)
-        {
-            for (int i = 0; i < _inputModulesBeforeEditor.Length; i++)
-            {
-                _inputModulesBeforeEditor[i]?.enabled = _inputModulesWereEnabled[i];
-            }
-        }
-
+        EditorWidgetCleanup.RestoreUiInput(
+            _canvasRaycaster,
+            _addedCanvasRaycaster,
+            _canvasRaycasterWasEnabled,
+            _inputModulesBeforeEditor,
+            _inputModulesWereEnabled,
+            _standaloneInputModule,
+            ref _standaloneInputModuleWasAdded,
+            _fallbackEventSystem);
         _inputModulesBeforeEditor = null;
         _inputModulesWereEnabled = null;
         _standaloneInputModule = null;
-        _fallbackEventSystem?.SetActive(false);
     }
 
     private void Update()

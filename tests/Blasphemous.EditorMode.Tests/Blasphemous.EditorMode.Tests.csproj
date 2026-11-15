@@ -24,6 +24,8 @@
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\RoomIdentity.cs" Link="Lifecycle\RoomIdentity.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\BlasphemousLifecycleBridge.cs" Link="Lifecycle\BlasphemousLifecycleBridge.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\EditorRuntimeState.cs" Link="Lifecycle\EditorRuntimeState.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Lifecycle\UnityObjectExtensions.cs" Link="Lifecycle\UnityObjectExtensions.cs" />
+    <Compile Include="..\..\Blasphemous.EditorMode\Components\EditorWidgetCleanup.cs" Link="Components\EditorWidgetCleanup.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Framework\LevelFrameworkAdapter.cs" Link="Framework\LevelFrameworkAdapter.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\ApplyReport.cs" Link="Diagnostics\ApplyReport.cs" />
     <Compile Include="..\..\Blasphemous.EditorMode\Diagnostics\ApplyReportSurface.cs" Link="Diagnostics\ApplyReportSurface.cs" />

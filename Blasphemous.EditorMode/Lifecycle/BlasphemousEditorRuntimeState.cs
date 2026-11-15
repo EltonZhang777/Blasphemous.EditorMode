@@ -16,9 +16,9 @@ internal static class BlasphemousEditorRuntimeState
         LogicManager logic = Core.Logic;
         InputManager input = Core.Input;
         UIManager ui = Core.UI;
-        Penitent penitent = logic?.Penitent;
-        PhysicsSwitcher physics = penitent?.Physics;
-        SmartPlatformCollider collider = physics?.Collider;
+        Penitent penitent = logic == null ? null : logic.Penitent;
+        PhysicsSwitcher physics = penitent.IsAlive() ? penitent.Physics : null;
+        SmartPlatformCollider collider = physics.IsAlive() ? physics.Collider : null;
 
         return new EditorRuntimeState(
             logic == null || logic.CurrentLevelConfig == null
@@ -28,12 +28,12 @@ internal static class BlasphemousEditorRuntimeState
             input != null && input.HasBlocker(InputBlocker),
             ui != null && ui.ShowGamePlayUI,
             ui != null && ui.ShowGamePlayUIForDebug,
-            penitent == null || penitent.PlatformCharacterController == null || penitent.PlatformCharacterController.enabled,
-            penitent == null || penitent.DamageArea == null || penitent.DamageArea.enabled,
-            penitent != null && penitent.Status.Invulnerable,
-            collider == null || collider.enabled,
-            collider == null || collider.EnableCollision2D,
-            ui != null && ui.Cinematic != null && ui.Cinematic.InCinematicMode,
+            !penitent.IsAlive() || !penitent.PlatformCharacterController.IsAlive() || penitent.PlatformCharacterController.enabled,
+            !penitent.IsAlive() || !penitent.DamageArea.IsAlive() || penitent.DamageArea.enabled,
+            penitent.IsAlive() && penitent.Status.Invulnerable,
+            !collider.IsAlive() || collider.enabled,
+            !collider.IsAlive() || collider.EnableCollision2D,
+            ui != null && ui.Cinematic.IsAlive() && ui.Cinematic.InCinematicMode,
             Cursor.visible,
             (int)Cursor.lockState);
     }
@@ -58,7 +58,8 @@ internal static class BlasphemousEditorRuntimeState
         else
             Time.timeScale = state.Paused ? state.TimeScale : 1f;
 
-        Core.Input?.SetBlocker(InputBlocker, state.EditorInputBlocked);
+        if (Core.Input != null)
+            Core.Input.SetBlocker(InputBlocker, state.EditorInputBlocked);
 
         if (Core.UI != null)
         {
@@ -69,19 +70,22 @@ internal static class BlasphemousEditorRuntimeState
         Cursor.lockState = (CursorLockMode)state.CursorLockState;
         Cursor.visible = state.CursorVisible;
 
-        Penitent penitent = logic?.Penitent;
-        if (penitent == null)
+        Penitent penitent = logic == null ? null : logic.Penitent;
+        if (!penitent.IsAlive())
             return;
 
-        penitent.PlatformCharacterController?.enabled = state.PlayerControlEnabled;
-        penitent.DamageArea?.enabled = state.DamageAreaEnabled;
+        if (penitent.PlatformCharacterController.IsAlive())
+            penitent.PlatformCharacterController.enabled = state.PlayerControlEnabled;
+        if (penitent.DamageArea.IsAlive())
+            penitent.DamageArea.enabled = state.DamageAreaEnabled;
         penitent.Status.Invulnerable = state.Invulnerable;
 
-        if (penitent.Physics != null)
+        PhysicsSwitcher physics = penitent.Physics;
+        if (physics.IsAlive())
         {
-            penitent.Physics.EnablePhysics(state.PlayerControlEnabled);
-            penitent.Physics.EnableColliders(state.CollisionEnabled);
-            penitent.Physics.Enable2DCollision(state.Collision2DEnabled);
+            physics.EnablePhysics(state.PlayerControlEnabled);
+            physics.EnableColliders(state.CollisionEnabled);
+            physics.Enable2DCollision(state.Collision2DEnabled);
         }
     }
 }
