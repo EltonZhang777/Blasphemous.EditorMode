@@ -20,6 +20,9 @@ namespace Blasphemous.EditorMode.Components;
 [DefaultExecutionOrder(10000)]
 internal class EditorWidget : MonoBehaviour
 {
+    private const int StatusFontSize = 13;
+    private const int StatusMinimumFontSize = 10;
+
     internal GameObject freezeGameButtonObj;
 
     private RectTransform _root;
@@ -56,10 +59,9 @@ internal class EditorWidget : MonoBehaviour
             "Editor Status",
             new Vector2(0f, 165f),
             new Vector2(600f, 90f),
-            13,
+            StatusFontSize,
             TextAnchor.UpperLeft);
-        // shortcut: mandatory text can render outside the fixed 90px rect; add a detail area if real-profile verification shows overlap.
-        _statusText.verticalOverflow = VerticalWrapMode.Overflow;
+        _statusText.verticalOverflow = VerticalWrapMode.Truncate;
 
         CreateText(
             "Catalog Header",
@@ -257,6 +259,7 @@ internal class EditorWidget : MonoBehaviour
             dependency,
             editor.PreviewStatus,
             editor.ClipboardStatus);
+        _statusText.fontSize = StatusFontSize;
         string status = reportSurface == null || string.IsNullOrEmpty(reportSurface.UiText)
             ? statusPrefix + "—"
             : ComposeStatusText(reportSurface, statusPrefix);
@@ -283,20 +286,26 @@ internal class EditorWidget : MonoBehaviour
                 group.Count++;
         }
 
+        int fontSize = StatusFontSize;
+        while (fontSize > StatusMinimumFontSize && !FitsStatusText(baseText, fontSize))
+            fontSize--;
+        _statusText.fontSize = fontSize;
+
         if (groups.Count == 0)
             return baseText;
 
         string candidate = baseText + "\n" + FormatGroups(groups, groups.Count);
-        if (FitsStatusText(candidate))
+        if (FitsStatusText(candidate, fontSize))
             return candidate;
 
         for (int included = groups.Count - 1; included >= 0; included--)
         {
             int omitted = groups.Count - included;
             string marker = "+" + omitted + " more diagnostic code(s)";
-            candidate = baseText + "\n"
-                + (included == 0 ? marker : FormatGroups(groups, included) + ", " + marker);
-            if (FitsStatusText(candidate))
+            candidate = included == 0
+                ? baseText + "\n" + marker
+                : baseText + "\n" + FormatGroups(groups, included) + "\n" + marker;
+            if (FitsStatusText(candidate, fontSize))
                 return candidate;
         }
 
@@ -317,10 +326,11 @@ internal class EditorWidget : MonoBehaviour
         return text.ToString();
     }
 
-    private bool FitsStatusText(string text)
+    private bool FitsStatusText(string text, int fontSize)
     {
         Rect rect = _statusText.rectTransform.rect;
         TextGenerationSettings settings = _statusText.GetGenerationSettings(rect.size);
+        settings.fontSize = fontSize;
         float preferredHeight = _statusText.cachedTextGeneratorForLayout.GetPreferredHeight(text, settings)
             / _statusText.pixelsPerUnit;
         return preferredHeight <= rect.height;
