@@ -214,10 +214,14 @@ $previousHeading = $headingsBeforeCommands[$headingsBeforeCommands.Count - 1].Gr
 Assert-True ($previousHeading -eq 'Handoff approvals') 'Handoff approvals is immediately before Commands'
 
 $section = $text.Substring($handoffIndex, $commandsIndex - $handoffIndex)
-Assert-True ($section.Contains('`AOC-GLOBAL@1`')) 'approval inheritance cites the global baseline'
+Assert-True (-not $section.Contains('AOC-GLOBAL@1')) 'approval rules are self-contained instead of citing an external session baseline'
 
 foreach ($field in @('source', 'action', 'normalized_target', 'lifetime', 'invalidators')) {
     Assert-True ($section.Contains("``$field``")) "approval record includes $field"
+}
+
+foreach ($layer in @('User-intent approval', 'Repository workflow authorization', 'Harness technical permission')) {
+    Assert-True ($section.Contains("- **$layer**:")) "section defines $layer"
 }
 
 foreach ($field in @('constraints.command', 'constraints.host', 'constraints.target', 'constraints.reuse')) {
@@ -226,6 +230,15 @@ foreach ($field in @('constraints.command', 'constraints.host', 'constraints.tar
 
 Assert-True ($section.Contains('`one-time`') -and $section.Contains('`task`')) 'approval lifetime supports one-time and task states'
 Assert-True ($section.Contains('The only valid lifetime values')) 'unknown approval lifetimes are invalid'
+Assert-True ($section -match '(?i)every required field and invalidator entry must be non-empty') 'required fields and invalidators must be non-empty'
+Assert-True ($section -match '(?i)a handoff inherits only approvals explicitly recorded in the handoff') 'only listed approvals are inherited'
+Assert-True ($section -match '(?i)Do not infer an unlisted action: request separate approval') 'unlisted actions require separate approval'
+Assert-True ($section -match '(?i)one-time.*valid for one use') 'one-time approval expires after one use'
+Assert-True ($section -match '(?i)task.*valid only for the current task') 'task approval is limited to the current task'
+Assert-True ($section -match '(?i)constraints.target.*must equal.*normalized_target') 'elevation target constraint must match normalized target'
+Assert-True ($section -match '(?i)Unrecorded sandbox, credential, and network permissions remain independently gated') 'unrecorded technical permissions stay gated'
+Assert-True ($section -match '(?i)A technical denial is a concrete blocker\.') 'technical denials block progress'
+Assert-True ($section -match '(?i)Do not retry, elevate, or infer consent automatically') 'technical denials do not trigger automatic retry, elevation, or consent'
 Assert-True ($section -match '(?i)Unlisted actions or changed targets require new approval') 'unlisted actions and target changes require new approval'
 Assert-True ($section -match '(?i)all must match exactly') 'parent elevation constraints must match exactly'
 Assert-True ($section -match '(?i)Technical permissions and denials remain independently gated') 'technical permissions and denials stay gated'

@@ -47,11 +47,27 @@ A cached summary is non-authoritative for writes, assignment, labeling, closing,
 
 ## Handoff approvals
 
-Cross-repository handoff and approval inheritance follow `AOC-GLOBAL@1`. Approval records use its `source` value for the source thread and user message, plus `action`, `normalized_target`, `lifetime`, and `invalidators`. The only valid lifetime values are `one-time` (one use) and `task` (until task completion or an invalidator).
+Keep these layers distinct:
 
-In this repository, `normalized_target` names the ticket worktree and issue named by the handoff. Unlisted actions or changed targets require new approval. Elevation grants retain the baseline's `constraints.command`, `constraints.host`, `constraints.target`, and `constraints.reuse` values; all must match exactly.
+- **User-intent approval**: an explicit acceptance by the source user of an action on a normalized target. Task scope, a parent-thread summary, or a successful earlier command does not imply it.
+- **Repository workflow authorization**: permission from tracked repository instructions and the ticket to perform in-scope local work. It cannot replace user-intent approval or a harness technical permission.
+- **Harness technical permission**: the runtime's sandbox, credential, network, and execution decision. It is evaluated at execution time and does not itself constitute user consent.
 
-Technical permissions and denials remain independently gated. A handoff does not add authority for issue creation, issue status changes, issue linking, pull requests, or merges.
+A handoff inherits only approvals explicitly recorded in the handoff. Each record must contain these fields, and every required field and invalidator entry must be non-empty:
+
+- `source`: the source thread and the exact user message or other verifiable user-instruction evidence.
+- `action`: the approved action.
+- `normalized_target`: the canonical repository/worktree, issue, or external-resource target. In this repository, a ticket handoff names the ticket worktree and issue.
+- `lifetime`: `one-time` or `task`.
+- `invalidators`: the condition or conditions that end the approval.
+
+The only valid lifetime values are `one-time` and `task`. `one-time` is valid for one use. `task` is valid only for the current task and ends at task completion or any recorded invalidator. Unlisted actions or changed targets require new approval. Do not infer an unlisted action: request separate approval. A missing or blank field, changed action or target, any invalidator, task completion, or user withdrawal ends inheritance. A `task` lifetime does not widen the recorded action, target, or constraints.
+
+An explicitly recorded parent elevation grant is inherited only when its non-empty `constraints.command`, `constraints.host`, `constraints.target`, and `constraints.reuse` values are present in a comparable `constraints` object; `constraints.target` must equal `normalized_target`, and all must match exactly. A missing, empty, or changed value requires separate approval. Unrecorded sandbox, credential, and network permissions remain independently gated; user approval does not override a harness denial.
+
+A technical denial is a concrete blocker. Do not retry, elevate, or infer consent automatically; report the blocker and the specific input or approval needed next.
+
+Technical permissions and denials remain independently gated. A handoff does not add authority for issue creation, issue status changes, issue linking, pull requests, or merges; obtain separate approval for each of those actions.
 
 ## Commands
 
