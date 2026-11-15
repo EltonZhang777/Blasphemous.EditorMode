@@ -249,7 +249,7 @@ internal class EditorWidget : MonoBehaviour
             : selectedPlacement.IsLocked ? "yes" : "no";
         ApplyReportSurface reportSurface = editor.ReportSurface;
         string statusPrefix = string.Format(
-            "Room: {0}   Session: {1}\nSelected: {2}   Locked: {3}\nDependencies: {4}   Preview: {5}\nClipboard: {6}   Last: ",
+            "Room: {0}   Session: {1}\nSelected: {2}   Locked: {3}   Dependencies: {4}   Preview: {5}\nClipboard: {6}   Last: ",
             room,
             state,
             selected,
