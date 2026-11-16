@@ -32,6 +32,7 @@ public sealed class LevelEditSessionTests
             Assert.False(result.Succeeded);
             Assert.Null(result.Session);
             Assert.Contains(result.Report.Entries, x => x.Code == "ROOM_SCOPE");
+            ApplyReportAssert.MatchesCodes(result.Report, "ROOM_SCOPE");
             Assert.Equal(EmptyDocument(), File.ReadAllText(path));
         }
         finally

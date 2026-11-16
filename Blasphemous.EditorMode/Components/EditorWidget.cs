@@ -8,6 +8,7 @@ using Gameplay.UI;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -19,6 +20,9 @@ namespace Blasphemous.EditorMode.Components;
 [DefaultExecutionOrder(10000)]
 internal class EditorWidget : MonoBehaviour
 {
+    private const int StatusFontSize = 13;
+    private const int StatusMinimumFontSize = 10;
+
     internal GameObject freezeGameButtonObj;
 
     private RectTransform _root;
@@ -55,8 +59,9 @@ internal class EditorWidget : MonoBehaviour
             "Editor Status",
             new Vector2(0f, 165f),
             new Vector2(600f, 90f),
-            13,
+            StatusFontSize,
             TextAnchor.UpperLeft);
+        _statusText.verticalOverflow = VerticalWrapMode.Truncate;
 
         CreateText(
             "Catalog Header",
@@ -245,28 +250,108 @@ internal class EditorWidget : MonoBehaviour
             ? "—"
             : selectedPlacement.IsLocked ? "yes" : "no";
         ApplyReportSurface reportSurface = editor.ReportSurface;
-        string report = reportSurface == null
-            ? ""
-            : reportSurface.UiText;
-        string status = string.Format(
-            "Room: {0}   Session: {1}\nSelected: {2}   Locked: {3}\nDependencies: {4}   Preview: {5}\nClipboard: {6}   Last: {7}",
+        string statusPrefix = string.Format(
+            "Room: {0}   Session: {1}\nSelected: {2}   Locked: {3}   Dependencies: {4}   Preview: {5}\nClipboard: {6}   Last: ",
             room,
             state,
             selected,
             locked,
             dependency,
             editor.PreviewStatus,
-            editor.ClipboardStatus,
-            string.IsNullOrEmpty(report) ? "—" : report);
-        if (reportSurface != null && !string.IsNullOrEmpty(reportSurface.ActionableMessage))
-            status += "\n" + reportSurface.ActionableMessage;
+            editor.ClipboardStatus);
+        _statusText.fontSize = StatusFontSize;
+        string status = reportSurface == null || string.IsNullOrEmpty(reportSurface.UiText)
+            ? statusPrefix + "—"
+            : ComposeStatusText(reportSurface, statusPrefix);
         _statusText.text = status;
+    }
+
+    private string ComposeStatusText(ApplyReportSurface reportSurface, string prefix)
+    {
+        string baseText = prefix + reportSurface.UiText;
+        if (reportSurface.HasActionableMessage)
+            baseText += "\n" + reportSurface.ActionableMessage;
+
+        List<DiagnosticCodeCount> groups = new List<DiagnosticCodeCount>();
+        foreach (ApplyReportEntry entry in reportSurface.LastReport.Entries)
+        {
+            if (entry.Severity == ApplySeverity.Info)
+                continue;
+
+            DiagnosticCodeCount group = groups.Find(existing =>
+                string.Equals(existing.Code, entry.Code, StringComparison.Ordinal));
+            if (group == null)
+                groups.Add(new DiagnosticCodeCount(entry.Code));
+            else
+                group.Count++;
+        }
+
+        int fontSize = StatusFontSize;
+        while (fontSize > StatusMinimumFontSize && !FitsStatusText(baseText, fontSize))
+            fontSize--;
+        _statusText.fontSize = fontSize;
+
+        if (groups.Count == 0)
+            return baseText;
+
+        string candidate = baseText + "\n" + FormatGroups(groups, groups.Count);
+        if (FitsStatusText(candidate, fontSize))
+            return candidate;
+
+        for (int included = groups.Count - 1; included >= 0; included--)
+        {
+            int omitted = groups.Count - included;
+            string marker = "+" + omitted + " more diagnostic code(s)";
+            candidate = included == 0
+                ? baseText + "\n" + marker
+                : baseText + "\n" + FormatGroups(groups, included) + "\n" + marker;
+            if (FitsStatusText(candidate, fontSize))
+                return candidate;
+        }
+
+        return baseText;
+    }
+
+    private static string FormatGroups(List<DiagnosticCodeCount> groups, int count)
+    {
+        StringBuilder text = new();
+        for (int index = 0; index < count; index++)
+        {
+            if (index > 0)
+                text.Append(", ");
+            DiagnosticCodeCount group = groups[index];
+            text.Append(group.Code).Append(" x").Append(group.Count);
+        }
+
+        return text.ToString();
+    }
+
+    private bool FitsStatusText(string text, int fontSize)
+    {
+        Rect rect = _statusText.rectTransform.rect;
+        TextGenerationSettings settings = _statusText.GetGenerationSettings(rect.size);
+        settings.fontSize = fontSize;
+        float preferredHeight = _statusText.cachedTextGeneratorForLayout.GetPreferredHeight(text, settings)
+            / _statusText.pixelsPerUnit;
+        return preferredHeight <= rect.height;
     }
 
     private static bool IsInputFieldFocused()
     {
         GameObject selected = EventSystem.current?.currentSelectedGameObject;
         return selected != null && selected.GetComponentInParent<InputField>() != null;
+    }
+
+    private sealed class DiagnosticCodeCount
+    {
+        internal DiagnosticCodeCount(string code)
+        {
+            Code = code;
+            Count = 1;
+        }
+
+        internal string Code { get; }
+        internal int Count { get; set; }
     }
 
     private InputField[] CreateTransformFields(string group, float x)

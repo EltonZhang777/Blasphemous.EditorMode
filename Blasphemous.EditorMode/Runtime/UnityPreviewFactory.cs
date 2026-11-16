@@ -14,7 +14,8 @@ internal static class UnityPreviewFactory
     internal static PreviewInstance Create(
         CreatorMetadata metadata,
         Func<Transform> holderProvider,
-        Func<Vector3> positionProvider)
+        Func<Vector3> positionProvider,
+        bool verboseDiagnostics)
     {
         if (metadata == null)
             throw new ArgumentNullException(nameof(metadata));
@@ -60,25 +61,28 @@ internal static class UnityPreviewFactory
 
             IsolateGameplay(previewObject);
             root.SetActive(true);
-            Camera camera = Camera.main;
-            foreach (Renderer renderer in previewObject.GetComponentsInChildren<Renderer>(true))
+            if (verboseDiagnostics)
             {
-                if (renderer == null)
-                    continue;
+                Camera camera = Camera.main;
+                foreach (Renderer renderer in previewObject.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (renderer == null)
+                        continue;
 
-                bool cameraIncludesLayer = camera != null
-                    && (camera.cullingMask & (1 << renderer.gameObject.layer)) != 0;
-                ModLog.Debug(
-                    "[DIAG] PREVIEW_RENDERER type=" + metadata.Type
-                    + " renderer=" + renderer.name
-                    + " active=" + renderer.gameObject.activeInHierarchy
-                    + " enabled=" + renderer.enabled
-                    + " layer=" + renderer.gameObject.layer
-                    + " cameraIncludesLayer=" + cameraIncludesLayer
-                    + " camera=" + (camera == null ? "<none>" : camera.name)
-                    + " screenPosition=" + (camera == null ? "<none>" : camera.WorldToScreenPoint(renderer.bounds.center).ToString())
-                    + " worldPosition=" + renderer.bounds.center
-                    + " bounds=" + renderer.bounds);
+                    bool cameraIncludesLayer = camera != null
+                        && (camera.cullingMask & (1 << renderer.gameObject.layer)) != 0;
+                    ModLog.Debug(
+                        "[DIAG] PREVIEW_RENDERER type=" + metadata.Type
+                        + " renderer=" + renderer.name
+                        + " active=" + renderer.gameObject.activeInHierarchy
+                        + " enabled=" + renderer.enabled
+                        + " layer=" + renderer.gameObject.layer
+                        + " cameraIncludesLayer=" + cameraIncludesLayer
+                        + " camera=" + (camera == null ? "<none>" : camera.name)
+                        + " screenPosition=" + (camera == null ? "<none>" : camera.WorldToScreenPoint(renderer.bounds.center).ToString())
+                        + " worldPosition=" + renderer.bounds.center
+                        + " bounds=" + renderer.bounds);
+                }
             }
             return new PreviewInstance(
                 metadata,

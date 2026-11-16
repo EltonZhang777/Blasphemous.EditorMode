@@ -50,18 +50,26 @@ internal sealed class ApplyReport
     internal int AppliedCount { get; private set; }
     internal int SkippedCount { get; private set; }
 
-    internal bool HasErrors
+    internal int FailedCount
     {
         get
         {
+            int count = 0;
             foreach (ApplyReportEntry entry in _entries)
             {
                 if (entry.Severity == ApplySeverity.Error)
-                    return true;
+                    count++;
             }
 
-            return false;
+            return count;
         }
+    }
+
+    internal int DiagnosticCount { get { return _entries.Count; } }
+
+    internal bool HasErrors
+    {
+        get { return FailedCount > 0; }
     }
 
     internal bool IsPartial
@@ -117,8 +125,8 @@ internal sealed class ApplyReport
         {
             Error(
                 diagnostic.Reason == DependencyFailureReason.Missing
-                    ? "DEPENDENCY_MISSING"
-                    : "DEPENDENCY_VERSION",
+                    ? ReportCodes.DependencyMissing
+                    : ReportCodes.DependencyVersion,
                 diagnostic.Id,
                 diagnostic.Message);
         }
@@ -128,12 +136,13 @@ internal sealed class ApplyReport
     {
         string status = HasErrors ? "failed" : IsPartial ? "partial" : "passed";
         return string.Format(
-            "{0} {1}: {2} applied, {3} skipped, {4} diagnostic(s).",
+            "{0} {1}: Applied={2} successful items/operations; Skipped={3} entries; Failed={4} entries; Diagnostic={5} entries.",
             operation,
             status,
             AppliedCount,
             SkippedCount,
-            _entries.Count);
+            FailedCount,
+            DiagnosticCount);
     }
 
     private void Add(
@@ -145,7 +154,7 @@ internal sealed class ApplyReport
     {
         _entries.Add(new ApplyReportEntry(
             severity,
-            code ?? "UNKNOWN",
+            code ?? ReportCodes.Unknown,
             location ?? "$",
             message ?? string.Empty,
             skipped));
@@ -156,31 +165,31 @@ internal sealed class ApplyReport
     private static string ClassifyFrameworkDiagnostic(string message)
     {
         if (message == null)
-            return "FRAMEWORK_JSON";
+            return ReportCodes.FrameworkJson;
         if (message.IndexOf("syntax", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "JSON_SYNTAX";
+            return ReportCodes.JsonSyntax;
         if (message.IndexOf("does not match Room Identity", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "ROOM_SCOPE";
+            return ReportCodes.RoomScope;
         if (message.IndexOf("Required top-level array", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("Top-level field", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("Required string field", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("path", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "JSON_SCHEMA";
+            return ReportCodes.JsonSchema;
         if (message.IndexOf("Atomic Level Export", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("export", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "EXPORT_IO";
+            return ReportCodes.ExportIo;
         if (message.IndexOf("file could not be read", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "FILE_IO";
+            return ReportCodes.FileIo;
         if (message.IndexOf("condition", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "CONDITION_INVALID";
+            return ReportCodes.ConditionInvalid;
         if (message.IndexOf("transform", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "TRANSFORM_INVALID";
+            return ReportCodes.TransformInvalid;
         if (message.IndexOf("property", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "PROPERTY_INVALID";
+            return ReportCodes.PropertyInvalid;
         if (message.IndexOf("Duplicate object id", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "PLACEMENT_DUPLICATE_ID";
+            return ReportCodes.PlacementDuplicateId;
         if (message.IndexOf("Unknown", StringComparison.OrdinalIgnoreCase) >= 0)
-            return "JSON_UNKNOWN_FIELD";
-        return "FRAMEWORK_JSON";
+            return ReportCodes.JsonUnknownField;
+        return ReportCodes.FrameworkJson;
     }
 }

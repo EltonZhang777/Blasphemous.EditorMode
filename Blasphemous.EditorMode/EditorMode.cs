@@ -56,6 +56,7 @@ internal class EditorMode : BlasMod
     }
 
     private static bool _isStartingEditorWidget = false;
+    private bool _verboseDiagnostics;
     private BlasphemousLifecycleBridge _lifecycleBridge;
     private EditorModeGuard _editorGuard;
     private ApplyReportPublisher _reportPublisher;
@@ -70,6 +71,20 @@ internal class EditorMode : BlasMod
 
     protected override void OnInitialize()
     {
+        EditorModeConfig config;
+        try
+        {
+            config = ConfigHandler.Load<EditorModeConfig>() ?? new EditorModeConfig();
+        }
+        catch (System.Exception exception)
+        {
+            ModLog.Warn(
+                "Unable to load Editor Mode configuration; using defaults. "
+                + exception.GetType().Name + ": " + exception.Message);
+            config = new EditorModeConfig();
+        }
+
+        _verboseDiagnostics = config.VerboseDiagnostics;
         _reportPublisher = new ApplyReportPublisher(
             new ApplyReportSurface(),
             (severity, message) =>
@@ -80,7 +95,8 @@ internal class EditorMode : BlasMod
                     ModLog.Warn(message);
                 else
                     ModLog.Info(message);
-            });
+            },
+            _verboseDiagnostics);
         _editorGuard = new EditorModeGuard(
             BlasphemousEditorRuntimeState.Capture,
             BlasphemousEditorRuntimeState.Apply);
@@ -137,7 +153,7 @@ internal class EditorMode : BlasMod
         {
             ApplyReport report = new();
             report.Error(
-                "ROOM_EFFECTS_STORE_MISSING",
+                ReportCodes.RoomEffectsStoreMissing,
                 activeScene.name,
                 "The active room has no LevelEffectsStore component; its context was not refreshed.");
             PublishReport("Room context refresh", report);
@@ -181,8 +197,9 @@ internal class EditorMode : BlasMod
             metadata => UnityPreviewFactory.Create(
                 metadata,
                 FindCurrentObjectHolder,
-                CursorWorldPosition));
-        _runtimeFactory = new UnityRuntimePlacementFactory(FindCurrentObjectHolder);
+                CursorWorldPosition,
+                _verboseDiagnostics));
+        _runtimeFactory = new UnityRuntimePlacementFactory(FindCurrentObjectHolder, _verboseDiagnostics);
         _overlayReconciler = new RoomOverlayReconciler(Catalog, _runtimeFactory);
         if (_lifecycleBridge.CurrentRoom != null)
         {
@@ -285,7 +302,7 @@ internal class EditorMode : BlasMod
         if (Session == null || _lifecycleBridge.CurrentRoom == null)
         {
             ApplyReport report = new();
-            report.Error("ROOM_REQUIRED", "export", "No editable Room Overlay is loaded.");
+            report.Error(ReportCodes.RoomRequired, "export", "No editable Room Overlay is loaded.");
             PublishReport("Level export", report);
             return null;
         }
@@ -301,7 +318,7 @@ internal class EditorMode : BlasMod
         if (room == null || _overlayReconciler == null)
         {
             ApplyReport report = new();
-            report.Error("ROOM_REQUIRED", "import", "No editable Room Overlay is loaded.");
+            report.Error(ReportCodes.RoomRequired, "import", "No editable Room Overlay is loaded.");
             PublishReport("Level import", report);
             return false;
         }
@@ -315,7 +332,7 @@ internal class EditorMode : BlasMod
         if (manager == null)
         {
             ApplyReport unavailable = new();
-            unavailable.Error("PLACE_NOT_READY", "placement", "Placement editing is not ready.");
+            unavailable.Error(ReportCodes.PlaceNotReady, "placement", "Placement editing is not ready.");
             PublishReport("Place", unavailable);
             return false;
         }
@@ -348,7 +365,7 @@ internal class EditorMode : BlasMod
             return TryPlaceAtCursor(_preview.Metadata.Type);
 
         ApplyReport report = new();
-        report.Warning("PLACE_NO_PREVIEW", "preview", "Select a catalog entry and create a preview before placing it.");
+        report.Warning(ReportCodes.PlaceNoPreview, "preview", "Select a catalog entry and create a preview before placing it.");
         PublishReport("Place", report);
         return false;
     }
@@ -408,13 +425,13 @@ internal class EditorMode : BlasMod
         ApplyReport report = new();
         if (manager == null)
         {
-            report.Error("PICK_NOT_READY", "clipboard", "Placement editing is not ready.");
+            report.Error(ReportCodes.PickNotReady, "clipboard", "Placement editing is not ready.");
             PublishReport("Pick", report);
             return false;
         }
         if (manager.Selected == null)
         {
-            report.Warning("PICK_NO_SELECTION", "clipboard", "Select or place an Architect-owned placement before clicking Pick.");
+            report.Warning(ReportCodes.PickNoSelection, "clipboard", "Select or place an Architect-owned placement before clicking Pick.");
             PublishReport("Pick", report);
             return false;
         }
@@ -429,11 +446,11 @@ internal class EditorMode : BlasMod
             ApplyReport report = new();
             if (error == null)
             {
-                report.Warning("PICK_NO_TARGET", "cursor", "Point to an Architect-owned placement before pressing P.");
+                report.Warning(ReportCodes.PickNoTarget, "cursor", "Point to an Architect-owned placement before pressing P.");
             }
             else
             {
-                report.Error("PICK_FAILED", "cursor", error);
+                report.Error(ReportCodes.PickFailed, "cursor", error);
             }
             PublishReport("Pick at cursor", report);
             return false;
@@ -445,7 +462,7 @@ internal class EditorMode : BlasMod
     internal void ReportPickBlockedByEditorControl()
     {
         ApplyReport report = new();
-        report.Warning("PICK_POINTER_OVER_EDITOR", "cursor", "Move the pointer over the room and outside editor controls before pressing P.");
+        report.Warning(ReportCodes.PickPointerOverEditor, "cursor", "Move the pointer over the room and outside editor controls before pressing P.");
         PublishReport("Pick at cursor", report);
     }
 
@@ -459,7 +476,7 @@ internal class EditorMode : BlasMod
         PlacementRecord clipboard = manager.Clipboard;
         if (clipboard == null)
         {
-            report.Error("CLIPBOARD_EMPTY", "paste", "The editor cursor has no Placement.");
+            report.Error(ReportCodes.ClipboardEmpty, "paste", "The editor cursor has no Placement.");
             PublishReport("Paste", report);
             return false;
         }
@@ -493,14 +510,14 @@ internal class EditorMode : BlasMod
         if (!Catalog.TryCreatePreview(type, out _preview, out string error))
         {
             ApplyReport report = new();
-            report.Error("PREVIEW_FAILED", type ?? "<null>", error);
+            report.Error(ReportCodes.PreviewFailed, type ?? "<null>", error);
             PublishReport("Preview", report);
             return false;
         }
 
         ApplyReport success = new();
         success.Info(
-            "PREVIEW_CREATED",
+            ReportCodes.PreviewCreated,
             type,
             "Preview follows the pointer through the level view; Clear removes it. It is not part of the Room Overlay.");
         PublishReport("Preview", success);
@@ -520,7 +537,7 @@ internal class EditorMode : BlasMod
 
         DisposePreview();
         ApplyReport report = new();
-        report.Info("PREVIEW_DISPOSED", "preview", "Isolated preview discarded.");
+        report.Info(ReportCodes.PreviewDisposed, "preview", "Isolated preview discarded.");
         PublishReport("Preview", report);
     }
 
@@ -533,7 +550,7 @@ internal class EditorMode : BlasMod
         ApplyReport report = new();
         if (values == null || values.Length != 9)
         {
-            report.Error("TRANSFORM_INVALID", manager.Selected.Id, "Exactly nine transform values are required.");
+            report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, "Exactly nine transform values are required.");
             PublishReport("Transform", report);
             return false;
         }
@@ -545,7 +562,7 @@ internal class EditorMode : BlasMod
                 || float.IsNaN(parsed[index])
                 || float.IsInfinity(parsed[index]))
             {
-                report.Error("TRANSFORM_INVALID", manager.Selected.Id, "Transform values must be finite numbers.");
+                report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, "Transform values must be finite numbers.");
                 PublishReport("Transform", report);
                 return false;
             }
@@ -581,7 +598,7 @@ internal class EditorMode : BlasMod
             if (error != null)
             {
                 ApplyReport failure = new();
-                failure.Error("SELECTION_FAILED", "cursor", error);
+                failure.Error(ReportCodes.SelectionFailed, "cursor", error);
                 PublishReport("Select", failure);
             }
             return false;
@@ -675,7 +692,7 @@ internal class EditorMode : BlasMod
         PublishReport("Room import", result.Report);
         if (!result.Succeeded)
         {
-            ModLog.Warn("Room Overlay session was not created: " + result.StatusMessage);
+            ModLog.Warn("Room Overlay session was not created; see the Room import summary.");
             return false;
         }
 
@@ -800,8 +817,12 @@ internal class EditorMode : BlasMod
         return UnityScreenCoordinateMapper.ToWorldPosition(Camera.main, cameraPixels);
     }
 
-    private static void LogCursorPosition(string action, Vector3 worldPosition)
+    private void LogCursorPosition(string action, Vector3 worldPosition)
     {
+        if (!_verboseDiagnostics
+            && string.Equals(action, "CURSOR_PREVIEW", System.StringComparison.Ordinal))
+            return;
+
         Camera camera = Camera.main;
         Vector2 screenPosition = Input.mousePosition;
         Vector2 cameraPixels = UnityScreenCoordinateMapper.ToCameraPixels(camera, screenPosition);
@@ -826,7 +847,7 @@ internal class EditorMode : BlasMod
         ApplyReport report = new();
         if (manager == null)
         {
-            report.Error("PICK_NOT_READY", "clipboard", "Placement editing is not ready.");
+            report.Error(ReportCodes.PickNotReady, "clipboard", "Placement editing is not ready.");
             PublishReport(action, report);
             return false;
         }

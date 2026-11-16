@@ -32,7 +32,7 @@ internal sealed class EditCommandHistory
     {
         if (_undo.Count == 0)
         {
-            report.Error("UNDO_EMPTY", "$", "There is no edit command to undo.", false);
+            report.Error(ReportCodes.UndoEmpty, "$", "There is no edit command to undo.", false);
             return false;
         }
 
@@ -51,7 +51,7 @@ internal sealed class EditCommandHistory
     {
         if (_redo.Count == 0)
         {
-            report.Error("REDO_EMPTY", "$", "There is no edit command to redo.", false);
+            report.Error(ReportCodes.RedoEmpty, "$", "There is no edit command to redo.", false);
             return false;
         }
 

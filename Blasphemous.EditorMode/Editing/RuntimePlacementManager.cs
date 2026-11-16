@@ -153,7 +153,7 @@ internal sealed class RuntimePlacementManager
         placement = null;
         if (!_catalog.TryGet(type, out CreatorMetadata creator))
         {
-            report.Error("CREATOR_UNSUPPORTED", type, "Creator is unavailable or unsupported.");
+            report.Error(ReportCodes.CreatorUnsupported, type, "Creator is unavailable or unsupported.");
             return false;
         }
 
@@ -171,7 +171,7 @@ internal sealed class RuntimePlacementManager
         }
         catch (Exception exception)
         {
-            report.Error("PLACEMENT_INVALID", type, exception.Message);
+            report.Error(ReportCodes.PlacementInvalid, type, exception.Message);
             placement = null;
             return false;
         }
@@ -191,7 +191,7 @@ internal sealed class RuntimePlacementManager
             && !conditionFilter.ShouldProject(placement, out string conditionReason))
         {
             report.Warning(
-                "CONDITION_UNMET",
+                ReportCodes.ConditionUnmet,
                 id,
                 conditionReason ?? "Placement condition is not active in the current runtime.",
                 true);
@@ -206,7 +206,7 @@ internal sealed class RuntimePlacementManager
         }
         catch (Exception exception)
         {
-            report.Error("RUNTIME_CREATE_FAILED", id, exception.Message);
+            report.Error(ReportCodes.RuntimeCreateFailed, id, exception.Message);
             placement = null;
             return false;
         }
@@ -218,7 +218,7 @@ internal sealed class RuntimePlacementManager
         {
             if (handle != null && !handle.IsOriginal && handle.IsAlive)
                 handle.TryDestroy(out _);
-            report.Error("OWNERSHIP_REJECTED", id, "Runtime factory did not return an Architect-owned projection.");
+            report.Error(ReportCodes.OwnershipRejected, id, "Runtime factory did not return an Architect-owned projection.");
             placement = null;
             return false;
         }
@@ -246,7 +246,7 @@ internal sealed class RuntimePlacementManager
             || !handle.IsAlive
             || !_session.TryGetPlacement(id, out placement))
         {
-            report.Error("OWNERSHIP_REJECTED", id, "Only live Architect-owned projections are selectable.");
+            report.Error(ReportCodes.OwnershipRejected, id, "Only live Architect-owned projections are selectable.");
             placement = null;
             return false;
         }
@@ -263,7 +263,7 @@ internal sealed class RuntimePlacementManager
         placement = null;
         if (handle == null || handle.IsOriginal)
         {
-            report.Error("OWNERSHIP_REJECTED", "$", "Original game objects are read-only and cannot be selected.");
+            report.Error(ReportCodes.OwnershipRejected, "$", "Original game objects are read-only and cannot be selected.");
             return false;
         }
 
@@ -276,7 +276,7 @@ internal sealed class RuntimePlacementManager
             || placement.Ownership != PlacementOwnership.ArchitectOwned
             || !_session.TryGetPlacement(placement.Id, out PlacementRecord sessionPlacement))
         {
-            report.Error("OWNERSHIP_REJECTED", placement == null ? "$" : placement.Id, "Only owned session placements can be projected.");
+            report.Error(ReportCodes.OwnershipRejected, placement == null ? "$" : placement.Id, "Only owned session placements can be projected.");
             return false;
         }
 
@@ -291,7 +291,7 @@ internal sealed class RuntimePlacementManager
                 if (!inactiveHandle.TryDestroy(out string destroyError))
                 {
                     report.Error(
-                        "RUNTIME_CLEAR_FAILED",
+                        ReportCodes.RuntimeClearFailed,
                         placement.Id,
                         destroyError ?? "Inactive projection rejected cleanup.");
                     return false;
@@ -301,7 +301,7 @@ internal sealed class RuntimePlacementManager
             if (Selected != null && string.Equals(Selected.Id, placement.Id, StringComparison.OrdinalIgnoreCase))
                 Selected = null;
             report.Warning(
-                "CONDITION_UNMET",
+                ReportCodes.ConditionUnmet,
                 placement.Id,
                 conditionReason ?? "Placement condition is not active in the current runtime.",
                 true);
@@ -312,13 +312,13 @@ internal sealed class RuntimePlacementManager
         {
             if (existing == null || existing.IsOriginal || !existing.IsAlive)
             {
-                report.Error("RUNTIME_CREATE_FAILED", placement.Id, "Existing projection is not live and owned.");
+                report.Error(ReportCodes.RuntimeCreateFailed, placement.Id, "Existing projection is not live and owned.");
                 return false;
             }
 
             if (!existing.TryApply(sessionPlacement, out string existingError))
             {
-                report.Error("RUNTIME_APPLY_FAILED", placement.Id, existingError ?? "Projection rejected reconciliation.");
+                report.Error(ReportCodes.RuntimeApplyFailed, placement.Id, existingError ?? "Projection rejected reconciliation.");
                 return false;
             }
 
@@ -339,7 +339,7 @@ internal sealed class RuntimePlacementManager
                     if (handle != null && !handle.IsOriginal && handle.IsAlive)
                         handle.TryDestroy(out _);
                     report.Error(
-                        "OWNERSHIP_REJECTED",
+                        ReportCodes.OwnershipRejected,
                         placement.Id,
                         "Runtime adopter returned an invalid reconciliation projection.");
                     return false;
@@ -352,7 +352,7 @@ internal sealed class RuntimePlacementManager
 
             if (adoptionError != null)
             {
-                report.Error("RUNTIME_ADOPTION_FAILED", placement.Id, adoptionError);
+                report.Error(ReportCodes.RuntimeAdoptionFailed, placement.Id, adoptionError);
                 return false;
             }
         }
@@ -363,7 +363,7 @@ internal sealed class RuntimePlacementManager
         }
         catch (Exception exception)
         {
-            report.Error("RUNTIME_CREATE_FAILED", placement.Id, exception.Message);
+            report.Error(ReportCodes.RuntimeCreateFailed, placement.Id, exception.Message);
             return false;
         }
 
@@ -374,7 +374,7 @@ internal sealed class RuntimePlacementManager
         {
             if (handle != null && !handle.IsOriginal && handle.IsAlive)
                 handle.TryDestroy(out _);
-            report.Error("OWNERSHIP_REJECTED", placement.Id, "Runtime factory returned an invalid reconciliation projection.");
+            report.Error(ReportCodes.OwnershipRejected, placement.Id, "Runtime factory returned an invalid reconciliation projection.");
             return false;
         }
 
@@ -397,7 +397,7 @@ internal sealed class RuntimePlacementManager
 
         Clipboard = selected.CopyWithId(selected.Id);
         copied = Clipboard;
-        report.Info("PLACEMENT_COPIED", id, "Placement copied to the editor cursor.");
+        report.Info(ReportCodes.PlacementCopied, id, "Placement copied to the editor cursor.");
         RecordSnapshotCommand(commandName, before, CaptureSnapshot());
         return true;
     }
@@ -420,7 +420,7 @@ internal sealed class RuntimePlacementManager
         pasted = null;
         if (Clipboard == null)
         {
-            report.Error("CLIPBOARD_EMPTY", "$", "The editor cursor has no Placement.");
+            report.Error(ReportCodes.ClipboardEmpty, "$", "The editor cursor has no Placement.");
             return false;
         }
 
@@ -465,7 +465,7 @@ internal sealed class RuntimePlacementManager
             {
                 if (!handle.TryDestroy(out string error))
                 {
-                    report.Error("RUNTIME_CLEAR_FAILED", id, error ?? "Runtime projection rejected cleanup.");
+                    report.Error(ReportCodes.RuntimeClearFailed, id, error ?? "Runtime projection rejected cleanup.");
                     success = false;
                     continue;
                 }
@@ -491,7 +491,7 @@ internal sealed class RuntimePlacementManager
             return false;
         if (current.IsLocked)
         {
-            report.Error("PLACEMENT_LOCKED", id, "Locked placement cannot be moved.");
+            report.Error(ReportCodes.PlacementLocked, id, "Locked placement cannot be moved.");
             return false;
         }
         if (!PlacementValidation.ValidateTransform(transform, creator, id, report))
@@ -501,7 +501,7 @@ internal sealed class RuntimePlacementManager
         if (!handle.TryApply(changed, out string error))
         {
             RestoreRuntime(handle, current, report);
-            report.Error("RUNTIME_APPLY_FAILED", id, error ?? "Runtime projection rejected the transform.");
+            report.Error(ReportCodes.RuntimeApplyFailed, id, error ?? "Runtime projection rejected the transform.");
             return false;
         }
 
@@ -530,19 +530,19 @@ internal sealed class RuntimePlacementManager
             return false;
         if (current.IsLocked)
         {
-            report.Error("PLACEMENT_LOCKED", id, "Locked placement cannot be edited.");
+            report.Error(ReportCodes.PlacementLocked, id, "Locked placement cannot be edited.");
             return false;
         }
 
         if (!creator.TryGetProperty(key, out CreatorPropertyDefinition definition))
         {
-            report.Error("PROPERTY_UNSUPPORTED", id, "Property key '" + key + "' is not supported.");
+            report.Error(ReportCodes.PropertyUnsupported, id, "Property key '" + key + "' is not supported.");
             return false;
         }
 
         if (!definition.TrySerialize(rawValue, out string serialized, out string error))
         {
-            report.Error("PROPERTY_INVALID", id, error);
+            report.Error(ReportCodes.PropertyInvalid, id, error);
             return false;
         }
 
@@ -567,7 +567,7 @@ internal sealed class RuntimePlacementManager
         if (!handle.TryApply(changed, out error))
         {
             RestoreRuntime(handle, current, report);
-            report.Error("RUNTIME_APPLY_FAILED", id, error ?? "Runtime projection rejected the property.");
+            report.Error(ReportCodes.RuntimeApplyFailed, id, error ?? "Runtime projection rejected the property.");
             return false;
         }
 
@@ -591,18 +591,18 @@ internal sealed class RuntimePlacementManager
             || handle.IsOriginal
             || !_session.TryGetPlacement(id, out PlacementRecord current))
         {
-            report.Error("OWNERSHIP_REJECTED", id, "Only Architect-owned placements can be removed.");
+            report.Error(ReportCodes.OwnershipRejected, id, "Only Architect-owned placements can be removed.");
             return false;
         }
         if (current.IsLocked)
         {
-            report.Error("PLACEMENT_LOCKED", id, "Locked placement cannot be removed.");
+            report.Error(ReportCodes.PlacementLocked, id, "Locked placement cannot be removed.");
             return false;
         }
 
         if (!handle.TryDestroy(out string error))
         {
-            report.Error("RUNTIME_REMOVE_FAILED", id, error ?? "Runtime projection rejected removal.");
+            report.Error(ReportCodes.RuntimeRemoveFailed, id, error ?? "Runtime projection rejected removal.");
             return false;
         }
 
@@ -634,7 +634,7 @@ internal sealed class RuntimePlacementManager
 
         _history.Clear();
         report.Info(
-            "SESSION_RESET",
+            ReportCodes.SessionReset,
             _session.Room.ExportFileKey,
             "Session reset to the imported snapshot; Original Save and source export were not written.");
         return true;
@@ -677,7 +677,7 @@ internal sealed class RuntimePlacementManager
                 && !conditionFilter.ShouldProject(target.Value, out string conditionReason))
             {
                 report.Warning(
-                    "CONDITION_UNMET",
+                    ReportCodes.ConditionUnmet,
                     target.Key,
                     conditionReason ?? "Placement condition is not active in the current runtime.",
                     true);
@@ -699,14 +699,14 @@ internal sealed class RuntimePlacementManager
             {
                 if (!_session.TryGetPlacement(target.Key, out PlacementRecord previous))
                 {
-                    report.Error("HISTORY_RESTORE_FAILED", target.Key, "Projection has no session Placement.");
+                    report.Error(ReportCodes.HistoryRestoreFailed, target.Key, "Projection has no session Placement.");
                     Rollback(applied, created, destroyed, report);
                     return false;
                 }
 
                 if (!handle.TryApply(target.Value, out string error))
                 {
-                    report.Error("HISTORY_RESTORE_FAILED", target.Key, error ?? "Runtime projection rejected history restore.");
+                    report.Error(ReportCodes.HistoryRestoreFailed, target.Key, error ?? "Runtime projection rejected history restore.");
                     Rollback(applied, created, destroyed, report);
                     return false;
                 }
@@ -721,7 +721,7 @@ internal sealed class RuntimePlacementManager
             }
             catch (Exception exception)
             {
-                report.Error("HISTORY_RESTORE_FAILED", target.Key, exception.Message);
+                report.Error(ReportCodes.HistoryRestoreFailed, target.Key, exception.Message);
                 Rollback(applied, created, destroyed, report);
                 return false;
             }
@@ -735,12 +735,12 @@ internal sealed class RuntimePlacementManager
                 {
                     if (!handle.TryDestroy(out string cleanupError))
                         report.Error(
-                            "HISTORY_ROLLBACK_FAILED",
+                            ReportCodes.HistoryRollbackFailed,
                             target.Key,
                             cleanupError ?? "Invalid runtime projection could not be removed.");
                 }
 
-                report.Error("HISTORY_RESTORE_FAILED", target.Key, "Runtime factory returned an invalid projection.");
+                report.Error(ReportCodes.HistoryRestoreFailed, target.Key, "Runtime factory returned an invalid projection.");
                 Rollback(applied, created, destroyed, report);
                 return false;
             }
@@ -759,7 +759,7 @@ internal sealed class RuntimePlacementManager
 
             if (!_session.TryGetPlacement(id, out PlacementRecord previous))
             {
-                report.Error("HISTORY_RESTORE_FAILED", id, "Projection has no session Placement.");
+                report.Error(ReportCodes.HistoryRestoreFailed, id, "Projection has no session Placement.");
                 Rollback(applied, created, destroyed, report);
                 return false;
             }
@@ -778,7 +778,7 @@ internal sealed class RuntimePlacementManager
 
             if (!destroySucceeded)
             {
-                report.Error("HISTORY_RESTORE_FAILED", id, error ?? "Runtime projection rejected removal.");
+                report.Error(ReportCodes.HistoryRestoreFailed, id, error ?? "Runtime projection rejected removal.");
                 if (!handle.IsAlive)
                     destroyed.Add(new KeyValuePair<string, PlacementRecord>(id, previous));
                 Rollback(applied, created, destroyed, report);
@@ -820,13 +820,13 @@ internal sealed class RuntimePlacementManager
             {
                 if (!change.Key.TryApply(change.Value, out string error))
                     report.Error(
-                        "HISTORY_ROLLBACK_FAILED",
+                        ReportCodes.HistoryRollbackFailed,
                         change.Value.Id,
                         error ?? "Runtime projection could not be restored.");
             }
             catch (Exception exception)
             {
-                report.Error("HISTORY_ROLLBACK_FAILED", change.Value.Id, exception.Message);
+                report.Error(ReportCodes.HistoryRollbackFailed, change.Value.Id, exception.Message);
             }
         }
 
@@ -836,13 +836,13 @@ internal sealed class RuntimePlacementManager
             {
                 if (!projection.Value.TryDestroy(out string error))
                     report.Error(
-                        "HISTORY_ROLLBACK_FAILED",
+                        ReportCodes.HistoryRollbackFailed,
                         projection.Key,
                         error ?? "Created runtime projection could not be removed.");
             }
             catch (Exception exception)
             {
-                report.Error("HISTORY_ROLLBACK_FAILED", projection.Key, exception.Message);
+                report.Error(ReportCodes.HistoryRollbackFailed, projection.Key, exception.Message);
             }
         }
 
@@ -856,7 +856,7 @@ internal sealed class RuntimePlacementManager
             catch (Exception exception)
             {
                 _projections.Remove(projection.Key);
-                report.Error("HISTORY_ROLLBACK_FAILED", projection.Key, exception.Message);
+                report.Error(ReportCodes.HistoryRollbackFailed, projection.Key, exception.Message);
                 continue;
             }
 
@@ -871,19 +871,19 @@ internal sealed class RuntimePlacementManager
                     {
                         if (!handle.TryDestroy(out string cleanupError))
                             report.Error(
-                                "HISTORY_ROLLBACK_FAILED",
+                                ReportCodes.HistoryRollbackFailed,
                                 projection.Key,
                                 cleanupError ?? "Invalid restored projection could not be removed.");
                     }
                     catch (Exception exception)
                     {
-                        report.Error("HISTORY_ROLLBACK_FAILED", projection.Key, exception.Message);
+                        report.Error(ReportCodes.HistoryRollbackFailed, projection.Key, exception.Message);
                     }
                 }
 
                 _projections.Remove(projection.Key);
                 report.Error(
-                    "HISTORY_ROLLBACK_FAILED",
+                    ReportCodes.HistoryRollbackFailed,
                     projection.Key,
                     "Previously destroyed runtime projection could not be restored.");
                 continue;
@@ -899,7 +899,7 @@ internal sealed class RuntimePlacementManager
         ApplyReport report)
     {
         if (!handle.TryApply(placement, out string error))
-            report.Error("RUNTIME_ROLLBACK_FAILED", placement.Id, error ?? "Runtime projection could not be restored.");
+            report.Error(ReportCodes.RuntimeRollbackFailed, placement.Id, error ?? "Runtime projection could not be restored.");
     }
 
     private sealed class PlacementManagerSnapshot
