@@ -1,0 +1,65 @@
+name: Dev verification
+
+on:
+  push:
+    branches: [ "dev" ]
+
+permissions: {}
+
+concurrency:
+  group: dev-verification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+
+    steps:
+    - name: Checkout final dev commit
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Verify final dev commit
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+        FINAL_SHA: ${{ github.sha }}
+        WORKFLOW_RUN_ID: ${{ github.run_id }}
+        WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        & ./scripts/verify.ps1
+        $verifyExit = $LASTEXITCODE
+        & ./scripts/verify.ps1 -Mode publish-dev -SourceSha $env:FINAL_SHA `
+          -Repository $env:GITHUB_REPOSITORY `
+          -WorkflowRunId $env:WORKFLOW_RUN_ID -WorkflowRunAttempt $env:WORKFLOW_RUN_ATTEMPT `
+          -WorkflowName 'Dev verification' -WorkflowPath '.github/workflows/verify-dev.yml' `
+          -WorkflowEvent push -Publish
+        $publishExit = $LASTEXITCODE
+        if ($verifyExit -ne 0) {
+          exit $verifyExit
+        }
+        exit $publishExit
+
+    - name: Upload final verification evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: dev-verification-${{ github.sha }}-${{ github.run_attempt }}
+        path: |
+          artifacts/automated-evidence.json
+          artifacts/dev-publication-preview.json
+          artifacts/dev-publication-result.json
+        if-no-files-found: warn
