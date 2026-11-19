@@ -35,6 +35,12 @@
 
   <Target Name="Development" AfterTargets="PostBuildEvent">
 
+    <!-- Validate explicit deployment before packaging -->
+    <PropertyGroup>
+      <DevFolderIsDirectory>$([System.IO.Directory]::Exists('$(DevFolder)'))</DevFolderIsDirectory>
+    </PropertyGroup>
+    <Error Condition="'$(DeployToGame)' == 'true' and '$(DevFolderIsDirectory)' != 'True'" Text="DeployToGame=true requires DevFolder to name an existing directory. Current DevFolder: '$(DevFolder)'." />
+
     <!-- Get plugin & resources -->
     <ItemGroup>
       <PluginDll Include="$(TargetPath)" />
@@ -54,6 +60,10 @@
     <Copy SourceFiles="@(Resources)" DestinationFolder="$(PackageStagingFolder)\%(RecursiveDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(PluginDll)" DestinationFolder="$(PackageStagingFolder)\plugins" SkipUnchangedFiles="true" />
     <ZipDirectory SourceDirectory="$(PackageStagingFolder)" DestinationFile="$(PublishFolder)\$(TargetName).zip" Overwrite="true" />
+
+    <!-- Deploy only through the explicit opt-in -->
+    <Copy SourceFiles="@(Resources)" DestinationFolder="$(DevFolder)\%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'$(DeployToGame)' == 'true'" />
+    <Copy SourceFiles="@(PluginDll)" DestinationFolder="$(DevFolder)\plugins" SkipUnchangedFiles="true" Condition="'$(DeployToGame)' == 'true'" />
 
   </Target>
 
