@@ -1,5 +1,5 @@
-using System.Linq;
 using Blasphemous.EditorMode.Framework;
+using System.Linq;
 using Xunit;
 
 namespace Blasphemous.EditorMode.Tests;
