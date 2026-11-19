@@ -250,3 +250,20 @@ dotnet_naming_style.begins_with_i.capitalization = pascal_case
 
 [Blasphemous.EditorMode/obj/**/*.cs]
 insert_final_newline = true
+
+[Blasphemous.EditorMode/Components/EditorWidget.cs]
+end_of_line = lf
+insert_final_newline = true
+
+[Blasphemous.EditorMode/Properties/AssemblyInfo.cs]
+end_of_line = lf
+insert_final_newline = true
+
+[Blasphemous.EditorMode.Tests/*.cs]
+end_of_line = lf
+
+[Blasphemous.EditorMode.Tests/{ContentCatalogTests,CreatorProbeTests,DependencyGateTests,EditorModeGuardTests,LevelFrameworkAdapterTests,LevelFrameworkContractTests,P0AcceptanceGateTests,P0SeamTests,RoomLifecycleTests,RoomOverlayReconcilerTests,RuntimePlacementManagerTests,ScreenCoordinateMapperTests}.cs]
+insert_final_newline = true
+
+[Blasphemous.EditorMode.Tests/LevelFrameworkContractTests.cs]
+dotnet_sort_system_directives_first = true
