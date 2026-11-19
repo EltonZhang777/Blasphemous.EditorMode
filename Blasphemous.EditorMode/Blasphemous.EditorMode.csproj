@@ -12,6 +12,7 @@
     <Version>0.1.0</Version>
 
     <TargetName>EditorMode</TargetName>
+    <DeployToGame Condition="'$(DeployToGame)' == ''">false</DeployToGame>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <DocumentationFile>bin\$(Configuration)\$(TargetName).xml</DocumentationFile>
@@ -37,24 +38,22 @@
     <!-- Get plugin & resources -->
     <ItemGroup>
       <PluginDll Include="$(TargetPath)" />
-      <Resources Include="$(SolutionDir)\resources\**\*.*" />
+      <Resources Include="$(MSBuildProjectDirectory)\..\resources\**\*.*" />
     </ItemGroup>
 
-    <!-- Get export directories -->
+    <!-- Get packaging directories -->
     <PropertyGroup>
-      <DevFolder>C:\Program Files (x86)\Steam\steamapps\common\Blasphemous\Modding\</DevFolder>
-      <PublishFolder>$(SolutionDir)\publish\$(TargetName)</PublishFolder>
+      <RepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..'))</RepositoryRoot>
+      <PackageStagingFolder>$(IntermediateOutputPath)package\</PackageStagingFolder>
+      <PublishFolder>$(RepositoryRoot)\publish</PublishFolder>
     </PropertyGroup>
 
-    <!-- Export to dev folder -->
-    <Copy SourceFiles="@(Resources)" DestinationFolder="$(DevFolder)\%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'$(DisableDevelopmentDeployment)' != 'true'" />
-    <Copy SourceFiles="@(PluginDll)" DestinationFolder="$(DevFolder)\plugins" SkipUnchangedFiles="true" Condition="'$(DisableDevelopmentDeployment)' != 'true'" />
-
-    <!-- Export to publish folder -->
-    <RemoveDir Directories="$(PublishFolder)" />
-    <Copy SourceFiles="@(Resources)" DestinationFolder="$(PublishFolder)\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(PluginDll)" DestinationFolder="$(PublishFolder)\plugins" SkipUnchangedFiles="true" />
-    <ZipDirectory SourceDirectory="$(PublishFolder)" DestinationFile="$(PublishFolder)\..\$(TargetName).zip" Overwrite="true" />
+    <!-- Stage package content away from game and publish directories -->
+    <RemoveDir Directories="$(PackageStagingFolder)" />
+    <MakeDir Directories="$(PackageStagingFolder);$(PublishFolder)" />
+    <Copy SourceFiles="@(Resources)" DestinationFolder="$(PackageStagingFolder)\%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(PluginDll)" DestinationFolder="$(PackageStagingFolder)\plugins" SkipUnchangedFiles="true" />
+    <ZipDirectory SourceDirectory="$(PackageStagingFolder)" DestinationFile="$(PublishFolder)\$(TargetName).zip" Overwrite="true" />
 
   </Target>
 
