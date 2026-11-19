@@ -1,6 +1,6 @@
 # Adopt the local template baseline for tests and deployment
 
-Status: Accepted; code migration pending.
+Status: Accepted.
 
 `Blasphemous.EditorMode.Tests` is an adjacent `net48` xUnit project that directly references the real `net35` Mod assembly. The Mod grants `InternalsVisibleTo` only to the `Blasphemous.EditorMode.Tests` assembly name, so tests exercise the shipped assembly identity without linking a divergent copy of production source or making production types public solely for testing. Replacing the test assembly name, signing policy, or internal-access mechanism supersedes this part of the decision.
 
