@@ -1,0 +1,488 @@
+name: Release
+
+on:
+  push:
+    tags: [ "**" ]
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout Tagged Commit
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Validate Tag And Main Ancestry
+      shell: pwsh
+      env:
+        TAG_NAME: ${{ github.ref_name }}
+        SOURCE_SHA: ${{ github.sha }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        if ($env:GITHUB_REF_TYPE -ne 'tag' -or $env:GITHUB_REF -notlike 'refs/tags/*') {
+          throw "Release validation must run for a tag push."
+        }
+
+        $semverPattern = '^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$'
+        if (-not [regex]::IsMatch($env:TAG_NAME, $semverPattern)) {
+          throw "Tag '$env:TAG_NAME' is not valid SemVer."
+        }
+
+        $head = (git rev-parse HEAD).Trim()
+        if ($head -cne $env:SOURCE_SHA) {
+          throw "Checked-out HEAD '$head' does not match tagged source '$env:SOURCE_SHA'."
+        }
+
+        $mainCommit = (git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}' | Select-Object -First 1)
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($mainCommit)) {
+          throw "Could not resolve origin/main for ancestry validation."
+        }
+
+        git merge-base --is-ancestor $head $mainCommit.Trim()
+        if ($LASTEXITCODE -ne 0) {
+          throw "Tag commit '$head' is not descended from origin/main '$($mainCommit.Trim())'."
+        }
+
+        if (@(git status --porcelain).Count -ne 0) {
+          throw "Tagged checkout is not clean."
+        }
+
+        $packageVersion = if ($env:TAG_NAME.StartsWith('v', [StringComparison]::Ordinal)) {
+          $env:TAG_NAME.Substring(1)
+        } else {
+          $env:TAG_NAME
+        }
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value "PACKAGE_VERSION=$packageVersion"
+        Write-Host "Validated $($env:TAG_NAME) at $head as $packageVersion."
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Run Canonical Gate
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $solution = 'Blasphemous.EditorMode.sln'
+        $modProject = 'Blasphemous.EditorMode\Blasphemous.EditorMode.csproj'
+        $testProject = 'Blasphemous.EditorMode.Tests\Blasphemous.EditorMode.Tests.csproj'
+        $packageVersion = $env:PACKAGE_VERSION
+        $deploymentError = 'DeployToGame=true requires DevFolder to name an existing directory'
+
+        $buildFiles = @(Get-ChildItem -Path $PWD -Recurse -File -Include '*.csproj', '*.props', '*.targets' |
+          Where-Object {
+            [IO.Path]::GetRelativePath($PWD, $_.FullName).Replace('\', '/') -notmatch '(^|/)(\.git|\.wt|\.temp|tmp|bin|obj|publish)(/|$)'
+          })
+        if ($buildFiles.Count -eq 0) {
+          throw 'No repository-owned build files were found.'
+        }
+        $buildFilePaths = @($buildFiles.FullName)
+        if (Select-String -Path $buildFilePaths -SimpleMatch 'DisableDevelopmentDeployment', 'Steam' -Quiet) {
+          throw 'Retired or hard-coded deployment configuration is present in a build file.'
+        }
+        function Get-BuildAttribute {
+          param([System.Xml.XmlElement] $Node, [string] $Name)
+          $Node.GetAttribute($Name).Trim()
+        }
+        function Test-PropertyDefinitions {
+          param(
+            [xml] $Xml,
+            [string] $Name,
+            [string] $RequiredPattern,
+            [string] $ForbiddenPattern = ''
+          )
+          $definitions = @($Xml.SelectNodes("//*[local-name()='PropertyGroup']/*[local-name()='$Name']"))
+          if ($definitions.Count -eq 0) { return $false }
+          foreach ($definition in $definitions) {
+            $value = $definition.InnerText.Trim()
+            if ($value -notmatch $RequiredPattern) { return $false }
+            if ($ForbiddenPattern -and $value -match $ForbiddenPattern) { return $false }
+          }
+          return $true
+        }
+
+        $dangerousTasks = @(
+          'copy', 'move', 'delete', 'removedir', 'makedir', 'exec', 'import', 'usingtask',
+          'writelinestofile', 'writecodefragment', 'touch', 'zipdirectory', 'unzip',
+          'downloadfile', 'xmlpoke'
+        )
+        $safeTargetElements = @(
+          'propertygroup', 'itemgroup', 'error', 'warning', 'message',
+          'copy', 'removedir', 'makedir', 'zipdirectory', 'writelinestofile'
+        )
+        $devCopyCondition = "'{0}' == 'true'" -f '$(DeployToGame)'
+        $devDestinationPattern = '^\$\(DevFolder\)(?:[/\\]|$)'
+        $packageDestinationPattern = '^\$\(PackageStagingFolder\)(?:[/\\]|$)'
+        $packageRootPattern = '^\$\(PackageStagingFolder\)[\\/]?$'
+        $publishRootPattern = '^\$\(PublishFolder\)[\\/]?$'
+        $zipDestinationPattern = '^\$\(PublishFolder\)[\\/]\$\(TargetName\)\.zip$'
+        $gamePathPattern = '(?i)\$\(DevFolder\)|steamapps|(?:^|[\\/])Blasphemous(?:[\\/]|$)'
+        $deploymentCopies = 0
+
+        foreach ($buildFile in $buildFiles) {
+          try {
+            [xml]$buildXml = Get-Content -LiteralPath $buildFile.FullName -Raw
+          } catch {
+            throw "Could not inspect build file '$($buildFile.FullName)': $($_.Exception.Message)"
+          }
+          if (@($buildXml.SelectNodes("//*[local-name()='PropertyGroup']/*[local-name()='IntermediateOutputPath']")).Count -ne 0) {
+            throw "Build file '$($buildFile.FullName)' overrides IntermediateOutputPath."
+          }
+          foreach ($target in @($buildXml.SelectNodes("//*[local-name()='Target']"))) {
+            foreach ($child in @($target.SelectNodes('*'))) {
+              if ($child.LocalName.ToLowerInvariant() -notin $safeTargetElements) {
+                throw "Unrecognized MSBuild task '$($child.LocalName)' in target '$($target.GetAttribute('Name'))'."
+              }
+            }
+          }
+
+          $safePackagePaths =
+            (Test-PropertyDefinitions $buildXml 'RepositoryRoot' '\$\(MSBuildProjectDirectory\)\\\.\.' '(?i)\$\(DevFolder\)|steamapps') -and
+            (Test-PropertyDefinitions $buildXml 'PackageStagingFolder' '^\$\(IntermediateOutputPath\)package[\\/]$') -and
+            (Test-PropertyDefinitions $buildXml 'PublishFolder' '^\$\(RepositoryRoot\)[\\/]publish$')
+          $safeGeneratedFile = Test-PropertyDefinitions $buildXml 'GeneratedFilePath' '^\$\(IntermediateOutputPath\)'
+
+          $operations = @($buildXml.SelectNodes('//*') | Where-Object {
+            $_.LocalName.ToLowerInvariant() -in $dangerousTasks
+          })
+          foreach ($operation in $operations) {
+            $task = $operation.LocalName.ToLowerInvariant()
+            $condition = Get-BuildAttribute $operation 'Condition'
+            $destination = ''
+            $safe = $false
+
+            switch ($task) {
+              'copy' {
+                $destination = Get-BuildAttribute $operation 'DestinationFolder'
+                $destinationFiles = Get-BuildAttribute $operation 'DestinationFiles'
+                if (-not $destinationFiles) {
+                  if ($destination -match $devDestinationPattern) {
+                    $safe = $condition -ceq $devCopyCondition
+                  } elseif ($destination -match $packageDestinationPattern) {
+                    $safe = [string]::IsNullOrWhiteSpace($condition) -and $safePackagePaths
+                  }
+                }
+                if ($safe -and $destination -match $devDestinationPattern) {
+                  $deploymentCopies++
+                }
+              }
+              'removedir' {
+                $safe =
+                  [string]::IsNullOrWhiteSpace($condition) -and
+                  $safePackagePaths -and
+                  (Get-BuildAttribute $operation 'Directories') -match $packageRootPattern
+              }
+              'makedir' {
+                $directories = @((Get-BuildAttribute $operation 'Directories').Split(';') |
+                  ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                $safe =
+                  [string]::IsNullOrWhiteSpace($condition) -and
+                  $safePackagePaths -and
+                  $directories.Count -gt 0 -and
+                  @($directories | Where-Object {
+                    $_ -notmatch $packageRootPattern -and $_ -notmatch $publishRootPattern
+                  }).Count -eq 0
+              }
+              'writelinestofile' {
+                $safe =
+                  [string]::IsNullOrWhiteSpace($condition) -and
+                  $safeGeneratedFile -and
+                  (Get-BuildAttribute $operation 'File') -ceq '$(GeneratedFilePath)'
+              }
+              'zipdirectory' {
+                $safe =
+                  [string]::IsNullOrWhiteSpace($condition) -and
+                  $safePackagePaths -and
+                  (Get-BuildAttribute $operation 'SourceDirectory') -match $packageRootPattern -and
+                  (Get-BuildAttribute $operation 'DestinationFile') -match $zipDestinationPattern
+              }
+            }
+
+            if (-not $safe) {
+              throw "Unsafe MSBuild operation '$($operation.LocalName)' in '$($buildFile.FullName)'."
+            }
+            $attributeText = @($operation.Attributes | ForEach-Object { $_.Value }) -join "`n"
+            if ($attributeText -match $gamePathPattern -and
+                ($task -cne 'copy' -or $condition -cne $devCopyCondition -or $destination -notmatch $devDestinationPattern)) {
+              throw "Game-directory operation '$($operation.LocalName)' in '$($buildFile.FullName)' is not an explicit DeployToGame=true Copy."
+            }
+          }
+        }
+        if ($deploymentCopies -eq 0) {
+          throw 'No explicit DevFolder Copy guarded by DeployToGame=true was found.'
+        }
+
+        dotnet restore $solution
+        if ($LASTEXITCODE -ne 0) { throw 'dotnet restore failed.' }
+
+        $defaultDeployToGame = (dotnet msbuild $modProject -p:Configuration=Release -getProperty:DeployToGame).Trim()
+        if ($LASTEXITCODE -ne 0) { throw 'Could not evaluate DeployToGame.' }
+        if ($defaultDeployToGame -and $defaultDeployToGame -ne 'false') {
+          throw "DeployToGame defaults to '$defaultDeployToGame' instead of false."
+        }
+
+        $noWriteProbe = Join-Path ([IO.Path]::GetTempPath()) ('blasmod-deploy-probe-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $noWriteProbe | Out-Null
+        dotnet build $solution --configuration Release --no-restore --no-incremental "-p:Version=$packageVersion" "-p:DevFolder=$noWriteProbe"
+        if ($LASTEXITCODE -ne 0) { throw 'Zero-write package build failed.' }
+        if (@(Get-ChildItem -LiteralPath $noWriteProbe -Force -Recurse).Count -ne 0) {
+          throw 'The default package build wrote to DevFolder.'
+        }
+
+        dotnet build $solution --configuration Release --no-restore "-p:Version=$packageVersion" -p:DeployToGame=false
+        if ($LASTEXITCODE -ne 0) { throw 'Release solution build failed.' }
+
+        $resultsDirectory = Join-Path $PWD 'TestResults'
+        dotnet test $testProject --configuration Release --no-build --results-directory $resultsDirectory --logger 'trx;LogFileName=editor-mode.trx'
+        if ($LASTEXITCODE -ne 0) { throw 'dotnet test failed.' }
+
+        $trxPath = Join-Path $resultsDirectory 'editor-mode.trx'
+        if (-not (Test-Path -LiteralPath $trxPath -PathType Leaf)) {
+          throw 'The test run did not produce editor-mode.trx.'
+        }
+        [xml]$trx = Get-Content -LiteralPath $trxPath -Raw
+        $counters = $trx.SelectSingleNode("//*[local-name()='ResultSummary']/*[local-name()='Counters']")
+        if ($null -eq $counters) { throw 'The TRX result has no test counters.' }
+        $executedTests = [int]$counters.GetAttribute('executed')
+        $failedTests = [int]$counters.GetAttribute('failed') + [int]$counters.GetAttribute('error')
+        if ($executedTests -eq 0 -or $failedTests -ne 0) {
+          throw "Expected executed tests > 0 and failures = 0; got executed=$executedTests failed=$failedTests."
+        }
+
+        dotnet format whitespace $solution --no-restore --verify-no-changes
+        if ($LASTEXITCODE -ne 0) { throw 'Whitespace verification failed.' }
+        dotnet format style $solution --no-restore --severity warn --verify-no-changes
+        if ($LASTEXITCODE -ne 0) { throw 'Style verification failed.' }
+
+        $solutionProjects = (dotnet sln $solution list) -join "`n"
+        if ($LASTEXITCODE -ne 0) { throw 'Could not list solution projects.' }
+        foreach ($expectedProject in @($modProject, $testProject)) {
+          if ($solutionProjects -notmatch [regex]::Escape($expectedProject)) {
+            throw "Solution does not list $expectedProject."
+          }
+        }
+
+        $buildArguments = @(
+          $solution,
+          '--configuration', 'Release',
+          '--no-restore',
+          "--p:Version=$packageVersion"
+        )
+        function Assert-InvalidDeployProbe {
+          param(
+            [Parameter(Mandatory)] [string] $Label,
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $DevFolder
+          )
+          $output = & dotnet build @buildArguments -p:DeployToGame=true "-p:DevFolder=$DevFolder" 2>&1 | Out-String
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -eq 0) {
+            throw "The $Label deployment probe unexpectedly succeeded."
+          }
+          if ($output -notmatch [regex]::Escape($deploymentError)) {
+            throw "The $Label deployment probe did not report the actionable destination error.`n$output"
+          }
+        }
+
+        Assert-InvalidDeployProbe -Label 'empty destination' -DevFolder ''
+
+        $missingProbe = Join-Path ([IO.Path]::GetTempPath()) ('blasmod-deploy-missing-' + [guid]::NewGuid().ToString('N'))
+        Assert-InvalidDeployProbe -Label 'missing destination' -DevFolder $missingProbe
+        if (Test-Path -LiteralPath $missingProbe) {
+          throw 'The missing deployment destination was created.'
+        }
+
+        $fileProbe = Join-Path ([IO.Path]::GetTempPath()) ('blasmod-deploy-file-' + [guid]::NewGuid().ToString('N'))
+        Set-Content -LiteralPath $fileProbe -Value 'unchanged'
+        Assert-InvalidDeployProbe -Label 'file destination' -DevFolder $fileProbe
+        if ((Get-Content -LiteralPath $fileProbe -Raw).Trim() -ne 'unchanged') {
+          throw 'The file-valued deployment destination was modified.'
+        }
+
+        $deployProbe = Join-Path ([IO.Path]::GetTempPath()) ('blasmod-deploy-ok-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $deployProbe | Out-Null
+        dotnet build @buildArguments -p:DeployToGame=true "-p:DevFolder=$deployProbe"
+        if ($LASTEXITCODE -ne 0) { throw 'The positive deployment probe failed.' }
+
+        $resourceRoot = Join-Path $PWD 'resources'
+        $expectedDeploymentEntries = @('plugins/EditorMode.dll') + @(
+          Get-ChildItem -LiteralPath (Join-Path $resourceRoot 'data') -File -Recurse |
+            ForEach-Object { [IO.Path]::GetRelativePath($resourceRoot, $_.FullName).Replace('\', '/') }
+        )
+        $actualDeploymentEntries = @(
+          Get-ChildItem -LiteralPath $deployProbe -File -Recurse |
+            ForEach-Object { [IO.Path]::GetRelativePath($deployProbe, $_.FullName).Replace('\', '/') }
+        )
+        if ($actualDeploymentEntries.Count -ne $expectedDeploymentEntries.Count) {
+          throw "Deployment probe file count was $($actualDeploymentEntries.Count), expected $($expectedDeploymentEntries.Count)."
+        }
+        foreach ($entry in $expectedDeploymentEntries) {
+          if ($entry -cnotin $actualDeploymentEntries) {
+            throw "Deployment probe is missing $entry."
+          }
+        }
+
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value "TEST_COUNT=$executedTests"
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value 'FORMATTING_RESULT=PASS'
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value 'NO_WRITE_RESULT=PASS'
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value 'DEPLOYMENT_PROBES_RESULT=PASS'
+
+    - name: Validate Release Artifacts
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $projectPath = 'Blasphemous.EditorMode\Blasphemous.EditorMode.csproj'
+        $resourceRoot = Join-Path $PWD 'resources'
+        $zipPath = Join-Path $PWD 'publish\EditorMode.zip'
+
+        $projectXml = [xml](Get-Content -LiteralPath $projectPath -Raw)
+        function Get-ProjectProperty {
+          param([Parameter(Mandatory)] [string] $Name)
+          $node = $projectXml.SelectSingleNode("/*[local-name()='Project']/*[local-name()='PropertyGroup']/*[local-name()='$Name']")
+          if ($null -eq $node -or [string]::IsNullOrWhiteSpace($node.InnerText)) {
+            throw "Project property $Name is missing."
+          }
+          $node.InnerText.Trim()
+        }
+        $projectTitle = Get-ProjectProperty -Name 'Title'
+        $targetName = Get-ProjectProperty -Name 'TargetName'
+        if ($targetName -cne 'EditorMode') {
+          throw "Expected target name EditorMode, got '$targetName'."
+        }
+
+        if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
+          throw "Canonical release ZIP is missing: $zipPath"
+        }
+        $zipFiles = @(Get-ChildItem -LiteralPath (Split-Path $zipPath) -Filter '*.zip' -File)
+        if ($zipFiles.Count -ne 1) {
+          throw "Expected exactly one release ZIP, found $($zipFiles.Count)."
+        }
+
+        $nupkgFiles = @(Get-ChildItem -Path $PWD -Filter '*.nupkg' -File -Recurse)
+        if ($nupkgFiles.Count -ne 1) {
+          throw "Expected exactly one NuGet package, found $($nupkgFiles.Count)."
+        }
+        $nupkgPath = $nupkgFiles[0].FullName
+
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $nupkgArchive = [IO.Compression.ZipFile]::OpenRead($nupkgPath)
+        try {
+          $nuspecEntry = $nupkgArchive.Entries |
+            Where-Object { $_.FullName -match '\.nuspec$' } |
+            Select-Object -First 1
+          if ($null -eq $nuspecEntry) { throw 'NuGet package has no nuspec.' }
+          $reader = [IO.StreamReader]::new($nuspecEntry.Open())
+          try { [xml]$nuspec = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        } finally {
+          $nupkgArchive.Dispose()
+        }
+        $nuspecIdNode = $nuspec.SelectSingleNode("//*[local-name()='metadata']/*[local-name()='id']")
+        if ($null -eq $nuspecIdNode -or [string]::IsNullOrWhiteSpace($nuspecIdNode.InnerText)) {
+          throw 'NuGet package has no package id.'
+        }
+        $nuspecId = $nuspecIdNode.InnerText.Trim()
+        if ($nuspecId -cne 'Blasphemous.EditorMode') {
+          throw "Unexpected NuGet package id '$nuspecId'."
+        }
+        $expectedNupkgName = "$nuspecId.$($env:PACKAGE_VERSION.Split('+')[0]).nupkg"
+        if ($nupkgFiles[0].Name -ne $expectedNupkgName) {
+          throw "NuGet package file '$($nupkgFiles[0].Name)' does not match expected '$expectedNupkgName'."
+        }
+
+        $nuspecVersion = $nuspec.SelectSingleNode("//*[local-name()='metadata']/*[local-name()='version']").InnerText.Trim()
+        if ($nuspecVersion -ne $env:PACKAGE_VERSION) {
+          throw "NuGet package version '$nuspecVersion' does not match tag version '$env:PACKAGE_VERSION'."
+        }
+
+        $expectedEntries = @('plugins/EditorMode.dll') + @(
+          Get-ChildItem -LiteralPath (Join-Path $resourceRoot 'data') -File -Recurse |
+            ForEach-Object { [IO.Path]::GetRelativePath($resourceRoot, $_.FullName).Replace('\', '/') }
+        )
+        $zipArchive = [IO.Compression.ZipFile]::OpenRead($zipPath)
+        try {
+          $actualEntries = @(
+            $zipArchive.Entries |
+              Where-Object { $_.FullName -and -not $_.FullName.EndsWith('/') } |
+              ForEach-Object { $_.FullName }
+          )
+        } finally {
+          $zipArchive.Dispose()
+        }
+
+        $forbiddenEntry = '(?i)(^|/)(Blasphemous\.EditorMode\.Tests(?:/|$)|[^/]*\.Tests\.(?:dll|exe|pdb)$|[^/]*testhost[^/]*$|xunit[^/]*$)|\.csproj$'
+        foreach ($entry in $actualEntries) {
+          if ($entry -match $forbiddenEntry) {
+            throw "Release ZIP contains a test artifact: $entry"
+          }
+        }
+        if ($actualEntries.Count -ne ($actualEntries | Sort-Object -Unique).Count) {
+          throw 'Release ZIP contains duplicate entries.'
+        }
+        if ($actualEntries.Count -ne $expectedEntries.Count) {
+          throw "Release ZIP has $($actualEntries.Count) files, expected $($expectedEntries.Count)."
+        }
+        foreach ($entry in $expectedEntries) {
+          if ($entry -cnotin $actualEntries) {
+            throw "Release ZIP is missing $entry."
+          }
+        }
+
+        $zipItem = Get-Item -LiteralPath $zipPath
+        $nupkgItem = Get-Item -LiteralPath $nupkgPath
+        $zipSha256 = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+        $nupkgSha256 = (Get-FileHash -LiteralPath $nupkgPath -Algorithm SHA256).Hash
+
+        $stagingDirectory = Join-Path $env:RUNNER_TEMP 'release-validation'
+        New-Item -ItemType Directory -Path $stagingDirectory -ErrorAction Stop | Out-Null
+        Copy-Item -LiteralPath $zipPath -Destination $stagingDirectory
+        Copy-Item -LiteralPath $nupkgPath -Destination $stagingDirectory
+
+        $metadata = [ordered]@{
+          schema_version = 1
+          project_title = $projectTitle
+          target_name = $targetName
+          package_version = $env:PACKAGE_VERSION
+          source_sha = $env:GITHUB_SHA
+          tag = $env:GITHUB_REF_NAME
+          artifact_count = 2
+          artifacts = @(
+            [ordered]@{
+              kind = 'zip'
+              file_name = $zipItem.Name
+              sha256 = $zipSha256
+              size_bytes = $zipItem.Length
+            },
+            [ordered]@{
+              kind = 'nuget'
+              file_name = $nupkgItem.Name
+              sha256 = $nupkgSha256
+              size_bytes = $nupkgItem.Length
+            }
+          )
+          validation = [ordered]@{
+            test_count = [int]$env:TEST_COUNT
+            formatting = $env:FORMATTING_RESULT
+            no_write = $env:NO_WRITE_RESULT
+            deployment_probes = $env:DEPLOYMENT_PROBES_RESULT
+            zip = 'PASS'
+          }
+        }
+        $metadata | ConvertTo-Json -Depth 6 |
+          Set-Content -LiteralPath (Join-Path $stagingDirectory 'release-metadata.json') -Encoding utf8NoBOM
+
+        $stagedFiles = @(Get-ChildItem -LiteralPath $stagingDirectory -File)
+        if ($stagedFiles.Count -ne 3) {
+          throw "Expected two release artifacts plus metadata, found $($stagedFiles.Count) files."
+        }
+
+    - name: Upload Validated Artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: release-validation
+        path: ${{ runner.temp }}/release-validation
+        if-no-files-found: error
