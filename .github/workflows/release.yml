@@ -4,6 +4,10 @@ on:
   push:
     tags: [ "**" ]
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   validate:
     runs-on: windows-latest
@@ -486,3 +490,428 @@ jobs:
         name: release-validation
         path: ${{ runner.temp }}/release-validation
         if-no-files-found: error
+
+  publish:
+    needs: validate
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+    - name: Verify NuGet Username
+      shell: pwsh
+      env:
+        NUGET_USERNAME: ${{ secrets.NUGET_USERNAME }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        if ([string]::IsNullOrWhiteSpace($env:NUGET_USERNAME)) {
+          throw 'Repository secret NUGET_USERNAME is required before release publication.'
+        }
+
+    - name: Download Same-Run Validation Artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: release-validation
+        path: ${{ runner.temp }}/release-validation
+        merge-multiple: true
+
+    - name: Validate Downloaded Artifacts
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $artifactDirectory = Join-Path $env:RUNNER_TEMP 'release-validation'
+        $metadataName = 'release-metadata.json'
+        $expectedTopLevelFields = @(
+          'schema_version', 'project_title', 'target_name', 'package_version',
+          'source_sha', 'tag', 'artifact_count', 'artifacts', 'validation'
+        )
+        $expectedArtifactFields = @('kind', 'file_name', 'sha256', 'size_bytes')
+        $semverPattern = '^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$'
+
+        function Assert-ExactFields {
+          param(
+            [Parameter(Mandatory)] $Value,
+            [Parameter(Mandatory)] [string[]] $Expected,
+            [Parameter(Mandatory)] [string] $Label
+          )
+          $actual = @($Value.PSObject.Properties.Name)
+          $missing = @($Expected | Where-Object { $_ -notin $actual })
+          $extra = @($actual | Where-Object { $_ -notin $Expected })
+          if ($missing.Count -ne 0 -or $extra.Count -ne 0) {
+            throw "$Label schema mismatch; missing=[$($missing -join ',')] extra=[$($extra -join ',')]."
+          }
+        }
+
+        function Assert-ArtifactFile {
+          param(
+            [Parameter(Mandatory)] $Metadata,
+            [Parameter(Mandatory)] [string] $ExpectedName,
+            [Parameter(Mandatory)] [string] $Kind
+          )
+          if ($Metadata.kind -cne $Kind) {
+            throw "Expected $Kind metadata kind, got '$($Metadata.kind)'."
+          }
+          if ($Metadata.file_name -cne $ExpectedName) {
+            throw "Expected $Kind file name '$ExpectedName', got '$($Metadata.file_name)'."
+          }
+          if ($Metadata.sha256 -notmatch '^[0-9A-Fa-f]{64}$') {
+            throw "$Kind metadata SHA-256 is malformed."
+          }
+          if ([long]$Metadata.size_bytes -le 0) {
+            throw "$Kind metadata size must be positive."
+          }
+
+          $path = Join-Path $artifactDirectory $ExpectedName
+          if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Validated $Kind artifact is missing: $ExpectedName"
+          }
+          $item = Get-Item -LiteralPath $path
+          if ($item.Length -ne [long]$Metadata.size_bytes) {
+            throw "$Kind size mismatch for '$ExpectedName'; expected $($Metadata.size_bytes), got $($item.Length)."
+          }
+          $actualHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+          if ($actualHash -cne ([string]$Metadata.sha256).ToUpperInvariant()) {
+            throw "$Kind SHA-256 mismatch for '$ExpectedName'."
+          }
+          $path
+        }
+
+        function Assert-ReadableArchive {
+          param([Parameter(Mandatory)] [string] $Path)
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($Path)
+          try {
+            if ($archive.Entries.Count -eq 0) {
+              throw "Archive '$Path' contains no entries."
+            }
+            foreach ($entry in $archive.Entries) {
+              $stream = $entry.Open()
+              try {
+                $stream.CopyTo([IO.Stream]::Null)
+              } finally {
+                $stream.Dispose()
+              }
+            }
+          } finally {
+            $archive.Dispose()
+          }
+        }
+
+        if (-not (Test-Path -LiteralPath $artifactDirectory -PathType Container)) {
+          throw "Downloaded artifact directory is missing: $artifactDirectory"
+        }
+        $artifactItems = @(Get-ChildItem -LiteralPath $artifactDirectory -Recurse -Force)
+        $artifactFiles = @($artifactItems | Where-Object { -not $_.PSIsContainer })
+        if ($artifactItems.Count -ne 3 -or $artifactFiles.Count -ne 3) {
+          throw "Expected exactly three files and no other entries, found $($artifactItems.Count) entries and $($artifactFiles.Count) files."
+        }
+
+        $metadataPath = Join-Path $artifactDirectory $metadataName
+        if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
+          throw "Release metadata is missing: $metadataName"
+        }
+        try {
+          $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+        } catch {
+          throw "Release metadata is not valid JSON: $($_.Exception.Message)"
+        }
+        Assert-ExactFields -Value $metadata -Expected $expectedTopLevelFields -Label 'Release metadata'
+        if ($metadata.schema_version -ne 1) {
+          throw "Unsupported release metadata schema version '$($metadata.schema_version)'."
+        }
+
+        $projectTitle = [string]$metadata.project_title
+        $targetName = [string]$metadata.target_name
+        $packageVersion = [string]$metadata.package_version
+        if ([string]::IsNullOrWhiteSpace($projectTitle) -or $projectTitle -match '[\r\n]' -or $projectTitle.Length -gt 200) {
+          throw 'Release metadata project_title is invalid.'
+        }
+        if ($targetName -notmatch '^[A-Za-z0-9._-]+$' -or $targetName -cne 'EditorMode') {
+          throw "Unexpected target name '$targetName'."
+        }
+        if ($env:GITHUB_REF_TYPE -ne 'tag' -or $env:GITHUB_REF -cne "refs/tags/$($env:GITHUB_REF_NAME)") {
+          throw 'Publishing must run from the triggering tag ref.'
+        }
+        if ($metadata.tag -cne $env:GITHUB_REF_NAME) {
+          throw "Release metadata tag '$($metadata.tag)' does not match '$($env:GITHUB_REF_NAME)'."
+        }
+        if ($env:GITHUB_SHA -notmatch '^[0-9a-f]{40}$' -or $metadata.source_sha -cne $env:GITHUB_SHA) {
+          throw "Release metadata source SHA '$($metadata.source_sha)' does not match '$($env:GITHUB_SHA)'."
+        }
+        $tagVersion = if ($env:GITHUB_REF_NAME.StartsWith('v', [StringComparison]::Ordinal)) {
+          $env:GITHUB_REF_NAME.Substring(1)
+        } else {
+          $env:GITHUB_REF_NAME
+        }
+        if ($packageVersion -cne $tagVersion -or $packageVersion -notmatch $semverPattern) {
+          throw "Package version '$packageVersion' does not match tag version '$tagVersion'."
+        }
+
+        $artifacts = @($metadata.artifacts)
+        if ([int]$metadata.artifact_count -ne 2 -or $artifacts.Count -ne 2) {
+          throw "Release metadata must describe exactly two artifacts."
+        }
+        foreach ($artifact in $artifacts) {
+          Assert-ExactFields -Value $artifact -Expected $expectedArtifactFields -Label 'Release artifact metadata'
+          if ([string]::IsNullOrWhiteSpace([string]$artifact.file_name) -or
+              [IO.Path]::GetFileName([string]$artifact.file_name) -cne [string]$artifact.file_name) {
+            throw "Release artifact file name '$($artifact.file_name)' is not a leaf name."
+          }
+        }
+        $zipMetadata = @($artifacts | Where-Object { $_.kind -ceq 'zip' })
+        $nugetMetadata = @($artifacts | Where-Object { $_.kind -ceq 'nuget' })
+        if ($zipMetadata.Count -ne 1 -or $nugetMetadata.Count -ne 1) {
+          throw 'Release metadata must contain exactly one zip and one nuget artifact.'
+        }
+
+        $zipName = [string]$zipMetadata[0].file_name
+        $nupkgName = [string]$nugetMetadata[0].file_name
+        if ($zipName -cne "$targetName.zip") {
+          throw "Expected release ZIP '$targetName.zip', got '$zipName'."
+        }
+        if ($nupkgName -notmatch '\.nupkg$') {
+          throw "NuGet artifact '$nupkgName' must end with .nupkg."
+        }
+        if (@($zipName, $nupkgName, $metadataName) | Group-Object -CaseSensitive | Where-Object Count -ne 1) {
+          throw 'Release metadata contains duplicate artifact names.'
+        }
+
+        $zipPath = Assert-ArtifactFile -Metadata $zipMetadata[0] -ExpectedName $zipName -Kind 'zip'
+        $nupkgPath = Assert-ArtifactFile -Metadata $nugetMetadata[0] -ExpectedName $nupkgName -Kind 'nuget'
+
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $nupkgArchive = [IO.Compression.ZipFile]::OpenRead($nupkgPath)
+        try {
+          $nuspecEntries = @($nupkgArchive.Entries | Where-Object { $_.FullName -match '\.nuspec$' })
+          if ($nuspecEntries.Count -ne 1) {
+            throw "NuGet package must contain exactly one nuspec, found $($nuspecEntries.Count)."
+          }
+          $reader = [IO.StreamReader]::new($nuspecEntries[0].Open())
+          try {
+            [xml]$nuspec = $reader.ReadToEnd()
+          } finally {
+            $reader.Dispose()
+          }
+          foreach ($entry in $nupkgArchive.Entries) {
+            $stream = $entry.Open()
+            try {
+              $stream.CopyTo([IO.Stream]::Null)
+            } finally {
+              $stream.Dispose()
+            }
+          }
+        } finally {
+          $nupkgArchive.Dispose()
+        }
+        $nuspecIdNode = $nuspec.SelectSingleNode("//*[local-name()='metadata']/*[local-name()='id']")
+        $nuspecVersionNode = $nuspec.SelectSingleNode("//*[local-name()='metadata']/*[local-name()='version']")
+        if ($null -eq $nuspecIdNode -or $null -eq $nuspecVersionNode) {
+          throw 'NuGet package nuspec is missing its id or version.'
+        }
+        $nuspecId = [string]$nuspecIdNode.InnerText.Trim()
+        $nuspecVersion = [string]$nuspecVersionNode.InnerText.Trim()
+        if ($nuspecId -cne 'Blasphemous.EditorMode') {
+          throw "Unexpected NuGet package id '$nuspecId'."
+        }
+        if ($nuspecVersion -cne $packageVersion) {
+          throw "NuGet package version '$nuspecVersion' does not match '$packageVersion'."
+        }
+        $expectedNupkgName = "$nuspecId.$($packageVersion.Split('+')[0]).nupkg"
+        if ($nupkgName -cne $expectedNupkgName) {
+          throw "NuGet package file '$nupkgName' does not match expected '$expectedNupkgName'."
+        }
+        Assert-ReadableArchive -Path $zipPath
+
+        $actualNames = @($artifactFiles.Name)
+        $expectedNames = @($metadataName, $zipName, $nupkgName)
+        if ($actualNames.Count -ne $expectedNames.Count) {
+          throw 'Downloaded artifact file count changed during validation.'
+        }
+        foreach ($expectedName in $expectedNames) {
+          if ($actualNames -cnotcontains $expectedName) {
+            throw "Downloaded artifact is missing '$expectedName'."
+          }
+        }
+
+        $environmentValues = [ordered]@{
+          RELEASE_ARTIFACT_DIRECTORY = $artifactDirectory
+          RELEASE_PROJECT_TITLE = $projectTitle
+          RELEASE_PACKAGE_VERSION = $packageVersion
+          RELEASE_ZIP_NAME = $zipName
+          RELEASE_NUPKG_NAME = $nupkgName
+          RELEASE_ZIP_PATH = $zipPath
+          RELEASE_NUPKG_PATH = $nupkgPath
+        }
+        foreach ($pair in $environmentValues.GetEnumerator()) {
+          if ([string]$pair.Value -match '[\r\n]') {
+            throw "Validated value for $($pair.Key) contains a newline."
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "$($pair.Key)=$($pair.Value)"
+        }
+        Write-Host "Validated release artifacts for $($env:GITHUB_REF_NAME) at $($env:GITHUB_SHA): $zipName, $nupkgName."
+
+    - name: Publish GitHub Release Draft
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NUGET_USERNAME: ${{ secrets.NUGET_USERNAME }}
+        RELEASE_TAG: ${{ github.ref_name }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $PSNativeCommandUseErrorActionPreference = $false
+        if ([string]::IsNullOrWhiteSpace($env:NUGET_USERNAME)) {
+          throw 'Repository secret NUGET_USERNAME is required before creating or updating a GitHub Release.'
+        }
+
+        $placeholderBody = 'This draft is created from validated release artifacts. Review and update these notes before publishing.'
+        $releaseEndpoint = "repos/$($env:GITHUB_REPOSITORY)/releases/tags/$([uri]::EscapeDataString($env:RELEASE_TAG))"
+
+        function Get-ReleaseState {
+          $rawLines = @(& gh api --include $releaseEndpoint 2>&1 | ForEach-Object { [string]$_ })
+          $exitCode = $LASTEXITCODE
+          $rawText = $rawLines -join "`n"
+          if ($exitCode -eq 0) {
+            $jsonMatch = [regex]::Match($rawText, '(?m)^\{')
+            if (-not $jsonMatch.Success) {
+              throw 'GitHub Release lookup succeeded without a JSON response.'
+            }
+            try {
+              $release = $rawText.Substring($jsonMatch.Index) | ConvertFrom-Json
+            } catch {
+              throw "GitHub Release lookup returned invalid JSON: $($_.Exception.Message)"
+            }
+            return [pscustomobject]@{ State = 'present'; Release = $release }
+          }
+
+          $statusMatches = [regex]::Matches($rawText, '(?m)^HTTP/\S+\s+(\d{3})\b')
+          $lastStatus = if ($statusMatches.Count -gt 0) {
+            [int]$statusMatches[$statusMatches.Count - 1].Groups[1].Value
+          } else {
+            $null
+          }
+          if ($lastStatus -eq 404) {
+            return [pscustomobject]@{ State = 'absent'; Release = $null }
+          }
+          if ($null -eq $lastStatus -and $rawText -match '(?im)^gh: Not Found \(HTTP 404\)\s*$') {
+            return [pscustomobject]@{ State = 'absent'; Release = $null }
+          }
+          throw "GitHub Release lookup failed without a definitive absence response. Refusing to mutate.`n$rawText"
+        }
+
+        function Assert-DraftAssetBoundary {
+          param(
+            [Parameter(Mandatory)] $Release,
+            [Parameter(Mandatory)] [string] $ExpectedZipName
+          )
+          $draftProperty = $Release.PSObject.Properties['draft']
+          $assetsProperty = $Release.PSObject.Properties['assets']
+          $tagProperty = $Release.PSObject.Properties['tag_name']
+          $bodyProperty = $Release.PSObject.Properties['body']
+          if ($null -eq $draftProperty -or $null -eq $assetsProperty -or $null -eq $tagProperty -or
+              $null -eq $bodyProperty -or $null -eq $assetsProperty.Value) {
+            throw "Release '$($env:RELEASE_TAG)' response is missing draft, assets, tag_name, or body."
+          }
+          if ($draftProperty.Value -isnot [bool]) {
+            throw "Release '$($env:RELEASE_TAG)' response has a non-boolean draft flag."
+          }
+          if ([string]$Release.tag_name -cne $env:RELEASE_TAG) {
+            throw "Release lookup returned tag '$($Release.tag_name)' instead of '$($env:RELEASE_TAG)'."
+          }
+          if (-not $draftProperty.Value) {
+            throw "Release '$($env:RELEASE_TAG)' is published; refusing publication."
+          }
+          $assets = @($Release.assets)
+          $unnamedAssets = @($assets | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.name) })
+          if ($unnamedAssets.Count -ne 0) {
+            throw "Draft Release '$($env:RELEASE_TAG)' contains an asset without a name."
+          }
+          $unexpectedAssets = @($assets | Where-Object { $_.name -cne $ExpectedZipName })
+          if ($unexpectedAssets.Count -ne 0 -or $assets.Count -gt 1) {
+            $names = @($assets | ForEach-Object { $_.name }) -join ', '
+            throw "Draft Release '$($env:RELEASE_TAG)' has unexpected assets [$names]; refusing mutation."
+          }
+          if ($assets.Count -eq 1 -and $assets[0].name -cne $ExpectedZipName) {
+            throw "Draft Release '$($env:RELEASE_TAG)' has an unexpected asset."
+          }
+          return $assets.Count
+        }
+
+        $initialState = Get-ReleaseState
+        if ($initialState.State -eq 'absent') {
+          $releaseTitle = "$($env:RELEASE_PROJECT_TITLE) $($env:RELEASE_PACKAGE_VERSION)"
+          & gh release create $env:RELEASE_TAG $env:RELEASE_ZIP_PATH `
+            --repo $env:GITHUB_REPOSITORY `
+            --draft `
+            --title $releaseTitle `
+            --notes $placeholderBody
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create draft Release '$($env:RELEASE_TAG)'."
+          }
+          $createdState = Get-ReleaseState
+          if ($createdState.State -ne 'present') {
+            throw "Draft Release '$($env:RELEASE_TAG)' was not found after creation."
+          }
+          $createdAssetCount = Assert-DraftAssetBoundary -Release $createdState.Release -ExpectedZipName $env:RELEASE_ZIP_NAME
+          if ($createdAssetCount -ne 1) {
+            throw "Created draft Release '$($env:RELEASE_TAG)' does not contain exactly the expected ZIP."
+          }
+          if ([string]$createdState.Release.name -cne $releaseTitle) {
+            throw "Created draft Release '$($env:RELEASE_TAG)' has an unexpected title."
+          }
+          if ([string]$createdState.Release.body -cne $placeholderBody) {
+            throw "Created draft Release '$($env:RELEASE_TAG)' does not have the placeholder body."
+          }
+          Write-Host "Created draft Release '$($env:RELEASE_TAG)' with '$($env:RELEASE_ZIP_NAME)'."
+        } else {
+          $existingBody = [string]$initialState.Release.body
+          $existingAssetCount = Assert-DraftAssetBoundary -Release $initialState.Release -ExpectedZipName $env:RELEASE_ZIP_NAME
+          & gh release upload $env:RELEASE_TAG $env:RELEASE_ZIP_PATH `
+            --repo $env:GITHUB_REPOSITORY `
+            --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload '$($env:RELEASE_ZIP_NAME)' to draft Release '$($env:RELEASE_TAG)'."
+          }
+          $updatedState = Get-ReleaseState
+          if ($updatedState.State -ne 'present') {
+            throw "Draft Release '$($env:RELEASE_TAG)' disappeared after upload."
+          }
+          $updatedAssetCount = Assert-DraftAssetBoundary -Release $updatedState.Release -ExpectedZipName $env:RELEASE_ZIP_NAME
+          if ($updatedAssetCount -ne 1) {
+            throw "Draft Release '$($env:RELEASE_TAG)' does not contain exactly the expected ZIP."
+          }
+          if ([string]$updatedState.Release.body -cne $existingBody) {
+            throw "Draft Release '$($env:RELEASE_TAG)' body changed during ZIP upload."
+          }
+          Write-Host "Updated draft Release '$($env:RELEASE_TAG)' ZIP asset; existing body was left unchanged (existing assets: $existingAssetCount)."
+        }
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Login To NuGet
+      id: nuget-login
+      uses: NuGet/login@v1
+      with:
+        user: ${{ secrets.NUGET_USERNAME }}
+
+    - name: Push Validated NuGet Package
+      shell: pwsh
+      env:
+        NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        if ([string]::IsNullOrWhiteSpace($env:NUGET_API_KEY)) {
+          throw 'NuGet/login did not produce NUGET_API_KEY.'
+        }
+        if (-not (Test-Path -LiteralPath $env:RELEASE_NUPKG_PATH -PathType Leaf)) {
+          throw "Validated NuGet package is missing: $($env:RELEASE_NUPKG_NAME)"
+        }
+        $actualHash = (Get-FileHash -LiteralPath $env:RELEASE_NUPKG_PATH -Algorithm SHA256).Hash
+        Write-Host "Pushing $($env:RELEASE_NUPKG_NAME) version $($env:RELEASE_PACKAGE_VERSION) (SHA-256 $actualHash)."
+        dotnet nuget push $env:RELEASE_NUPKG_PATH --api-key $env:NUGET_API_KEY --source 'https://api.nuget.org/v3/index.json'
+        if ($LASTEXITCODE -ne 0) {
+          throw 'NuGet push failed; the version may already exist. A draft GitHub Release may remain in place.'
+        }
