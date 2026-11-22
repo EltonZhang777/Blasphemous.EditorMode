@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Keep EditorConfig LF exceptions stable across core.autocrlf settings
+Blasphemous.EditorMode/Components/EditorWidget.cs text eol=lf
+Blasphemous.EditorMode/Properties/AssemblyInfo.cs text eol=lf
+Blasphemous.EditorMode.Tests/*.cs text eol=lf
