@@ -490,6 +490,7 @@ jobs:
         name: release-validation
         path: ${{ runner.temp }}/release-validation
         if-no-files-found: error
+        overwrite: true
 
   publish:
     needs: validate

@@ -171,24 +171,27 @@ jobs:
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
           try {
-            $zipEntries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
+            $zipEntries = @(
+              $archive.Entries |
+                Where-Object { $_.FullName -and -not $_.FullName.EndsWith('/') } |
+                ForEach-Object { $_.FullName.Replace('\', '/') }
+            )
           }
           finally {
             $archive.Dispose()
           }
 
           $expectedEntries = @('plugins/EditorMode.dll') + $dataEntries
-          $missingEntries = @($expectedEntries | Where-Object { $zipEntries -cnotcontains $_ })
-          if ($missingEntries.Count -ne 0) {
-            throw "Canonical ZIP is missing entries: $($missingEntries -join ', ')"
+          if ($zipEntries.Count -ne ($zipEntries | Sort-Object -Unique).Count) {
+            throw 'Canonical ZIP contains duplicate entries.'
           }
-
-          $forbiddenEntries = @($zipEntries | Where-Object {
-            $_ -match '(?i)(^|/)(?:test|tests|testhost|xunit)(?:$|[/.])' -or
-            $_ -match '(?i)\.tests(?:$|[/.])'
-          })
-          if ($forbiddenEntries.Count -ne 0) {
-            throw "Canonical ZIP contains test artifacts: $($forbiddenEntries -join ', ')"
+          if ($zipEntries.Count -ne $expectedEntries.Count) {
+            throw "Canonical ZIP has $($zipEntries.Count) files, expected $($expectedEntries.Count)."
+          }
+          $missingEntries = @($expectedEntries | Where-Object { $zipEntries -cnotcontains $_ })
+          $unexpectedEntries = @($zipEntries | Where-Object { $expectedEntries -cnotcontains $_ })
+          if ($missingEntries.Count -ne 0 -or $unexpectedEntries.Count -ne 0) {
+            throw "Canonical ZIP entries do not match; missing=[$($missingEntries -join ', ')] unexpected=[$($unexpectedEntries -join ', ')]."
           }
 
           $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash

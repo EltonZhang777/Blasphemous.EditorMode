@@ -131,20 +131,19 @@ jobs:
           }
 
           $required = @('plugins/EditorMode.dll') + $dataFiles
-          $missing = @($required | Where-Object { $_ -notin $entries })
-          if ($missing.Count -ne 0) {
-            throw "Canonical ZIP is missing required entries: $($missing -join ', ')"
+          if ($entries.Count -ne ($entries | Sort-Object -Unique).Count) {
+            throw 'Canonical ZIP contains duplicate entries.'
+          }
+          if ($entries.Count -ne $required.Count) {
+            throw "Canonical ZIP has $($entries.Count) files, expected $($required.Count)."
+          }
+          $missing = @($required | Where-Object { $entries -cnotcontains $_ })
+          $unexpected = @($entries | Where-Object { $required -cnotcontains $_ })
+          if ($missing.Count -ne 0 -or $unexpected.Count -ne 0) {
+            throw "Canonical ZIP entries do not match; missing=[$($missing -join ', ')] unexpected=[$($unexpected -join ', ')]."
           }
 
-          $testArtifacts = @(
-            $entries |
-              Where-Object { $_ -match '(?i)(^|/)Blasphemous\.EditorMode\.Tests(\.|/|$)|(^|/)(testhost|vstest|microsoft\.testplatform|xunit)|\.trx$' }
-          )
-          if ($testArtifacts.Count -ne 0) {
-            throw "Canonical ZIP contains test artifacts: $($testArtifacts -join ', ')"
-          }
-
-          Write-Output "Canonical ZIP entries=$($entries.Count) required=$($required.Count) testArtifacts=0"
+          Write-Output "Canonical ZIP entries=$($entries.Count) required=$($required.Count) unexpected=0"
 
   formatting:
     name: Formatting
