@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net35</TargetFramework>
@@ -44,7 +44,7 @@
     <!-- Get plugin & resources -->
     <ItemGroup>
       <PluginDll Include="$(TargetPath)" />
-      <Resources Include="$(MSBuildProjectDirectory)\..\resources\**\*.*" />
+      <Resources Include="$(MSBuildProjectDirectory)\..\resources\**\*.*" Exclude="$(MSBuildProjectDirectory)\..\resources\data\**\*.*" />
     </ItemGroup>
 
     <!-- Get packaging directories -->
