@@ -4,13 +4,21 @@ on:
 
 jobs:
   discord:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     if: ${{ !github.event.release.draft && !github.event.release.prerelease }}
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      - name: Post Webhook
-        uses: SethCohen/github-releases-to-discord@v1
+      - name: Require Discord webhook URL
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: |
+          if [[ -z "$WEBHOOK_URL" ]]; then
+            echo "::error::WEBHOOK_URL is not configured."
+            exit 1
+          fi
+      - name: Notify Discord
+        uses: step-security/github-releases-to-discord@v1.20.0
         with:
           webhook_url: ${{ secrets.WEBHOOK_URL }}
           footer_timestamp: true
