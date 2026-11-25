@@ -243,6 +243,7 @@ internal class EditorWidget : MonoBehaviour
         List<RaycastResult> raycastResults = [];
         eventSystem.RaycastAll(pointer, raycastResults);
 
+        List<EditorPointerHit> hits = [];
         foreach (RaycastResult result in raycastResults)
         {
             GameObject hit = result.gameObject;
@@ -250,11 +251,45 @@ internal class EditorWidget : MonoBehaviour
                 continue;
 
             Transform hitTransform = hit.transform;
-            if (hitTransform == transform || hitTransform.IsChildOf(transform))
-                return true;
+            bool belongsToEditor = hitTransform == transform || hitTransform.IsChildOf(transform);
+            bool hasEnabledSelectable = false;
+            bool hasEnabledScrollRect = false;
+            if (belongsToEditor)
+            {
+                FindEnabledEditorControls(
+                    hitTransform,
+                    out hasEnabledSelectable,
+                    out hasEnabledScrollRect);
+            }
+            hits.Add(new EditorPointerHit(
+                belongsToEditor,
+                hasEnabledSelectable,
+                hasEnabledScrollRect));
         }
 
-        return false;
+        return EditorPointerHitPolicy.IsPointerOverInteractiveControl(hits);
+    }
+
+    private void FindEnabledEditorControls(
+        Transform hitTransform,
+        out bool hasEnabledSelectable,
+        out bool hasEnabledScrollRect)
+    {
+        hasEnabledSelectable = false;
+        hasEnabledScrollRect = false;
+        for (Transform current = hitTransform; current != null; current = current.parent)
+        {
+            Selectable selectable = current.GetComponent<Selectable>();
+            if (selectable != null && selectable.isActiveAndEnabled && selectable.IsInteractable())
+                hasEnabledSelectable = true;
+
+            ScrollRect scrollRect = current.GetComponent<ScrollRect>();
+            if (scrollRect != null && scrollRect.isActiveAndEnabled)
+                hasEnabledScrollRect = true;
+
+            if (current == transform)
+                break;
+        }
     }
 
     internal void Refresh()
