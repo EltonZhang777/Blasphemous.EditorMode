@@ -148,7 +148,8 @@ internal class EditorWidget : MonoBehaviour
 
     private void OnDisable()
     {
-        _canvasRaycaster?.enabled = !_addedCanvasRaycaster && _canvasRaycasterWasEnabled;
+        if (_canvasRaycaster != null)
+            _canvasRaycaster.enabled = !_addedCanvasRaycaster && _canvasRaycasterWasEnabled;
 
         if (_standaloneInputModuleWasAdded && _standaloneInputModule != null)
         {
@@ -160,14 +161,16 @@ internal class EditorWidget : MonoBehaviour
         {
             for (int i = 0; i < _inputModulesBeforeEditor.Length; i++)
             {
-                _inputModulesBeforeEditor[i]?.enabled = _inputModulesWereEnabled[i];
+                if (_inputModulesBeforeEditor[i] != null)
+                    _inputModulesBeforeEditor[i].enabled = _inputModulesWereEnabled[i];
             }
         }
 
         _inputModulesBeforeEditor = null;
         _inputModulesWereEnabled = null;
         _standaloneInputModule = null;
-        _fallbackEventSystem?.SetActive(false);
+        if (_fallbackEventSystem != null)
+            _fallbackEventSystem.SetActive(false);
     }
 
     private void Update()

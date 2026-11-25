@@ -306,7 +306,9 @@ internal class EditorMode : BlasMod
 
         DisposePreview();
         _lifecycleBridge.EndEditing();
-        EditorWidget?.gameObject.SetActive(false);
+        EditorWidget widget = EditorWidget;
+        if (widget != null)
+            widget.gameObject.SetActive(false);
     }
 
     internal LevelEditSessionExportResult ExportCurrentRoom()
@@ -833,7 +835,9 @@ internal class EditorMode : BlasMod
     private void PublishReport(string operation, ApplyReport report)
     {
         _reportPublisher.Publish(operation, report);
-        EditorWidget?.Refresh();
+        EditorWidget widget = EditorWidget;
+        if (widget != null)
+            widget.Refresh();
     }
 
     private bool RunManagerCommand(
