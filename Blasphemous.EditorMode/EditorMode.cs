@@ -579,18 +579,6 @@ internal class EditorMode : BlasMod
         return result;
     }
 
-    internal bool TrySetSelectedProperty(string key, string value)
-    {
-        RuntimePlacementManager manager = PlacementManager;
-        if (manager == null || manager.Selected == null)
-            return false;
-
-        ApplyReport report = new();
-        bool result = manager.TrySetProperty(manager.Selected.Id, key, value, report);
-        PublishReport("Property", report);
-        return result;
-    }
-
     internal bool TrySelectAtCursor()
     {
         if (!TryFindAtCursor(out IRuntimePlacementHandle handle, out string error))

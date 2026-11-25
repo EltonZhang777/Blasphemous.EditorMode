@@ -38,6 +38,10 @@ internal class EditorWidget : MonoBehaviour
     private Text _statusText;
     private Transform _catalogRoot;
     private Transform _propertyRoot;
+    private InputField _propertiesField;
+    private Text _propertiesWarning;
+    private Button _propertiesApplyButton;
+    private ScrollRect _propertiesScroll;
     private InputField[] _positionFields;
     private InputField[] _rotationFields;
     private InputField[] _scaleFields;
@@ -87,26 +91,25 @@ internal class EditorWidget : MonoBehaviour
         _rotationFields = CreateTransformFields("Rotation", 190f);
         _scaleFields = CreateTransformFields("Scale", 280f);
         CreateButton("Apply Transform", "Apply", new Vector2(190f, -38f), ApplyTransform);
-        _propertyRoot = new GameObject("Properties").transform;
-        _propertyRoot.SetParent(transform, false);
+        CreatePropertiesEditor();
 
-        CreateButton("Import", "Import", new Vector2(-235f, -178f), () => Main.EditorMode.ImportCurrentRoom());
-        CreateButton("Export", "Export", new Vector2(-155f, -178f), () => Main.EditorMode.ExportCurrentRoom());
-        CreateButton("Undo", "Undo", new Vector2(-75f, -178f), () => Main.EditorMode.TryUndo());
-        CreateButton("Redo", "Redo", new Vector2(5f, -178f), () => Main.EditorMode.TryRedo());
-        CreateButton("Copy", "Copy Ctrl+C", new Vector2(85f, -178f), () => Main.EditorMode.TryCopySelected());
-        CreateButton("Paste", "Paste Ctrl+V", new Vector2(165f, -178f), () => Main.EditorMode.TryPasteAtCursor());
-        CreateButton("Delete", "Delete", new Vector2(245f, -178f), () => Main.EditorMode.TryDeleteSelected());
-        CreateButton("Lock", "Lock", new Vector2(-155f, -142f), () => Main.EditorMode.TryToggleSelectedLock());
-        CreateButton("Reset", "Reset", new Vector2(-75f, -142f), () => Main.EditorMode.TryReset());
-        CreateButton("Exit", "Exit", new Vector2(5f, -142f), () => Main.EditorMode.ExitFromUi());
+        CreateButton("Import", "Import", new Vector2(-235f, -182f), () => Main.EditorMode.ImportCurrentRoom());
+        CreateButton("Export", "Export", new Vector2(-155f, -182f), () => Main.EditorMode.ExportCurrentRoom());
+        CreateButton("Undo", "Undo", new Vector2(-75f, -182f), () => Main.EditorMode.TryUndo());
+        CreateButton("Redo", "Redo", new Vector2(5f, -182f), () => Main.EditorMode.TryRedo());
+        CreateButton("Copy", "Copy Ctrl+C", new Vector2(85f, -182f), () => Main.EditorMode.TryCopySelected());
+        CreateButton("Paste", "Paste Ctrl+V", new Vector2(165f, -182f), () => Main.EditorMode.TryPasteAtCursor());
+        CreateButton("Delete", "Delete", new Vector2(245f, -182f), () => Main.EditorMode.TryDeleteSelected());
+        CreateButton("Lock", "Lock", new Vector2(-155f, -147f), () => Main.EditorMode.TryToggleSelectedLock());
+        CreateButton("Reset", "Reset", new Vector2(-75f, -147f), () => Main.EditorMode.TryReset());
+        CreateButton("Exit", "Exit", new Vector2(5f, -147f), () => Main.EditorMode.ExitFromUi());
         freezeGameButtonObj = CreateButton(
             "Freeze Game Button",
             "Freeze",
-            new Vector2(85f, -142f),
+            new Vector2(85f, -147f),
             OnFreezeGameButtonClicked).gameObject;
-        CreateButton("Pick", "Pick P", new Vector2(165f, -142f), () => Main.EditorMode.TryPickSelected());
-        CreateButton("Clear Preview", "Clear", new Vector2(245f, -142f), () => Main.EditorMode.ClearPreview());
+        CreateButton("Pick", "Pick P", new Vector2(165f, -147f), () => Main.EditorMode.TryPickSelected());
+        CreateButton("Clear Preview", "Clear", new Vector2(245f, -147f), () => Main.EditorMode.ClearPreview());
     }
 
     private void OnEnable()
@@ -237,12 +240,13 @@ internal class EditorWidget : MonoBehaviour
             : editor.PlacementManager.Selected.Id;
         PlacementRecord selectedPlacement = editor.PlacementManager?.Selected;
         string selectedPlacementId = selectedPlacement?.Id;
-        if (!string.Equals(_selectedId, selectedPlacementId, StringComparison.OrdinalIgnoreCase))
+        bool selectionChanged = !string.Equals(_selectedId, selectedPlacementId, StringComparison.OrdinalIgnoreCase);
+        if (selectionChanged)
         {
             _selectedId = selectedPlacementId;
             SetTransformFields(selectedPlacement);
-            BuildPropertyEditor(editor, selectedPlacement);
         }
+        SetPropertiesEditor(selectedPlacement, selectionChanged);
         string dependency = Main.DependencyStatus == null
             ? "unknown"
             : Main.DependencyStatus.IsCompatible ? "compatible" : "blocked";
@@ -429,78 +433,136 @@ internal class EditorWidget : MonoBehaviour
             target[offset + index] = fields[index] == null ? string.Empty : fields[index].text;
     }
 
-    private void BuildPropertyEditor(EditorMode editor, PlacementRecord placement)
+    private void CreatePropertiesEditor()
     {
-        if (_propertyRoot == null)
-            return;
+        _propertyRoot = new GameObject("Properties Section").transform;
+        _propertyRoot.SetParent(transform, false);
+        _propertyRoot.localScale = Vector3.one;
 
-        for (int index = _propertyRoot.childCount - 1; index >= 0; index--)
-            UnityEngine.Object.Destroy(_propertyRoot.GetChild(index).gameObject);
-
-        if (placement == null)
-        {
-            CreateText(
-                "No Selection Properties",
-                new Vector2(190f, -76f),
-                new Vector2(220f, 28f),
-                12,
-                TextAnchor.MiddleLeft,
-                _propertyRoot).text = "Select an owned placement.";
-            return;
-        }
-
-        if (editor.Catalog == null || !editor.Catalog.TryGet(placement.Type, out CreatorMetadata metadata)
-            || metadata.PropertyDefinitions.Count == 0)
-        {
-            CreateText(
-                "No Properties",
-                new Vector2(190f, -76f),
-                new Vector2(220f, 28f),
-                12,
-                TextAnchor.MiddleLeft,
-                _propertyRoot).text = "No editable properties.";
-            return;
-        }
-
-        int row = 0;
-        foreach (CreatorPropertyDefinition definition in metadata.PropertyDefinitions)
-        {
-            float y = -76f - (row++ * 32f);
-            CreatorPropertyDefinition property = definition;
-            CreateText(
-                "Property " + property.Key,
-                new Vector2(72f, y),
-                new Vector2(90f, 26f),
-                11,
-                TextAnchor.MiddleLeft,
-                _propertyRoot).text = property.Key + " (" + property.Type + ")";
-            InputField input = CreateInputField(
-                "Value " + property.Key,
-                new Vector2(190f, y),
-                _propertyRoot);
-            input.contentType = InputField.ContentType.Standard;
-            input.text = FindPropertyValue(placement, property.Key);
-            CreateButton(
-                "Apply " + property.Key,
-                "Set",
-                new Vector2(280f, y),
-                () => Main.EditorMode.TrySetSelectedProperty(property.Key, input.text),
-                _propertyRoot);
-        }
+        CreateText(
+            "Properties Heading",
+            new Vector2(66f, -62f),
+            new Vector2(80f, 16f),
+            13,
+            TextAnchor.MiddleLeft,
+            _propertyRoot).text = "Properties";
+        _propertiesWarning = CreateText(
+            "Properties Warning",
+            new Vector2(190f, -62f),
+            new Vector2(160f, 14f),
+            8,
+            TextAnchor.MiddleRight,
+            _propertyRoot);
+        _propertiesWarning.color = new Color(1f, 0.75f, 0.35f, 1f);
+        _propertiesWarning.gameObject.SetActive(false);
+        _propertiesField = CreateMultilineInputField(
+            "Properties Field",
+            new Vector2(100f, -100f),
+            new Vector2(230f, 52f),
+            _propertyRoot);
+        _propertiesApplyButton = CreateButton(
+            "Apply Properties",
+            "Apply",
+            new Vector2(282f, -100f),
+            null,
+            _propertyRoot);
+        _propertiesApplyButton.interactable = false;
     }
 
-    private static string FindPropertyValue(PlacementRecord placement, string key)
+    private void SetPropertiesEditor(PlacementRecord placement, bool selectionChanged)
     {
-        string prefix = key + "=";
-        foreach (string property in placement.Properties)
-        {
-            if (property != null && property.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                return property.Substring(prefix.Length);
-            if (string.Equals(property, key, StringComparison.OrdinalIgnoreCase))
-                return property;
-        }
+        RawPropertiesText properties = RawPropertiesText.Create(placement?.Properties);
+        bool textChanged = !string.Equals(_propertiesField.text, properties.Text, StringComparison.Ordinal);
 
-        return string.Empty;
+        _propertiesField.readOnly = true;
+        if (selectionChanged || textChanged)
+        {
+            _propertiesField.text = properties.Text;
+            _propertiesScroll.verticalNormalizedPosition = 1f;
+        }
+        _propertiesWarning.text = properties.ContainsLineBreak ? "Stored CR/LF: read-only" : string.Empty;
+        _propertiesWarning.gameObject.SetActive(properties.ContainsLineBreak);
+        _propertiesApplyButton.interactable = false;
+    }
+
+    private InputField CreateMultilineInputField(
+        string name,
+        Vector2 position,
+        Vector2 size,
+        Transform parent)
+    {
+        GameObject obj = new(name)
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
+        obj.transform.SetParent(parent, false);
+        RectTransform rect = obj.AddComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = position;
+        rect.sizeDelta = size;
+        Image image = obj.AddComponent<Image>();
+        image.color = Color.white;
+
+        GameObject viewportObject = new("Viewport")
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
+        viewportObject.transform.SetParent(obj.transform, false);
+        RectTransform viewport = viewportObject.AddComponent<RectTransform>();
+        viewport.anchorMin = Vector2.zero;
+        viewport.anchorMax = Vector2.one;
+        viewport.offsetMin = new Vector2(4f, 4f);
+        viewport.offsetMax = new Vector2(-4f, -4f);
+        Image viewportImage = viewportObject.AddComponent<Image>();
+        viewportImage.color = Color.white;
+        Mask mask = viewportObject.AddComponent<Mask>();
+        mask.showMaskGraphic = false;
+
+        GameObject textObject = new("Text")
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
+        textObject.transform.SetParent(viewportObject.transform, false);
+        RectTransform textRect = textObject.AddComponent<RectTransform>();
+        textRect.anchorMin = new Vector2(0f, 1f);
+        textRect.anchorMax = new Vector2(1f, 1f);
+        textRect.pivot = new Vector2(0.5f, 1f);
+        textRect.anchoredPosition = Vector2.zero;
+        textRect.sizeDelta = Vector2.zero;
+        Text text = textObject.AddComponent<Text>();
+        text.font = UIModder.Fonts.Blasphemous ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+        text.fontSize = 12;
+        text.alignment = TextAnchor.UpperLeft;
+        text.color = Color.black;
+        text.raycastTarget = false;
+        text.supportRichText = false;
+        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.verticalOverflow = VerticalWrapMode.Overflow;
+        ContentSizeFitter fitter = textObject.AddComponent<ContentSizeFitter>();
+        fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        ScrollRect scroll = obj.AddComponent<ScrollRect>();
+        scroll.content = textRect;
+        scroll.viewport = viewport;
+        scroll.horizontal = false;
+        scroll.vertical = true;
+        scroll.movementType = ScrollRect.MovementType.Clamped;
+        scroll.elasticity = 0f;
+        scroll.inertia = false;
+        scroll.scrollSensitivity = 24f;
+
+        InputField input = obj.AddComponent<InputField>();
+        input.targetGraphic = image;
+        input.contentType = InputField.ContentType.Standard;
+        input.lineType = InputField.LineType.MultiLineNewline;
+        input.textComponent = text;
+        input.readOnly = true;
+        input.caretWidth = 1;
+        _propertiesScroll = scroll;
+        return input;
     }
 
     private void BuildCatalog(ContentCatalog catalog)

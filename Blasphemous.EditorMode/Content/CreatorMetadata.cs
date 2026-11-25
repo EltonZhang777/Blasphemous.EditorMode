@@ -266,6 +266,14 @@ internal static class BaseCreatorCatalog
 {
     internal const string BellIronType = "bell-iron";
 
+#if DEBUG
+    private static readonly string[] SmokeFixtureBellIronPropertyKeys =
+        RawPropertiesSmokeFixture.ResolveBellIronPropertyKeys(
+            Environment.GetEnvironmentVariable(RawPropertiesSmokeFixture.ActivationVariable));
+#else
+    private static readonly string[] SmokeFixtureBellIronPropertyKeys = [];
+#endif
+
     internal static readonly CreatorMetadata BellIron = new(
         BellIronType,
         "Iron Bell",
@@ -274,7 +282,7 @@ internal static class BaseCreatorCatalog
         "D03Z02S06_LOGIC",
         "TRAPS/TRAP_SHOCK_CHAIN_REACTION",
         TransformCapabilities.Position | TransformCapabilities.Rotation | TransformCapabilities.Scale,
-        []);
+        SmokeFixtureBellIronPropertyKeys);
 
     private static readonly ReadOnlyCollection<CreatorMetadata> All =
         new([BellIron]);

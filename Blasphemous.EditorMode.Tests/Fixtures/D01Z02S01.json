@@ -1,0 +1,117 @@
+{
+  "additions": [
+    {
+      "type": "bell-iron",
+      "id": "bell-iron-1",
+      "position": {
+        "x": -515.65625,
+        "y": 17.7916679,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "condition": "",
+      "properties": []
+    },
+    {
+      "type": "bell-iron",
+      "id": "bell-iron-2",
+      "position": {
+        "x": -517.1458,
+        "y": 15.083334,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "condition": "",
+      "properties": []
+    },
+    {
+      "type": "bell-iron",
+      "id": "bell-iron-3",
+      "position": {
+        "x": -519.0,
+        "y": 17.875,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "scale": {
+        "x": 2.0,
+        "y": 2.0,
+        "z": 1.0
+      },
+      "condition": "",
+      "properties": [
+        "x=1",
+        "color=#ff00ff",
+        "OneWayDown",
+        "test-property",
+        "length=3.0",
+        "mode=fixture",
+        "left=1",
+        "right=2",
+        "top=3",
+        "bottom=4",
+        "x_boundary=inner",
+        "y_boundary=outer",
+        "x_adjust=left",
+        "y_adjust=top",
+        "note=length = 3.0",
+        "note=line 16",
+        "note=line 17",
+        "note=line 18",
+        "note=line 19",
+        "note=line 20",
+        "note=line 21",
+        "note=line 22",
+        "note=line 23",
+        "note=line 24"
+      ]
+    },
+    {
+      "type": "bell-iron",
+      "id": "bell-iron-crlf",
+      "position": {
+        "x": -521.0,
+        "y": 17.875,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "condition": "",
+      "properties": [
+        "note=first\r\nsecond"
+      ]
+    }
+  ],
+  "modifications": [],
+  "deletions": []
+}
