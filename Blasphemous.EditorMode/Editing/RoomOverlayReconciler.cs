@@ -14,17 +14,20 @@ internal sealed class RoomOverlayReconcileResult
         RoomIdentity room,
         LevelEditSession session,
         RuntimePlacementManager manager,
+        EditorPageController pages,
         ApplyReport report)
     {
         Room = room;
         Session = session;
         Manager = manager;
+        Pages = pages;
         Report = report;
     }
 
     internal RoomIdentity Room { get; }
     internal LevelEditSession Session { get; }
     internal RuntimePlacementManager Manager { get; }
+    internal EditorPageController Pages { get; }
     internal ApplyReport Report { get; }
     internal bool Succeeded { get { return Session != null && Manager != null; } }
     internal string StatusMessage { get { return Report.ToSummary("Room reconciliation"); } }
@@ -36,6 +39,7 @@ internal sealed class RoomOverlayReconciler
     private readonly ContentCatalog _catalog;
     private readonly IRuntimePlacementFactory _factory;
     private RuntimePlacementManager _manager;
+    private EditorPageController _pages;
     private RoomIdentity _room;
     private LevelEditSession _session;
 
@@ -48,6 +52,7 @@ internal sealed class RoomOverlayReconciler
     internal RoomIdentity CurrentRoom { get { return _room; } }
     internal LevelEditSession CurrentSession { get { return _session; } }
     internal RuntimePlacementManager Manager { get { return _manager; } }
+    internal EditorPageController Pages { get { return _pages; } }
 
     internal RoomOverlayReconcileResult Apply(RoomIdentity room, FrameworkFileResult file)
     {
@@ -55,7 +60,7 @@ internal sealed class RoomOverlayReconciler
         LevelEditSessionImportResult imported = LevelEditSession.Import(room, file, _catalog.Entries);
         report.Merge(imported.Report);
         if (!imported.Succeeded)
-            return new RoomOverlayReconcileResult(room, null, null, report);
+            return new RoomOverlayReconcileResult(room, null, null, null, report);
 
         RuntimePlacementManager next = new(imported.Session, _catalog, _factory);
         IRuntimePlacementAdoptionPass adoptionPass = _factory as IRuntimePlacementAdoptionPass;
@@ -69,7 +74,7 @@ internal sealed class RoomOverlayReconciler
                     continue;
 
                 next.TryClear(report);
-                return new RoomOverlayReconcileResult(room, null, null, report);
+                return new RoomOverlayReconcileResult(room, null, null, null, report);
             }
         }
         finally
@@ -85,13 +90,14 @@ internal sealed class RoomOverlayReconciler
         if (_manager != null && !_manager.TryClear(report))
         {
             next.TryClear(report);
-            return new RoomOverlayReconcileResult(room, null, null, report);
+            return new RoomOverlayReconcileResult(room, null, null, null, report);
         }
 
         _manager = next;
+        _pages = new EditorPageController(next);
         _room = room;
         _session = imported.Session;
-        return new RoomOverlayReconcileResult(room, imported.Session, next, report);
+        return new RoomOverlayReconcileResult(room, imported.Session, next, _pages, report);
     }
 
     internal bool TryClear(ApplyReport report)
@@ -107,6 +113,7 @@ internal sealed class RoomOverlayReconciler
         if (result)
         {
             _manager = null;
+            _pages = null;
             _room = null;
             _session = null;
         }

@@ -13,6 +13,54 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class RoomOverlayReconcilerTests
 {
     [Fact]
+    public void Reconciler_exposes_stable_bounded_overlap_choice_on_additions_page()
+    {
+        string source = DocumentWithPlacements();
+        FrameworkCodecResult parsed = LevelFrameworkAdapter.Parse(source);
+        Assert.True(parsed.IsValid);
+        FrameworkFileResult file = new(
+            "D03Z02S06.json",
+            source,
+            parsed.Document,
+            parsed.Diagnostics);
+        FakeFactory factory = new FakeFactory();
+        RoomOverlayReconciler reconciler = new(
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+
+        RoomOverlayReconcileResult result = reconciler.Apply(
+            CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
+            file);
+
+        Assert.True(result.Succeeded, result.StatusMessage);
+        Assert.NotNull(result.Pages);
+        Assert.Same(result.Manager, result.Pages.Additions);
+        Assert.Equal(EditorPage.Additions, result.Pages.ActivePage);
+
+        ApplyReport report = new();
+        Assert.True(result.Pages.TryPresentAdditionCandidates(
+            new[] { factory.Created[1], factory.Created[0], factory.Created[1] },
+            report),
+            report.ToSummary("overlap"));
+        Assert.Null(result.Manager.Selected);
+        Assert.Equal(2, result.Pages.AdditionCandidates.Count);
+        Assert.Equal("first", result.Pages.AdditionCandidates[0].Id);
+        Assert.Equal("second", result.Pages.AdditionCandidates[1].Id);
+
+        Assert.True(result.Pages.TrySwitchPage(report));
+        Assert.False(result.Pages.TryPresentAdditionCandidates(factory.Created, report));
+        Assert.Equal(2, result.Pages.AdditionCandidates.Count);
+
+        Assert.True(result.Pages.TrySwitchPage(report));
+        Assert.True(result.Pages.TryChooseAdditionCandidate(
+            "bell-iron/second",
+            report,
+            out PlacementRecord selected));
+        Assert.Equal("second", selected.Id);
+        Assert.Equal("second", result.Manager.Selected.Id);
+    }
+
+    [Fact]
     public void Repeated_room_apply_replaces_old_projections_without_duplicates()
     {
         string directory = MakeDirectory();

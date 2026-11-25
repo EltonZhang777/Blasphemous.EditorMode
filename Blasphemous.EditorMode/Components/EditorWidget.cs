@@ -36,12 +36,19 @@ internal class EditorWidget : MonoBehaviour
     private bool _addedCanvasRaycaster;
     private bool _canvasRaycasterWasEnabled;
     private Text _statusText;
+    private Text _originalStatusText;
+    private GameObject _pageButtonObject;
+    private Transform _additionsPageRoot;
+    private Transform _originalPageRoot;
+    private Transform _defaultParent;
     private Transform _catalogRoot;
+    private Transform _candidateRoot;
     private Transform _propertyRoot;
     private InputField[] _positionFields;
     private InputField[] _rotationFields;
     private InputField[] _scaleFields;
     private string _selectedId;
+    private string _candidateSignature;
     private bool _catalogBuilt;
 
     private void Awake()
@@ -55,10 +62,22 @@ internal class EditorWidget : MonoBehaviour
         background.color = new Color(0f, 0f, 0f, 0.78f);
         background.raycastTarget = true;
 
+        _additionsPageRoot = CreatePageRoot("Additions Page");
+        _originalPageRoot = CreatePageRoot("Original Objects Page");
+        _defaultParent = _additionsPageRoot;
+        Button pageButton = CreateButton(
+            "Page Toggle",
+            "Page: Additions",
+            new Vector2(0f, 190f),
+            () => Main.EditorMode.TrySwitchPage(),
+            transform);
+        pageButton.GetComponent<RectTransform>().sizeDelta = new Vector2(150f, 26f);
+        _pageButtonObject = pageButton.gameObject;
+
         _statusText = CreateText(
             "Editor Status",
-            new Vector2(0f, 165f),
-            new Vector2(600f, 90f),
+            new Vector2(0f, 148f),
+            new Vector2(600f, 62f),
             StatusFontSize,
             TextAnchor.UpperLeft);
         _statusText.verticalOverflow = VerticalWrapMode.Truncate;
@@ -70,8 +89,11 @@ internal class EditorWidget : MonoBehaviour
             18,
             TextAnchor.MiddleLeft).text = "Content Catalog";
         _catalogRoot = new GameObject("Catalog").transform;
-        _catalogRoot.SetParent(transform, false);
+        _catalogRoot.SetParent(_additionsPageRoot, false);
         _catalogRoot.localScale = Vector3.one;
+        _candidateRoot = new GameObject("Overlap Candidates").transform;
+        _candidateRoot.SetParent(_additionsPageRoot, false);
+        _candidateRoot.localScale = Vector3.one;
 
         CreateText(
             "Inspector Header",
@@ -88,7 +110,7 @@ internal class EditorWidget : MonoBehaviour
         _scaleFields = CreateTransformFields("Scale", 280f);
         CreateButton("Apply Transform", "Apply", new Vector2(190f, -38f), ApplyTransform);
         _propertyRoot = new GameObject("Properties").transform;
-        _propertyRoot.SetParent(transform, false);
+        _propertyRoot.SetParent(_additionsPageRoot, false);
 
         CreateButton("Import", "Import", new Vector2(-235f, -178f), () => Main.EditorMode.ImportCurrentRoom());
         CreateButton("Export", "Export", new Vector2(-155f, -178f), () => Main.EditorMode.ExportCurrentRoom());
@@ -107,6 +129,9 @@ internal class EditorWidget : MonoBehaviour
             OnFreezeGameButtonClicked).gameObject;
         CreateButton("Pick", "Pick P", new Vector2(165f, -142f), () => Main.EditorMode.TryPickSelected());
         CreateButton("Clear Preview", "Clear", new Vector2(245f, -142f), () => Main.EditorMode.ClearPreview());
+
+        BuildOriginalPageShell();
+        _originalPageRoot.gameObject.SetActive(false);
     }
 
     private void OnEnable()
@@ -149,6 +174,9 @@ internal class EditorWidget : MonoBehaviour
         editor.UpdatePreviewAtCursor();
 
         if (IsInputFieldFocused())
+            return;
+
+        if (editor.ActivePage != EditorPage.Additions)
             return;
 
         if (editor.IsInputActionPressed("PickPlacement"))
@@ -222,6 +250,14 @@ internal class EditorWidget : MonoBehaviour
         if (editor == null)
             return;
 
+        EditorPage activePage = editor.ActivePage;
+        RefreshPageVisibility(activePage);
+        if (activePage == EditorPage.OriginalObjects)
+        {
+            RefreshOriginalPage(editor);
+            return;
+        }
+
         if (!_catalogBuilt && editor.Catalog != null)
             BuildCatalog(editor.Catalog);
 
@@ -264,6 +300,89 @@ internal class EditorWidget : MonoBehaviour
             ? statusPrefix + "—"
             : ComposeStatusText(reportSurface, statusPrefix);
         _statusText.text = status;
+        RefreshCandidateList(editor);
+    }
+
+    private void RefreshPageVisibility(EditorPage activePage)
+    {
+        bool showOriginal = activePage == EditorPage.OriginalObjects;
+        if (_additionsPageRoot != null)
+            _additionsPageRoot.gameObject.SetActive(!showOriginal);
+        if (_originalPageRoot != null)
+            _originalPageRoot.gameObject.SetActive(showOriginal);
+
+        Text label = _pageButtonObject?.GetComponentInChildren<Text>();
+        if (label != null)
+            label.text = showOriginal ? "Page: Original" : "Page: Additions";
+    }
+
+    private void RefreshOriginalPage(EditorMode editor)
+    {
+        if (_originalStatusText == null)
+            return;
+
+        string room = editor.CurrentRoom == null
+            ? "<none>"
+            : editor.CurrentRoom.FrameworkLevelKey + editor.CurrentRoom.TargetSceneSuffix;
+        _originalStatusText.text = string.Format(
+            "Room: {0}   Session: {1}\nOriginal Objects catalog and overlap selection arrive in the next ticket.\nSelected Original Object: <none>",
+            room,
+            editor.Session == null ? "not-ready" : editor.Session.State.ToString());
+    }
+
+    private void RefreshCandidateList(EditorMode editor)
+    {
+        if (_candidateRoot == null)
+            return;
+
+        RuntimePlacementManager manager = editor.Pages?.Additions ?? editor.PlacementManager;
+        IList<PlacementCandidate> candidates =
+            manager == null ? new PlacementCandidate[0] : manager.Candidates;
+        string signature = BuildCandidateSignature(candidates);
+        if (string.Equals(signature, _candidateSignature, StringComparison.Ordinal))
+            return;
+
+        _candidateSignature = signature;
+        for (int index = _candidateRoot.childCount - 1; index >= 0; index--)
+            UnityEngine.Object.Destroy(_candidateRoot.GetChild(index).gameObject);
+
+        bool hasCandidates = candidates.Count > 0;
+        _candidateRoot.gameObject.SetActive(hasCandidates);
+        if (_catalogRoot != null)
+            _catalogRoot.gameObject.SetActive(!hasCandidates);
+        if (!hasCandidates)
+            return;
+
+        CreateText(
+            "Overlap Candidates Header",
+            new Vector2(-195f, 98f),
+            new Vector2(230f, 24f),
+            14,
+            TextAnchor.MiddleLeft,
+            _candidateRoot).text = "Overlapping Additions";
+        for (int index = 0; index < candidates.Count; index++)
+        {
+            PlacementCandidate candidate = candidates[index];
+            Button row = CreateButton(
+                "Candidate " + candidate.Identity,
+                candidate.DisplayText,
+                new Vector2(-195f, 70f - (index * 30f)),
+                () => Main.EditorMode.TryChooseAdditionCandidate(candidate.Identity),
+                _candidateRoot);
+            row.GetComponent<RectTransform>().sizeDelta = new Vector2(230f, 26f);
+        }
+    }
+
+    private static string BuildCandidateSignature(IList<PlacementCandidate> candidates)
+    {
+        StringBuilder signature = new();
+        for (int index = 0; index < candidates.Count; index++)
+        {
+            if (index > 0)
+                signature.Append('|');
+            signature.Append(candidates[index].Identity);
+        }
+        return signature.ToString();
     }
 
     private string ComposeStatusText(ApplyReportSurface reportSurface, string prefix)
@@ -363,7 +482,7 @@ internal class EditorWidget : MonoBehaviour
             fields[index] = CreateInputField(
                 group + " " + axes[index],
                 new Vector2(x, 50f - (index * 30f)),
-                transform);
+                _additionsPageRoot);
         }
 
         return fields;
@@ -549,6 +668,61 @@ internal class EditorWidget : MonoBehaviour
         }
     }
 
+    private void BuildOriginalPageShell()
+    {
+        CreateText(
+            "Original Objects Header",
+            new Vector2(-195f, 108f),
+            new Vector2(230f, 28f),
+            18,
+            TextAnchor.MiddleLeft,
+            _originalPageRoot).text = "Original Objects";
+        CreateText(
+            "Original Inspector Header",
+            new Vector2(150f, 108f),
+            new Vector2(250f, 28f),
+            18,
+            TextAnchor.MiddleLeft,
+            _originalPageRoot).text = "Inspector / Original Object";
+        _originalStatusText = CreateText(
+            "Original Objects Status",
+            new Vector2(0f, 148f),
+            new Vector2(560f, 62f),
+            StatusFontSize,
+            TextAnchor.UpperLeft,
+            _originalPageRoot);
+        _originalStatusText.verticalOverflow = VerticalWrapMode.Truncate;
+        CreateText(
+            "Original Candidates Empty",
+            new Vector2(-195f, 60f),
+            new Vector2(230f, 60f),
+            13,
+            TextAnchor.UpperLeft,
+            _originalPageRoot).text = "No catalog attached.\nOriginal Objects arrive with the baseline catalog.";
+        CreateText(
+            "Original Inspector Empty",
+            new Vector2(150f, 50f),
+            new Vector2(250f, 80f),
+            13,
+            TextAnchor.UpperLeft,
+            _originalPageRoot).text = "Select a baseline Original Object\nwhen the catalog is available.";
+    }
+
+    private Transform CreatePageRoot(string name)
+    {
+        GameObject obj = new(name)
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
+        obj.transform.SetParent(transform, false);
+        RectTransform rect = obj.AddComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+        return obj.transform;
+    }
+
     private void EnsureUiInput()
     {
         if (_canvas != null)
@@ -640,7 +814,7 @@ internal class EditorWidget : MonoBehaviour
         {
             layer = LayerMask.NameToLayer("UI")
         };
-        obj.transform.SetParent(parent ?? transform, false);
+        obj.transform.SetParent(parent ?? _defaultParent ?? transform, false);
         RectTransform rect = obj.AddComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0.5f);
         rect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -693,7 +867,7 @@ internal class EditorWidget : MonoBehaviour
         {
             layer = LayerMask.NameToLayer("UI")
         };
-        obj.transform.SetParent(parent ?? transform, false);
+        obj.transform.SetParent(parent ?? _defaultParent ?? transform, false);
         RectTransform rect = obj.AddComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0.5f);
         rect.anchorMax = new Vector2(0.5f, 0.5f);

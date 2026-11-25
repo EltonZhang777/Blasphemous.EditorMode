@@ -43,6 +43,26 @@ internal interface IRuntimePlacementAdoptionPass
     void EndAdoptionPass();
 }
 
+/// <summary>One concrete addition hit that may be selected from the active page.</summary>
+internal sealed class PlacementCandidate
+{
+    internal PlacementCandidate(
+        PlacementRecord placement,
+        IRuntimePlacementHandle handle)
+    {
+        Placement = placement ?? throw new ArgumentNullException(nameof(placement));
+        Handle = handle ?? throw new ArgumentNullException(nameof(handle));
+    }
+
+    internal EditorPage Page { get { return EditorPage.Additions; } }
+    internal PlacementRecord Placement { get; }
+    internal IRuntimePlacementHandle Handle { get; }
+    internal string Id { get { return Placement.Id; } }
+    internal string Type { get { return Placement.Type; } }
+    internal string Identity { get { return Placement.Type + "/" + Placement.Id; } }
+    internal string DisplayText { get { return Placement.Type + " / " + Placement.Id; } }
+}
+
 /// <summary>Creates deterministic, non-conflicting IDs for one session.</summary>
 internal static class PlacementIdGenerator
 {
@@ -92,6 +112,7 @@ internal sealed class RuntimePlacementManager
     private readonly Dictionary<string, IRuntimePlacementHandle> _projections =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly EditCommandHistory _history = new();
+    private readonly List<PlacementCandidate> _candidates = [];
     private PlacementManagerSnapshot _initialSnapshot;
 
     internal RuntimePlacementManager(
@@ -118,6 +139,99 @@ internal sealed class RuntimePlacementManager
     internal PlacementRecord Selected { get; private set; }
     internal PlacementRecord Clipboard { get; private set; }
     internal EditCommandHistory History { get { return _history; } }
+    internal LevelEditSession Session { get { return _session; } }
+    internal ReadOnlyCollection<PlacementCandidate> Candidates
+    {
+        get { return new ReadOnlyCollection<PlacementCandidate>(_candidates); }
+    }
+
+    internal bool TryPresentCandidates(
+        IEnumerable<IRuntimePlacementHandle> hits,
+        ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+
+        Dictionary<string, PlacementCandidate> unique = new(StringComparer.OrdinalIgnoreCase);
+        foreach (IRuntimePlacementHandle handle in hits ?? [])
+        {
+            if (handle == null
+                || handle.IsOriginal
+                || !handle.IsAlive
+                || !_projections.ContainsKey(handle.PlacementId)
+                || !_session.TryGetPlacement(handle.PlacementId, out PlacementRecord placement))
+                continue;
+
+            PlacementCandidate candidate = new(placement, handle);
+            if (!unique.ContainsKey(candidate.Identity))
+                unique.Add(candidate.Identity, candidate);
+        }
+
+        List<PlacementCandidate> ordered = [.. unique.Values];
+        ordered.Sort(CompareCandidates);
+        _candidates.Clear();
+        _candidates.AddRange(ordered);
+
+        if (ordered.Count == 0)
+        {
+            report.Warning(
+                ReportCodes.SelectionNoCandidates,
+                EditorPage.Additions.ToString(),
+                "No overlapping Additions candidates were found at the pointer.");
+            return false;
+        }
+
+        if (ordered.Count == 1)
+        {
+            if (!TrySelect(ordered[0].Id, report, out _))
+                return false;
+
+            report.Info(
+                ReportCodes.SelectionCandidateSelected,
+                ordered[0].Identity,
+                "Selected the only Additions candidate.");
+            return true;
+        }
+
+        report.Info(
+            ReportCodes.SelectionCandidatesAvailable,
+            EditorPage.Additions.ToString(),
+            string.Format(
+                "{0} overlapping Additions candidates require a list-row choice.",
+                ordered.Count));
+        return true;
+    }
+
+    internal bool TryChooseCandidate(
+        string identity,
+        ApplyReport report,
+        out PlacementRecord selected)
+    {
+        selected = null;
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+
+        foreach (PlacementCandidate candidate in _candidates)
+        {
+            if (!string.Equals(candidate.Identity, identity, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!TrySelect(candidate.Id, report, out selected))
+                return false;
+
+            report.Info(
+                ReportCodes.SelectionCandidateSelected,
+                candidate.Identity,
+                "Selected Additions candidate " + candidate.DisplayText + ".");
+            return true;
+        }
+
+        report.Error(
+            ReportCodes.SelectionCandidateNotFound,
+            identity ?? "$",
+            "The selected Additions candidate is no longer available.");
+        return false;
+    }
 
     internal bool TryPlace(
         string type,
@@ -475,7 +589,10 @@ internal sealed class RuntimePlacementManager
         }
 
         if (success)
+        {
             Selected = null;
+            _candidates.Clear();
+        }
         return success;
     }
 
@@ -610,6 +727,8 @@ internal sealed class RuntimePlacementManager
             return false;
 
         _projections.Remove(id);
+        _candidates.RemoveAll(candidate =>
+            string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase));
         if (Selected != null && string.Equals(Selected.Id, id, StringComparison.OrdinalIgnoreCase))
             Selected = null;
         report.Applied();
@@ -798,6 +917,8 @@ internal sealed class RuntimePlacementManager
             _projections[createdProjection.Key] = createdProjection.Value;
 
         Clipboard = snapshot.Clipboard;
+        _candidates.RemoveAll(candidate =>
+            !snapshot.Projections.ContainsKey(candidate.Id));
         Selected = null;
         if (snapshot.SelectedId != null)
         {
@@ -964,5 +1085,13 @@ internal sealed class RuntimePlacementManager
             yield return placement.Id;
         foreach (string id in _projections.Keys)
             yield return id;
+    }
+
+    private static int CompareCandidates(PlacementCandidate left, PlacementCandidate right)
+    {
+        int type = StringComparer.Ordinal.Compare(left.Type, right.Type);
+        return type != 0
+            ? type
+            : StringComparer.Ordinal.Compare(left.Id, right.Id);
     }
 }

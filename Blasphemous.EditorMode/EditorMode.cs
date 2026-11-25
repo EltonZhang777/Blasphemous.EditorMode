@@ -32,6 +32,11 @@ internal class EditorMode : BlasMod
     internal RoomIdentity CurrentRoom { get { return _lifecycleBridge?.CurrentRoom; } }
     internal LevelEditSession Session { get { return _overlayReconciler?.CurrentSession; } }
     internal RuntimePlacementManager PlacementManager { get { return _overlayReconciler?.Manager; } }
+    internal EditorPageController Pages { get { return _overlayReconciler?.Pages; } }
+    internal EditorPage ActivePage
+    {
+        get { return Pages == null ? EditorPage.Additions : Pages.ActivePage; }
+    }
     internal ApplyReportSurface ReportSurface { get { return _reportPublisher.Surface; } }
     internal string PreviewStatus { get { return _preview == null ? "none" : _preview.Metadata.DisplayName + " (follows cursor)"; } }
 
@@ -65,6 +70,7 @@ internal class EditorMode : BlasMod
     private Coroutine _roomPreparation;
     private Coroutine _creatorPreload;
     private bool _creatorPreloadStarted;
+    private bool _pickAfterCandidateChoice;
     private PreviewInstance _preview;
 
     internal EditorMode() : base(ModInfo.MOD_ID, ModInfo.MOD_NAME, ModInfo.MOD_AUTHOR, ModInfo.MOD_VERSION) { }
@@ -328,6 +334,9 @@ internal class EditorMode : BlasMod
 
     internal bool TryPlaceAtCursor(string type)
     {
+        if (!RequireAdditionsPage("Place"))
+            return false;
+
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null)
         {
@@ -361,6 +370,9 @@ internal class EditorMode : BlasMod
 
     internal bool TryPlacePreviewAtCursor()
     {
+        if (!RequireAdditionsPage("Place"))
+            return false;
+
         if (_preview != null)
             return TryPlaceAtCursor(_preview.Metadata.Type);
 
@@ -372,16 +384,31 @@ internal class EditorMode : BlasMod
 
     internal bool TryUndo()
     {
-        return RunManagerCommand("Undo", (manager, report) => manager.TryUndo(report));
+        if (ActivePage != EditorPage.Additions)
+            return ReportPageCommandUnavailable("Undo");
+
+        ApplyReport report = new();
+        bool result = Pages != null && Pages.TryUndo(report);
+        PublishReport("Undo", report);
+        return result;
     }
 
     internal bool TryRedo()
     {
-        return RunManagerCommand("Redo", (manager, report) => manager.TryRedo(report));
+        if (ActivePage != EditorPage.Additions)
+            return ReportPageCommandUnavailable("Redo");
+
+        ApplyReport report = new();
+        bool result = Pages != null && Pages.TryRedo(report);
+        PublishReport("Redo", report);
+        return result;
     }
 
     internal bool TryDeleteSelected()
     {
+        if (!RequireAdditionsPage("Delete"))
+            return false;
+
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
             return false;
@@ -394,6 +421,9 @@ internal class EditorMode : BlasMod
 
     internal bool TryToggleSelectedLock()
     {
+        if (!RequireAdditionsPage("Lock"))
+            return false;
+
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
             return false;
@@ -409,6 +439,9 @@ internal class EditorMode : BlasMod
 
     internal bool TryCopySelected()
     {
+        if (!RequireAdditionsPage("Copy"))
+            return false;
+
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
             return false;
@@ -421,6 +454,9 @@ internal class EditorMode : BlasMod
 
     internal bool TryPickSelected()
     {
+        if (!RequireAdditionsPage("Pick"))
+            return false;
+
         RuntimePlacementManager manager = PlacementManager;
         ApplyReport report = new();
         if (manager == null)
@@ -441,22 +477,27 @@ internal class EditorMode : BlasMod
 
     internal bool TryPickAtCursor()
     {
-        if (!TryFindAtCursor(out IRuntimePlacementHandle handle, out string error))
+        if (!RequireAdditionsPage("Pick at cursor"))
+            return false;
+
+        _pickAfterCandidateChoice = false;
+        bool found = TryFindAllAtCursor(out IList<IRuntimePlacementHandle> handles, out string error);
+        ApplyReport report = new();
+        if (!found && error != null)
         {
-            ApplyReport report = new();
-            if (error == null)
-            {
-                report.Warning(ReportCodes.PickNoTarget, "cursor", "Point to an Architect-owned placement before pressing P.");
-            }
-            else
-            {
-                report.Error(ReportCodes.PickFailed, "cursor", error);
-            }
+            report.Error(ReportCodes.PickFailed, "cursor", error);
             PublishReport("Pick at cursor", report);
             return false;
         }
 
-        return TryPickPlacement(handle.PlacementId, "Pick at cursor");
+        bool result = Pages != null && Pages.TryPresentAdditionCandidates(handles, report);
+        if (result && Pages.AdditionCandidates.Count == 1)
+            result = Pages.Additions.TryPick(Pages.AdditionCandidates[0].Id, report, out _);
+        else if (result)
+            _pickAfterCandidateChoice = true;
+
+        PublishReport("Pick at cursor", report);
+        return result;
     }
 
     internal void ReportPickBlockedByEditorControl()
@@ -466,8 +507,80 @@ internal class EditorMode : BlasMod
         PublishReport("Pick at cursor", report);
     }
 
+    internal bool TrySwitchPage()
+    {
+        _pickAfterCandidateChoice = false;
+        EditorPageController pages = Pages;
+        ApplyReport report = new();
+        if (pages == null)
+        {
+            report.Error(ReportCodes.RoomRequired, "page", "No editable Room Overlay is loaded.");
+            PublishReport("Page", report);
+            return false;
+        }
+
+        bool result = pages.TrySwitchPage(report);
+        PublishReport("Page", report);
+        return result;
+    }
+
+    internal bool TryChooseAdditionCandidate(string identity)
+    {
+        EditorPageController pages = Pages;
+        bool pickAfterSelection = _pickAfterCandidateChoice;
+        _pickAfterCandidateChoice = false;
+        ApplyReport report = new();
+        if (pages == null
+            || !pages.TryChooseAdditionCandidate(identity, report, out PlacementRecord selected))
+        {
+            if (report.Entries.Count == 0)
+            {
+                report.Error(
+                    ReportCodes.SelectionCandidateNotFound,
+                    identity ?? "$",
+                    "The Additions candidate is unavailable.");
+            }
+            PublishReport("Select candidate", report);
+            return false;
+        }
+
+        report.Info(
+            ReportCodes.SelectionCandidateSelected,
+            selected.Id,
+            "Selected " + selected.Type + " / " + selected.Id + " from the overlap list.");
+        if (pickAfterSelection
+            && !pages.Additions.TryPick(selected.Id, report, out _))
+        {
+            PublishReport("Pick candidate", report);
+            return false;
+        }
+
+        PublishReport(pickAfterSelection ? "Pick candidate" : "Select candidate", report);
+        return true;
+    }
+
+    private bool RequireAdditionsPage(string operation)
+    {
+        return ActivePage == EditorPage.Additions
+            || ReportPageCommandUnavailable(operation);
+    }
+
+    private bool ReportPageCommandUnavailable(string operation)
+    {
+        ApplyReport report = new();
+        report.Warning(
+            ReportCodes.PageCommandUnavailable,
+            ActivePage.ToString(),
+            "The " + operation + " command is unavailable on the " + ActivePage + " page.");
+        PublishReport(operation, report);
+        return false;
+    }
+
     internal bool TryPasteAtCursor()
     {
+        if (!RequireAdditionsPage("Paste"))
+            return false;
+
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null)
             return false;
@@ -502,6 +615,9 @@ internal class EditorMode : BlasMod
 
     internal bool TryPreviewAtCursor(string type)
     {
+        if (!RequireAdditionsPage("Preview"))
+            return false;
+
         if (Catalog == null)
             return false;
 
@@ -526,12 +642,15 @@ internal class EditorMode : BlasMod
 
     internal void UpdatePreviewAtCursor()
     {
-        if (IsActive && _preview != null)
+        if (IsActive && ActivePage == EditorPage.Additions && _preview != null)
             _preview.FollowCursor();
     }
 
     internal void ClearPreview()
     {
+        if (!RequireAdditionsPage("Clear preview"))
+            return;
+
         if (_preview == null)
             return;
 
@@ -543,6 +662,9 @@ internal class EditorMode : BlasMod
 
     internal bool TryApplySelectedTransform(string[] values)
     {
+        if (!RequireAdditionsPage("Transform"))
+            return false;
+
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
             return false;
@@ -581,6 +703,9 @@ internal class EditorMode : BlasMod
 
     internal bool TrySetSelectedProperty(string key, string value)
     {
+        if (!RequireAdditionsPage("Property"))
+            return false;
+
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
             return false;
@@ -593,25 +718,30 @@ internal class EditorMode : BlasMod
 
     internal bool TrySelectAtCursor()
     {
-        if (!TryFindAtCursor(out IRuntimePlacementHandle handle, out string error))
+        if (!RequireAdditionsPage("Select"))
+            return false;
+
+        _pickAfterCandidateChoice = false;
+        bool found = TryFindAllAtCursor(out IList<IRuntimePlacementHandle> handles, out string error);
+        if (!found && error != null)
         {
-            if (error != null)
-            {
-                ApplyReport failure = new();
-                failure.Error(ReportCodes.SelectionFailed, "cursor", error);
-                PublishReport("Select", failure);
-            }
+            ApplyReport failure = new();
+            failure.Error(ReportCodes.SelectionFailed, "cursor", error);
+            PublishReport("Select", failure);
             return false;
         }
 
         ApplyReport report = new();
-        bool result = PlacementManager.TrySelectRuntimeObject(handle, report, out _);
+        bool result = Pages != null && Pages.TryPresentAdditionCandidates(handles, report);
         PublishReport("Select", report);
         return result;
     }
 
     internal bool TryReset()
     {
+        if (!RequireAdditionsPage("Reset"))
+            return false;
+
         return RunManagerCommand("Reset", (manager, report) => manager.TryReset(report));
     }
 
@@ -857,9 +987,11 @@ internal class EditorMode : BlasMod
         return result;
     }
 
-    private bool TryFindAtCursor(out IRuntimePlacementHandle handle, out string error)
+    private bool TryFindAllAtCursor(
+        out IList<IRuntimePlacementHandle> handles,
+        out string error)
     {
-        handle = null;
+        handles = new IRuntimePlacementHandle[0];
         error = null;
         if (_runtimeFactory == null || PlacementManager == null)
         {
@@ -867,7 +999,7 @@ internal class EditorMode : BlasMod
             return false;
         }
 
-        return _runtimeFactory.TryFindAtScreenPoint(Input.mousePosition, out handle, out error);
+        return _runtimeFactory.TryFindAllAtScreenPoint(Input.mousePosition, out handles, out error);
     }
 
     private static EditorRuntimeState CreateEditorState()

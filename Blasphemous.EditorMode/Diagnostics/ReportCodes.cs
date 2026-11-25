@@ -90,6 +90,12 @@ internal static class ReportCodes
     internal const string PreviewFailed = "PREVIEW_FAILED";
     internal const string PreviewCreated = "PREVIEW_CREATED";
     internal const string PreviewDisposed = "PREVIEW_DISPOSED";
+    internal const string SelectionNoCandidates = "SELECTION_NO_CANDIDATES";
+    internal const string SelectionCandidatesAvailable = "SELECTION_CANDIDATES_AVAILABLE";
+    internal const string SelectionCandidateSelected = "SELECTION_CANDIDATE_SELECTED";
+    internal const string SelectionCandidateNotFound = "SELECTION_CANDIDATE_NOT_FOUND";
+    internal const string PageChanged = "PAGE_CHANGED";
+    internal const string PageCommandUnavailable = "PAGE_COMMAND_UNAVAILABLE";
 
     internal const string SeamPassed = "SEAM_PASSED";
     internal const string SeamFailed = "SEAM_FAILED";

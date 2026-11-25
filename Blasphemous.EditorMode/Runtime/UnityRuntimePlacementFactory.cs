@@ -243,12 +243,12 @@ internal sealed class UnityRuntimePlacementFactory :
         }
     }
 
-    internal bool TryFindAtScreenPoint(
+    internal bool TryFindAllAtScreenPoint(
         Vector2 screenPoint,
-        out IRuntimePlacementHandle handle,
+        out IList<IRuntimePlacementHandle> handles,
         out string error)
     {
-        handle = null;
+        handles = new IRuntimePlacementHandle[0];
         error = null;
         Transform holder = _holderProvider();
         if (holder == null)
@@ -267,7 +267,7 @@ internal sealed class UnityRuntimePlacementFactory :
         Vector2 cameraPixels = UnityScreenCoordinateMapper.ToCameraPixels(camera, screenPoint);
         Vector3 world = UnityScreenCoordinateMapper.ToWorldPosition(camera, cameraPixels);
         Ray screenRay = camera.ScreenPointToRay(cameraPixels);
-        RuntimePlacementMarker marker = FindMarkerAtScreenPoint(
+        IList<RuntimePlacementMarker> markers = FindMarkersAtScreenPoint(
             holder,
             new Vector2(world.x, world.y),
             screenRay);
@@ -287,19 +287,38 @@ internal sealed class UnityRuntimePlacementFactory :
                 + " pixelRect=" + camera.pixelRect
                 + " rayOrigin=" + screenRay.origin
                 + " rayDirection=" + screenRay.direction
-                + " result=" + (marker == null ? "<none>" : marker.PlacementId));
+                + " result=" + DescribeMarkers(markers));
         }
-        if (marker == null)
+        if (markers.Count == 0)
             return false;
 
-        if (!RuntimeCreatorRegistry.TryGet(marker.Type, out ObjectCreator creator, out error))
-            return false;
+        List<IRuntimePlacementHandle> found = [];
+        List<string> rejected = [];
+        foreach (RuntimePlacementMarker marker in markers)
+        {
+            if (!RuntimeCreatorRegistry.TryGet(marker.Type, out ObjectCreator creator, out string creatorError))
+            {
+                rejected.Add(marker.Type + ": " + creatorError);
+                continue;
+            }
 
-        handle = new UnityRuntimePlacementHandle(
-            marker.PlacementId,
-            marker.Type,
-            marker.gameObject,
-            creator);
+            found.Add(new UnityRuntimePlacementHandle(
+                marker.PlacementId,
+                marker.Type,
+                marker.gameObject,
+                creator));
+        }
+
+        if (found.Count == 0)
+        {
+            error = rejected.Count == 0
+                ? null
+                : "Overlapping editor projections could not resolve their creators: "
+                    + string.Join("; ", rejected.ToArray());
+            return false;
+        }
+
+        handles = found;
         return true;
     }
 
@@ -311,21 +330,23 @@ internal sealed class UnityRuntimePlacementFactory :
         marker.Source = "EditorMode";
     }
 
-    private static RuntimePlacementMarker FindMarkerAtScreenPoint(
+    private static IList<RuntimePlacementMarker> FindMarkersAtScreenPoint(
         Transform holder,
         Vector2 worldPoint,
         Ray screenRay)
     {
+        List<RuntimePlacementMarker> markers = [];
+        HashSet<string> identities = new(StringComparer.OrdinalIgnoreCase);
         Collider2D[] hits = Physics2D.OverlapPointAll(worldPoint);
         foreach (Collider2D hit in hits)
         {
             RuntimePlacementMarker marker = hit?.GetComponentInParent<RuntimePlacementMarker>();
             if (IsSelectableMarker(marker, holder))
-                return marker;
+                AddMarker(markers, identities, marker);
         }
 
-        RuntimePlacementMarker[] markers = holder.GetComponentsInChildren<RuntimePlacementMarker>(true);
-        foreach (RuntimePlacementMarker marker in markers)
+        RuntimePlacementMarker[] candidates = holder.GetComponentsInChildren<RuntimePlacementMarker>(true);
+        foreach (RuntimePlacementMarker marker in candidates)
         {
             if (!IsSelectableMarker(marker, holder))
                 continue;
@@ -342,11 +363,35 @@ internal sealed class UnityRuntimePlacementFactory :
                     && renderer.gameObject.activeInHierarchy
                     && renderer.bounds.IntersectRay(screenRay);
                 if (rayHit)
-                    return marker;
+                {
+                    AddMarker(markers, identities, marker);
+                    break;
+                }
             }
         }
 
-        return null;
+        return markers;
+    }
+
+    private static void AddMarker(
+        List<RuntimePlacementMarker> markers,
+        HashSet<string> identities,
+        RuntimePlacementMarker marker)
+    {
+        string identity = marker.Type + "/" + marker.PlacementId;
+        if (identities.Add(identity))
+            markers.Add(marker);
+    }
+
+    private static string DescribeMarkers(IList<RuntimePlacementMarker> markers)
+    {
+        if (markers == null || markers.Count == 0)
+            return "<none>";
+
+        string[] identities = new string[markers.Count];
+        for (int index = 0; index < markers.Count; index++)
+            identities[index] = markers[index].Type + "/" + markers[index].PlacementId;
+        return string.Join(", ", identities);
     }
 
     private static bool IsSelectableMarker(RuntimePlacementMarker marker, Transform holder)
