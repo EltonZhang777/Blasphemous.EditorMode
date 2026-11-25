@@ -239,12 +239,6 @@ internal class EditorMode : BlasMod
             return;
         }
 
-        if (!IsDebug)
-        {
-            ModLog.Warn("Editor Mode activation rejected: debug gate failed.");
-            return;
-        }
-
         if (!_lifecycleBridge.TryBeginEditing())
         {
             ModLog.Warn("Editor Mode activation rejected: no compatible loaded room.");
