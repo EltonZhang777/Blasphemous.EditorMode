@@ -29,6 +29,7 @@ internal class EditorMode : BlasMod
     internal bool IsActive { get { return _editorGuard != null && _editorGuard.IsActive; } }
     internal static SpriteStorage SpriteStorage { get; private set; }
     internal ContentCatalog Catalog { get; private set; }
+    internal RuntimeCreatorInventory CreatorInventory { get; private set; }
     internal RoomIdentity CurrentRoom { get { return _lifecycleBridge?.CurrentRoom; } }
     internal LevelEditSession Session { get { return _overlayReconciler?.CurrentSession; } }
     internal RuntimePlacementManager PlacementManager { get { return _overlayReconciler?.Manager; } }
@@ -199,6 +200,8 @@ internal class EditorMode : BlasMod
                 FindCurrentObjectHolder,
                 CursorWorldPosition,
                 _verboseDiagnostics));
+        CreatorInventory = RuntimeCreatorInventoryReader.Read();
+        PublishCreatorInventoryDiagnostics(CreatorInventory);
         _runtimeFactory = new UnityRuntimePlacementFactory(FindCurrentObjectHolder, _verboseDiagnostics);
         _overlayReconciler = new RoomOverlayReconciler(Catalog, _runtimeFactory);
         if (_lifecycleBridge.CurrentRoom != null)
@@ -618,6 +621,28 @@ internal class EditorMode : BlasMod
     {
         _reportPublisher.Publish(operation, report);
         EditorWidget?.Refresh();
+    }
+
+    private void PublishCreatorInventoryDiagnostics(RuntimeCreatorInventory inventory)
+    {
+        if (inventory.Diagnostics.Count == 0)
+        {
+            ModLog.Info(inventory.Message);
+            return;
+        }
+
+        ApplyReport report = new();
+        foreach (CreatorInventoryDiagnostic diagnostic in inventory.Diagnostics)
+        {
+            if (diagnostic.Severity == ApplySeverity.Error)
+                report.Error(diagnostic.Code, diagnostic.Location, diagnostic.Message);
+            else if (diagnostic.Severity == ApplySeverity.Warning)
+                report.Warning(diagnostic.Code, diagnostic.Location, diagnostic.Message);
+            else
+                report.Info(diagnostic.Code, diagnostic.Location, diagnostic.Message);
+        }
+
+        PublishReport("Creator inventory", report);
     }
 
     private bool RunManagerCommand(

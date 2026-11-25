@@ -1,3 +1,4 @@
+using Blasphemous.EditorMode.Components;
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
@@ -280,6 +281,40 @@ public sealed class RuntimePlacementManagerTests
         Assert.Equal(LevelEditSessionState.Dirty, session.State);
         Assert.Single(manager.OwnedPlacementIds);
         Assert.Equal(2, factory.Created.Count);
+    }
+
+    [Fact]
+    public void Undo_and_redo_of_a_transform_refresh_the_selected_placement_inspector()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        PlacementInspectorRefreshState inspector = new PlacementInspectorRefreshState();
+        Assert.True(inspector.NeedsRefresh(manager.Selected));
+        Assert.False(inspector.NeedsRefresh(manager.Selected));
+
+        PlacementTransform moved = new PlacementTransform(4f, 5f, 6f, 7f, 8f, 9f, 10f, 11f, 12f);
+        Assert.True(manager.TryMove(placement.Id, moved, report));
+        Assert.True(inspector.NeedsRefresh(manager.Selected));
+
+        Assert.True(manager.TryUndo(report));
+        Assert.Equal(PlacementTransform.Default, manager.Selected.Transform);
+        Assert.True(inspector.NeedsRefresh(manager.Selected));
+
+        Assert.True(manager.TryRedo(report));
+        Assert.Equal(moved, manager.Selected.Transform);
+        Assert.True(inspector.NeedsRefresh(manager.Selected));
     }
 
     [Fact]

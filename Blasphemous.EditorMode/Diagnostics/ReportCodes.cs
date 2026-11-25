@@ -36,6 +36,10 @@ internal static class ReportCodes
     internal const string RoomScope = "ROOM_SCOPE";
     internal const string ImportInvalid = "IMPORT_INVALID";
     internal const string CreatorUnsupported = "CREATOR_UNSUPPORTED";
+    internal const string CreatorRegistryUnavailable = "CREATOR_REGISTRY_UNAVAILABLE";
+    internal const string CreatorRegistryEntryInvalid = "CREATOR_REGISTRY_ENTRY_INVALID";
+    internal const string CreatorLoaderMissing = "CREATOR_LOADER_MISSING";
+    internal const string CreatorModifierMissing = "CREATOR_MODIFIER_MISSING";
     internal const string AdditionUneditablePreserved = "ADDITION_UNEDITABLE_PRESERVED";
     internal const string PlacementDuplicateId = "PLACEMENT_DUPLICATE_ID";
     internal const string OriginalObjectReadOnly = "ORIGINAL_OBJECT_READ_ONLY";

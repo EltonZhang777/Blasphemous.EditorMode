@@ -41,7 +41,7 @@ internal class EditorWidget : MonoBehaviour
     private InputField[] _positionFields;
     private InputField[] _rotationFields;
     private InputField[] _scaleFields;
-    private string _selectedId;
+    private readonly PlacementInspectorRefreshState _inspectorRefresh = new();
     private bool _catalogBuilt;
 
     private void Awake()
@@ -236,10 +236,8 @@ internal class EditorWidget : MonoBehaviour
             ? "<none>"
             : editor.PlacementManager.Selected.Id;
         PlacementRecord selectedPlacement = editor.PlacementManager?.Selected;
-        string selectedPlacementId = selectedPlacement?.Id;
-        if (!string.Equals(_selectedId, selectedPlacementId, StringComparison.OrdinalIgnoreCase))
+        if (_inspectorRefresh.NeedsRefresh(selectedPlacement))
         {
-            _selectedId = selectedPlacementId;
             SetTransformFields(selectedPlacement);
             BuildPropertyEditor(editor, selectedPlacement);
         }

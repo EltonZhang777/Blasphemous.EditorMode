@@ -150,7 +150,10 @@ internal sealed class CreatorMetadata
         string sourcePath,
         TransformCapabilities transformCapabilities,
         IEnumerable<string> propertyKeys,
-        bool isSupported = true)
+        bool isSupported = true,
+        string source = null,
+        bool hasLoader = true,
+        bool hasModifier = true)
         : this(
             type,
             displayName,
@@ -160,7 +163,10 @@ internal sealed class CreatorMetadata
             sourcePath,
             transformCapabilities,
             CreatePropertyDefinitions(propertyKeys),
-            isSupported)
+            isSupported,
+            source,
+            hasLoader,
+            hasModifier)
     {
     }
 
@@ -173,7 +179,10 @@ internal sealed class CreatorMetadata
         string sourcePath,
         TransformCapabilities transformCapabilities,
         IEnumerable<CreatorPropertyDefinition> propertyDefinitions,
-        bool isSupported)
+        bool isSupported,
+        string source = null,
+        bool hasLoader = true,
+        bool hasModifier = true)
     {
         if (IsBlank(type))
             throw new ArgumentException("Creator type is required.", nameof(type));
@@ -190,6 +199,7 @@ internal sealed class CreatorMetadata
         DisplayName = displayName;
         Category = category;
         Origin = origin;
+        Source = IsBlank(source) ? DefaultSource(origin) : source;
         SourceScene = sourceScene;
         SourcePath = sourcePath;
         TransformCapabilities = transformCapabilities;
@@ -198,18 +208,25 @@ internal sealed class CreatorMetadata
         PropertyKeys = new ReadOnlyCollection<string>(
             GetPropertyKeys(PropertyDefinitions));
         IsSupported = isSupported;
+        HasLoader = hasLoader;
+        HasModifier = hasModifier;
     }
 
     internal string Type { get; }
     internal string DisplayName { get; }
     internal string Category { get; }
     internal CreatorOrigin Origin { get; }
+    internal string Source { get; }
     internal string SourceScene { get; }
     internal string SourcePath { get; }
     internal TransformCapabilities TransformCapabilities { get; }
     internal ReadOnlyCollection<CreatorPropertyDefinition> PropertyDefinitions { get; }
     internal ReadOnlyCollection<string> PropertyKeys { get; }
     internal bool IsSupported { get; }
+    internal bool HasLoader { get; }
+    internal bool HasModifier { get; }
+    internal bool CanPreview { get { return HasLoader; } }
+    internal bool CanPlace { get { return HasLoader && HasModifier; } }
 
     internal bool TryGetProperty(string key, out CreatorPropertyDefinition definition)
     {
@@ -258,6 +275,21 @@ internal sealed class CreatorMetadata
     private static bool IsBlank(string value)
     {
         return string.IsNullOrEmpty(value) || value.Trim().Length == 0;
+    }
+
+    private static string DefaultSource(CreatorOrigin origin)
+    {
+        switch (origin)
+        {
+            case CreatorOrigin.BaseFramework:
+                return "Level Framework";
+            case CreatorOrigin.OptionalExtension:
+                return "Optional extension";
+            case CreatorOrigin.Architect:
+                return "Editor Mode";
+            default:
+                return "Unknown";
+        }
     }
 }
 
