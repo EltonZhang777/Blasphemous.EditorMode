@@ -43,6 +43,11 @@ internal class EditorWidget : MonoBehaviour
     private Transform _defaultParent;
     private Transform _catalogRoot;
     private Transform _candidateRoot;
+    private Transform _originalCandidateRoot;
+    private ScrollRect _originalCandidateScroll;
+    private Transform _originalOperationsRoot;
+    private ScrollRect _originalOperationsScroll;
+    private Text _originalInspectorText;
     private Transform _propertyRoot;
     private InputField[] _positionFields;
     private InputField[] _rotationFields;
@@ -176,8 +181,14 @@ internal class EditorWidget : MonoBehaviour
         if (IsInputFieldFocused())
             return;
 
-        if (editor.ActivePage != EditorPage.Additions)
+        if (editor.ActivePage == EditorPage.OriginalObjects)
+        {
+            bool selectOriginal = editor.IsInputActionPressed("PickPlacement")
+                || editor.IsInputActionPressed("SelectPlacement");
+            if (selectOriginal && !IsPointerOverEditorControl())
+                editor.TrySelectOriginalAtCursor();
             return;
+        }
 
         if (editor.IsInputActionPressed("PickPlacement"))
         {
@@ -235,9 +246,11 @@ internal class EditorWidget : MonoBehaviour
         foreach (RaycastResult result in raycastResults)
         {
             GameObject hit = result.gameObject;
-            if (hit != null
-                && hit.transform.IsChildOf(transform)
-                && hit.GetComponentInParent<Selectable>() != null)
+            if (hit == null)
+                continue;
+
+            Transform hitTransform = hit.transform;
+            if (hitTransform == transform || hitTransform.IsChildOf(transform))
                 return true;
         }
 
@@ -321,13 +334,174 @@ internal class EditorWidget : MonoBehaviour
         if (_originalStatusText == null)
             return;
 
+        OriginalObjectPage page = editor.Pages?.OriginalObjects;
         string room = editor.CurrentRoom == null
             ? "<none>"
             : editor.CurrentRoom.FrameworkLevelKey + editor.CurrentRoom.TargetSceneSuffix;
-        _originalStatusText.text = string.Format(
-            "Room: {0}   Session: {1}\nOriginal Objects catalog and overlap selection arrive in the next ticket.\nSelected Original Object: <none>",
+        string selected = page?.Selected == null
+            ? "<none>"
+            : page.Selected.DisplayText;
+        string status = string.Format(
+            "Room: {0}   Session: {1}\nCatalog: {2} locatable   Visible: {3}   Overlap candidates: {4}\nSelected Original Object: {5}",
             room,
-            editor.Session == null ? "not-ready" : editor.Session.State.ToString());
+            editor.Session == null ? "not-ready" : editor.Session.State.ToString(),
+            page == null ? 0 : page.CatalogCount,
+            page == null ? 0 : page.VisibleCount,
+            page == null ? 0 : page.Candidates.Count,
+            selected);
+        ApplyReportSurface reportSurface = editor.ReportSurface;
+        if (reportSurface != null && !string.IsNullOrEmpty(reportSurface.UiText))
+        {
+            status += "\nLast: " + reportSurface.UiText;
+            if (reportSurface.HasActionableMessage)
+                status += " " + reportSurface.ActionableMessage;
+        }
+        _originalStatusText.text = status;
+
+        if (_originalInspectorText != null)
+        {
+            _originalInspectorText.text = page?.Selected == null
+                ? "No Original Object selected.\nUse P or click an object in the room.\nMultiple overlaps require a row click."
+                : string.Format(
+                    "Identity: {0}\nActive at baseline: {1}\nActive now: {2}\nRuntime key: {3}\nLocatable: yes\nEditing: unavailable in this ticket",
+                    page.Selected.DisplayText,
+                    page.Selected.IsActive ? "yes" : "no (targeted)",
+                    page.Selected.IsRuntimeActive ? "yes" : "no",
+                    page.Selected.ObjectKey);
+        }
+
+        BuildOriginalOperations(page);
+        BuildOriginalCandidates(page);
+    }
+
+    private void BuildOriginalCandidates(OriginalObjectPage page)
+    {
+        if (_originalCandidateRoot == null)
+            return;
+
+        for (int index = _originalCandidateRoot.childCount - 1; index >= 0; index--)
+            UnityEngine.Object.Destroy(_originalCandidateRoot.GetChild(index).gameObject);
+
+        IList<OriginalObjectCandidate> candidates =
+            page == null ? new OriginalObjectCandidate[0] : page.Candidates;
+        if (candidates.Count == 0)
+        {
+            if (_originalCandidateScroll != null)
+                _originalCandidateScroll.gameObject.SetActive(false);
+            SetScrollContentHeight(_originalCandidateRoot, _originalCandidateScroll, _originalCandidateRoot.parent as RectTransform, 0f);
+            return;
+        }
+
+        if (_originalCandidateScroll != null)
+            _originalCandidateScroll.gameObject.SetActive(true);
+        float contentHeight = 8f + (candidates.Count * 24f);
+        for (int index = 0; index < candidates.Count; index++)
+        {
+            OriginalObjectCandidate candidate = candidates[index];
+            Button row = CreateButton(
+                "Original Candidate " + index,
+                candidate.DisplayText,
+                new Vector2(0f, -4f - (index * 24f)),
+                () => Main.EditorMode.TryChooseOriginalCandidate(candidate.DisplayText),
+                _originalCandidateRoot);
+            RectTransform rowRect = row.GetComponent<RectTransform>();
+            ConfigureTopAnchored(rowRect, new Vector2(0f, -4f - (index * 24f)), new Vector2(240f, 22f));
+        }
+
+        SetScrollContentHeight(
+            _originalCandidateRoot,
+            _originalCandidateScroll,
+            _originalCandidateRoot.parent as RectTransform,
+            contentHeight);
+    }
+
+    private void BuildOriginalOperations(OriginalObjectPage page)
+    {
+        if (_originalOperationsRoot == null)
+            return;
+
+        for (int index = _originalOperationsRoot.childCount - 1; index >= 0; index--)
+            UnityEngine.Object.Destroy(_originalOperationsRoot.GetChild(index).gameObject);
+
+        if (page == null || page.Operations.Count == 0)
+        {
+            Text empty = CreateText(
+                "Original Operations Empty",
+                Vector2.zero,
+                new Vector2(240f, 44f),
+                10,
+                TextAnchor.UpperLeft,
+                _originalOperationsRoot);
+            empty.text = "No imported or pending modifications/deletions.";
+            ConfigureTopAnchored(
+                empty.rectTransform,
+                new Vector2(0f, -4f),
+                new Vector2(240f, 44f));
+            SetScrollContentHeight(
+                _originalOperationsRoot,
+                _originalOperationsScroll,
+                _originalOperationsScroll?.viewport,
+                132f);
+            return;
+        }
+
+        const float rowHeight = 56f;
+        for (int index = 0; index < page.Operations.Count; index++)
+        {
+            OriginalObjectOperation operation = page.Operations[index];
+            float y = -4f - (index * rowHeight);
+            float textX = operation.IsLocatable ? -30f : 0f;
+            float textWidth = operation.IsLocatable ? 180f : 230f;
+            Text rowText = CreateText(
+                "Original Operation " + index,
+                Vector2.zero,
+                new Vector2(textWidth, 48f),
+                9,
+                TextAnchor.UpperLeft,
+                _originalOperationsRoot);
+            rowText.text = FormatOriginalOperation(operation);
+            ConfigureTopAnchored(
+                rowText.rectTransform,
+                new Vector2(textX, y),
+                new Vector2(textWidth, 48f));
+
+            if (!operation.IsLocatable)
+                continue;
+
+            Button select = CreateButton(
+                "Select Original Operation " + index,
+                "Select",
+                Vector2.zero,
+                () => Main.EditorMode.TrySelectOriginal(operation.DisplayIdentity),
+                _originalOperationsRoot);
+            ConfigureTopAnchored(
+                select.GetComponent<RectTransform>(),
+                new Vector2(96f, y),
+                new Vector2(54f, 22f));
+        }
+
+        SetScrollContentHeight(
+            _originalOperationsRoot,
+            _originalOperationsScroll,
+            _originalOperationsScroll?.viewport,
+            8f + (page.Operations.Count * rowHeight));
+    }
+
+    private static string FormatOriginalOperation(OriginalObjectOperation operation)
+    {
+        StringBuilder text = new();
+        text.Append(operation.Kind == OriginalObjectOperationKind.Modification ? "MODIFY " : "DELETE ")
+            .Append(operation.Source)
+            .Append(operation.IsImported ? " [imported]" : operation.IsPending ? " [pending]" : " [unknown status]")
+            .Append(operation.IsLocatable ? " [LOCATABLE]" : " [UNLOCATABLE]")
+            .Append('\n')
+            .Append(operation.DisplayIdentity);
+        if (!string.IsNullOrEmpty(operation.Type))
+            text.Append(" type=").Append(operation.Type);
+        if (!string.IsNullOrEmpty(operation.Id))
+            text.Append(" id=").Append(operation.Id);
+        text.Append(" [read-only]");
+        return text.ToString();
     }
 
     private void RefreshCandidateList(EditorMode editor)
@@ -692,20 +866,118 @@ internal class EditorWidget : MonoBehaviour
             TextAnchor.UpperLeft,
             _originalPageRoot);
         _originalStatusText.verticalOverflow = VerticalWrapMode.Truncate;
-        CreateText(
-            "Original Candidates Empty",
-            new Vector2(-195f, 60f),
-            new Vector2(230f, 60f),
-            13,
+        _originalInspectorText = CreateText(
+            "Original Inspector",
+            new Vector2(165f, 42f),
+            new Vector2(250f, 82f),
+            12,
             TextAnchor.UpperLeft,
-            _originalPageRoot).text = "No catalog attached.\nOriginal Objects arrive with the baseline catalog.";
+            _originalPageRoot);
         CreateText(
-            "Original Inspector Empty",
-            new Vector2(150f, 50f),
-            new Vector2(250f, 80f),
+            "Original Candidate Header",
+            new Vector2(-190f, 86f),
+            new Vector2(250f, 22f),
             13,
-            TextAnchor.UpperLeft,
-            _originalPageRoot).text = "Select a baseline Original Object\nwhen the catalog is available.";
+            TextAnchor.MiddleLeft,
+            _originalPageRoot).text = "Overlapping Original Objects — choose a row";
+        _originalCandidateRoot = CreateScrollView(
+            "Original Candidates",
+            _originalPageRoot,
+            new Vector2(-190f, -20f),
+            new Vector2(250f, 190f),
+            out _originalCandidateScroll);
+        _originalCandidateScroll.gameObject.SetActive(false);
+        CreateText(
+            "Original Operations Header",
+            new Vector2(165f, -15f),
+            new Vector2(250f, 22f),
+            13,
+            TextAnchor.MiddleLeft,
+            _originalPageRoot).text = "Imported / pending operations (read-only)";
+        _originalOperationsRoot = CreateScrollView(
+            "Original Operations",
+            _originalPageRoot,
+            new Vector2(165f, -95f),
+            new Vector2(250f, 132f),
+            out _originalOperationsScroll);
+        SetScrollContentHeight(_originalOperationsRoot, _originalOperationsScroll, _originalOperationsScroll.viewport, 132f);
+    }
+
+    private Transform CreateScrollView(
+        string name,
+        Transform parent,
+        Vector2 position,
+        Vector2 size,
+        out ScrollRect scroll)
+    {
+        GameObject viewportObject = new(name + " Viewport")
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
+        viewportObject.transform.SetParent(parent, false);
+        RectTransform viewport = viewportObject.AddComponent<RectTransform>();
+        viewport.anchorMin = new Vector2(0.5f, 0.5f);
+        viewport.anchorMax = new Vector2(0.5f, 0.5f);
+        viewport.pivot = new Vector2(0.5f, 0.5f);
+        viewport.anchoredPosition = position;
+        viewport.sizeDelta = size;
+
+        Image background = viewportObject.AddComponent<Image>();
+        background.color = new Color(0f, 0f, 0f, 0.12f);
+        background.raycastTarget = true;
+        viewportObject.AddComponent<RectMask2D>();
+
+        scroll = viewportObject.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        scroll.vertical = true;
+        scroll.movementType = ScrollRect.MovementType.Clamped;
+        scroll.scrollSensitivity = 20f;
+        scroll.viewport = viewport;
+
+        GameObject contentObject = new(name + " Content")
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
+        contentObject.transform.SetParent(viewportObject.transform, false);
+        RectTransform content = contentObject.AddComponent<RectTransform>();
+        content.anchorMin = new Vector2(0.5f, 1f);
+        content.anchorMax = new Vector2(0.5f, 1f);
+        content.pivot = new Vector2(0.5f, 1f);
+        content.anchoredPosition = Vector2.zero;
+        content.sizeDelta = size;
+        scroll.content = content;
+        return content.transform;
+    }
+
+    private static void ConfigureTopAnchored(
+        RectTransform rect,
+        Vector2 position,
+        Vector2 size)
+    {
+        if (rect == null)
+            return;
+
+        rect.anchorMin = new Vector2(0.5f, 1f);
+        rect.anchorMax = new Vector2(0.5f, 1f);
+        rect.pivot = new Vector2(0.5f, 1f);
+        rect.anchoredPosition = position;
+        rect.sizeDelta = size;
+    }
+
+    private static void SetScrollContentHeight(
+        Transform content,
+        ScrollRect scroll,
+        RectTransform viewport,
+        float height)
+    {
+        RectTransform contentRect = content as RectTransform;
+        if (contentRect == null)
+            return;
+
+        float viewportHeight = viewport == null ? height : viewport.rect.height;
+        contentRect.sizeDelta = new Vector2(contentRect.sizeDelta.x, Mathf.Max(height, viewportHeight));
+        if (scroll != null)
+            scroll.verticalNormalizedPosition = 1f;
     }
 
     private Transform CreatePageRoot(string name)

@@ -7,6 +7,7 @@ using Blasphemous.EditorMode.Lifecycle;
 using Blasphemous.EditorMode.Runtime;
 using Blasphemous.Framework.UI;
 using Blasphemous.ModdingAPI;
+using Framework.FrameworkCore;
 using Framework.Managers;
 using Gameplay.GameControllers.Environment;
 using Gameplay.UI;
@@ -67,6 +68,9 @@ internal class EditorMode : BlasMod
     private ApplyReportPublisher _reportPublisher;
     private UnityRuntimePlacementFactory _runtimeFactory;
     private RoomOverlayReconciler _overlayReconciler;
+    private readonly UnityOriginalObjectBaselineCapture _originalObjectBaselineCapture = new();
+    private OriginalObjectBaseline _originalObjectBaseline;
+    private bool _originalObjectBaselineSubscribed;
     private Coroutine _roomPreparation;
     private Coroutine _creatorPreload;
     private bool _creatorPreloadStarted;
@@ -123,6 +127,8 @@ internal class EditorMode : BlasMod
                 { "RightControl", KeyCode.RightControl },
             });
         SpriteStorage = new(FileHandler);
+        LevelManager.OnLevelPreLoaded += CaptureOriginalObjectBaseline;
+        _originalObjectBaselineSubscribed = true;
     }
 
     protected override void OnLevelPreloaded(string oldLevel, string newLevel)
@@ -216,6 +222,12 @@ internal class EditorMode : BlasMod
 
     protected override void OnDispose()
     {
+        if (_originalObjectBaselineSubscribed)
+        {
+            LevelManager.OnLevelPreLoaded -= CaptureOriginalObjectBaseline;
+            _originalObjectBaselineSubscribed = false;
+        }
+        _originalObjectBaseline = null;
         ExitEditorMode();
         DisposePreview();
         ClearRoomOverlay();
@@ -553,6 +565,57 @@ internal class EditorMode : BlasMod
         return true;
     }
 
+    internal bool TryChooseOriginalCandidate(string identity)
+    {
+        EditorPageController pages = Pages;
+        if (pages == null || ActivePage != EditorPage.OriginalObjects)
+            return ReportPageCommandUnavailable("Select Original Object");
+
+        ApplyReport report = new();
+        if (!pages.TryChooseOriginalCandidate(
+            identity,
+            report,
+            out _))
+        {
+            if (report.Entries.Count == 0)
+            {
+                report.Error(
+                    ReportCodes.SelectionCandidateNotFound,
+                    identity ?? "$",
+                    "The Original Object candidate is unavailable.");
+            }
+            PublishReport("Select Original Object", report);
+            return false;
+        }
+
+        PublishReport("Select Original Object", report);
+        return true;
+    }
+
+    internal bool TrySelectOriginal(string identity)
+    {
+        EditorPageController pages = Pages;
+        if (pages == null || ActivePage != EditorPage.OriginalObjects)
+            return ReportPageCommandUnavailable("Select Original Object");
+
+        ApplyReport report = new();
+        if (!pages.TrySelectOriginal(identity, report, out _))
+        {
+            if (report.Entries.Count == 0)
+            {
+                report.Error(
+                    ReportCodes.SelectionCandidateNotFound,
+                    identity ?? "$",
+                    "The Original Object operation target is unavailable.");
+            }
+            PublishReport("Select Original Object", report);
+            return false;
+        }
+
+        PublishReport("Select Original Object", report);
+        return true;
+    }
+
     private bool RequireAdditionsPage(string operation)
     {
         return ActivePage == EditorPage.Additions
@@ -731,6 +794,29 @@ internal class EditorMode : BlasMod
         return result;
     }
 
+    internal bool TrySelectOriginalAtCursor()
+    {
+        EditorPageController pages = Pages;
+        RoomIdentity room = _lifecycleBridge?.CurrentRoom;
+        if (pages == null || room == null)
+        {
+            ApplyReport failure = new();
+            failure.Error(ReportCodes.RoomRequired, "Original Objects", "No editable Room Overlay is loaded.");
+            PublishReport("Select Original Object", failure);
+            return false;
+        }
+        if (ActivePage != EditorPage.OriginalObjects)
+            return ReportPageCommandUnavailable("Select Original Object");
+
+        IOriginalObjectHitSource hitSource = new UnityOriginalObjectHitSource(
+            room.FrameworkLevelKey,
+            Input.mousePosition);
+        ApplyReport report = new();
+        bool result = pages.TryPresentOriginalCandidates(hitSource, report);
+        PublishReport("Select Original Object", report);
+        return result;
+    }
+
     internal bool TryReset()
     {
         if (!RequireAdditionsPage("Reset"))
@@ -812,7 +898,20 @@ internal class EditorMode : BlasMod
 
         string path = RoomExportPath(room);
         FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, room.ExportFileKey);
-        RoomOverlayReconcileResult result = _overlayReconciler.Apply(room, file);
+        OriginalObjectBaseline baseline = _originalObjectBaseline;
+        if (baseline != null
+            && !string.Equals(
+                baseline.FrameworkLevelKey,
+                room.FrameworkLevelKey,
+                System.StringComparison.OrdinalIgnoreCase))
+        {
+            baseline = null;
+        }
+        RoomOverlayReconcileResult result = _overlayReconciler.Apply(
+            room,
+            file,
+            baseline,
+            new UnityOriginalObjectPathResolver());
         PublishReport("Room import", result.Report);
         if (!result.Succeeded)
         {
@@ -1012,6 +1111,34 @@ internal class EditorMode : BlasMod
             false,
             true,
             (int)CursorLockMode.None);
+    }
+
+    private void CaptureOriginalObjectBaseline(Level oldLevel, Level newLevel)
+    {
+        string frameworkLevelKey = newLevel?.LevelName ?? string.Empty;
+        if (string.IsNullOrEmpty(frameworkLevelKey)
+            || string.Equals(frameworkLevelKey, "MainMenu", System.StringComparison.OrdinalIgnoreCase))
+        {
+            _originalObjectBaseline = null;
+            return;
+        }
+
+        OriginalObjectBaseline baseline = _originalObjectBaselineCapture.Capture(frameworkLevelKey);
+        _originalObjectBaseline = baseline;
+        if (baseline.CaptureReport.HasErrors)
+        {
+            ModLog.Error(
+                "Editor Mode could not capture the pre-mod Original Object baseline for "
+                + frameworkLevelKey
+                + ". Original Objects remain unavailable for this room.");
+        }
+        else
+        {
+            ModLog.Info(
+                "Captured pre-mod Original Object baseline for "
+                + frameworkLevelKey
+                + " before ModdingAPI dispatched OnLevelPreloaded.");
+        }
     }
 
     private GameObject CreateEditorGameObject()

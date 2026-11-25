@@ -56,6 +56,15 @@ internal sealed class RoomOverlayReconciler
 
     internal RoomOverlayReconcileResult Apply(RoomIdentity room, FrameworkFileResult file)
     {
+        return Apply(room, file, null, null);
+    }
+
+    internal RoomOverlayReconcileResult Apply(
+        RoomIdentity room,
+        FrameworkFileResult file,
+        OriginalObjectBaseline originalObjectBaseline,
+        IOriginalObjectPathResolver originalObjectResolver)
+    {
         ApplyReport report = new();
         LevelEditSessionImportResult imported = LevelEditSession.Import(room, file, _catalog.Entries);
         report.Merge(imported.Report);
@@ -82,10 +91,17 @@ internal sealed class RoomOverlayReconciler
             adoptionPass?.EndAdoptionPass();
         }
 
+        next.CaptureInitialSnapshot();
+        OriginalObjectPage originalObjects = originalObjectBaseline == null
+            && originalObjectResolver == null
+            ? OriginalObjectPage.Empty
+            : new OriginalObjectPage(
+                imported.Session,
+                originalObjectBaseline,
+                originalObjectResolver,
+                report);
         if (report.IsPartial)
             imported.Session.SetState(LevelEditSessionState.Partial, report);
-
-        next.CaptureInitialSnapshot();
 
         if (_manager != null && !_manager.TryClear(report))
         {
@@ -94,7 +110,7 @@ internal sealed class RoomOverlayReconciler
         }
 
         _manager = next;
-        _pages = new EditorPageController(next);
+        _pages = new EditorPageController(next, originalObjects);
         _room = room;
         _session = imported.Session;
         return new RoomOverlayReconcileResult(room, imported.Session, next, _pages, report);

@@ -96,6 +96,11 @@ internal static class ReportCodes
     internal const string SelectionCandidateNotFound = "SELECTION_CANDIDATE_NOT_FOUND";
     internal const string PageChanged = "PAGE_CHANGED";
     internal const string PageCommandUnavailable = "PAGE_COMMAND_UNAVAILABLE";
+    internal const string OriginalObjectBaselineMissing = "ORIGINAL_OBJECT_BASELINE_MISSING";
+    internal const string OriginalObjectCatalogReady = "ORIGINAL_OBJECT_CATALOG_READY";
+    internal const string OriginalObjectProvenanceRejected = "ORIGINAL_OBJECT_PROVENANCE_REJECTED";
+    internal const string OriginalObjectUnaddressable = "ORIGINAL_OBJECT_UNADDRESSABLE";
+    internal const string OriginalObjectOperationUnlocatable = "ORIGINAL_OBJECT_OPERATION_UNLOCATABLE";
 
     internal const string SeamPassed = "SEAM_PASSED";
     internal const string SeamFailed = "SEAM_FAILED";
