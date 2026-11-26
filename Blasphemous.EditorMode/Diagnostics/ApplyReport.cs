@@ -109,6 +109,18 @@ internal sealed class ApplyReport
         }
     }
 
+    internal void MergeRetainedAdditionDiagnostics(IEnumerable<FrameworkDiagnostic> diagnostics)
+    {
+        foreach (FrameworkDiagnostic diagnostic in diagnostics ?? [])
+        {
+            Warning(
+                ClassifyFrameworkDiagnostic(diagnostic.Message),
+                diagnostic.Location,
+                diagnostic.Message,
+                skipped: true);
+        }
+    }
+
     internal void Merge(ApplyReport other)
     {
         if (other == null)

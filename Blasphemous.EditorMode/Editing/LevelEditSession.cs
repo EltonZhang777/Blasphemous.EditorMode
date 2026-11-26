@@ -65,7 +65,6 @@ internal sealed class LevelEditSessionExportResult
 internal sealed class LevelEditSession
 {
     private readonly List<PlacementRecord> _placements;
-    private readonly HashSet<string> _preservedAdditionIds;
     private readonly List<FrameworkObjectData> _modifications;
     private readonly List<FrameworkObjectData> _deletions;
     private readonly HashSet<string> _issuedOriginalObjectIds;
@@ -75,7 +74,6 @@ internal sealed class LevelEditSession
         FrameworkLevelEdit importedDocument,
         string sourceText,
         IEnumerable<PlacementRecord> placements,
-        IEnumerable<string> preservedAdditionIds,
         IEnumerable<FrameworkObjectData> modifications,
         IEnumerable<FrameworkObjectData> deletions,
         LevelEditSessionState state,
@@ -85,9 +83,6 @@ internal sealed class LevelEditSession
         ImportedDocument = importedDocument;
         OriginalSourceText = sourceText;
         _placements = [.. placements ?? []];
-        _preservedAdditionIds = new HashSet<string>(
-            preservedAdditionIds ?? [],
-            StringComparer.OrdinalIgnoreCase);
         State = state;
         ImportedState = state;
         LastReport = report;
@@ -155,7 +150,7 @@ internal sealed class LevelEditSession
 
         if (file.Document == null || HasFatalFrameworkDiagnostic(file.Diagnostics))
         {
-            report.MergeFrameworkDiagnostics(file.Diagnostics);
+            MergeImportDiagnostics(report, file);
             report.Error(
                 ReportCodes.ImportInvalid,
                 file.Path,
@@ -163,7 +158,7 @@ internal sealed class LevelEditSession
             return Failed(report, file.OriginalText);
         }
 
-        report.MergeFrameworkDiagnostics(file.Diagnostics);
+        MergeImportDiagnostics(report, file);
         Dictionary<string, CreatorMetadata> creators = new(StringComparer.OrdinalIgnoreCase);
         foreach (CreatorMetadata creator in supportedCreators ?? [])
         {
@@ -172,81 +167,170 @@ internal sealed class LevelEditSession
         }
 
         List<PlacementRecord> placements = [];
-        HashSet<string> ids = new(StringComparer.OrdinalIgnoreCase);
+        List<FrameworkObjectData> importedAdditions = [];
+        HashSet<string> sourceIds = new(StringComparer.OrdinalIgnoreCase);
         foreach (FrameworkObjectData data in file.Document.Additions)
         {
+            bool duplicateSourceId = !string.IsNullOrEmpty(data.Id)
+                && !sourceIds.Add(data.Id);
             if (data.PreserveOriginalAddition)
             {
                 string location = "additions[" + (string.IsNullOrEmpty(data.Id) ? "unknown" : data.Id) + "]";
+                importedAdditions.Add(data);
                 CreatorMetadata originalCreator = null;
                 if (!string.IsNullOrEmpty(data.Type)
                     && !creators.TryGetValue(data.Type, out originalCreator))
                 {
-                    report.Error(
+                    report.Warning(
                         ReportCodes.CreatorUnsupported,
                         location,
-                        "Creator '" + data.Type + "' is unavailable in the current profile.");
+                        "Creator '" + data.Type + "' is unavailable in the current profile.",
+                        true);
                 }
                 else
                 {
                     if (originalCreator != null)
-                    {
-                        PlacementValidation.Validate(data, originalCreator, report);
-                    }
-                    report.Error(
-                        ReportCodes.AdditionUneditablePreserved,
-                        location,
-                        "The source addition cannot be represented by this editor profile and was retained unchanged.");
+                        ReportValidationWarnings(data, originalCreator, report);
                 }
+                ReportPreservedAddition(report, location);
                 continue;
             }
 
             if (!creators.TryGetValue(data.Type, out CreatorMetadata creator))
             {
-                report.Error(
+                string location = "additions[" + data.Id + "]";
+                report.Warning(
                     ReportCodes.CreatorUnsupported,
-                    "additions[" + data.Id + "]",
-                    "Creator '" + data.Type + "' is unavailable in the current profile.");
+                    location,
+                    "Creator '" + data.Type + "' is unavailable in the current profile.",
+                    true);
+                importedAdditions.Add(data.WithPreservedOriginalAddition());
+                ReportPreservedAddition(report, location);
                 continue;
             }
 
-            if (!PlacementValidation.Validate(data, creator, report))
-                continue;
-
-            if (!ids.Add(data.Id))
+            ApplyReport validation = new();
+            if (!PlacementValidation.Validate(data, creator, validation))
             {
-                report.Error(
-                    ReportCodes.PlacementDuplicateId,
-                    "additions[" + data.Id + "]",
-                    "Placement id is duplicated in the session.");
+                string location = "additions[" + data.Id + "]";
+                MergeValidationWarnings(report, validation);
+                importedAdditions.Add(data.WithPreservedOriginalAddition());
+                ReportPreservedAddition(report, location);
                 continue;
             }
 
+            if (duplicateSourceId)
+            {
+                string location = "additions[" + data.Id + "]";
+                report.Warning(
+                    ReportCodes.PlacementDuplicateId,
+                    location,
+                    "Placement id is duplicated in the session; the source addition was retained unchanged.",
+                    true);
+                importedAdditions.Add(data.WithPreservedOriginalAddition());
+                ReportPreservedAddition(report, location);
+                continue;
+            }
+
+            importedAdditions.Add(data);
             placements.Add(PlacementRecord.FromFramework(data));
             report.Applied();
         }
 
-        HashSet<string> preservedAdditionIds = new(StringComparer.OrdinalIgnoreCase);
-        foreach (FrameworkObjectData data in file.Document.Additions)
-        {
-            if (!ids.Contains(data.Id))
-                preservedAdditionIds.Add(data.Id);
-        }
-
+        FrameworkLevelEdit importedDocument = new(
+            importedAdditions,
+            file.Document.Modifications,
+            file.Document.Deletions);
         LevelEditSessionState state = report.IsPartial
             ? LevelEditSessionState.Partial
             : LevelEditSessionState.Clean;
         LevelEditSession session = new(
             room,
-            file.Document,
+            importedDocument,
             file.OriginalText,
             placements,
-            preservedAdditionIds,
             file.Document.Modifications,
             file.Document.Deletions,
             state,
             report);
         return new LevelEditSessionImportResult(session, state, report, file.OriginalText);
+    }
+
+    private static void MergeImportDiagnostics(
+        ApplyReport report,
+        FrameworkFileResult file)
+    {
+        List<FrameworkDiagnostic> retained = [];
+        List<FrameworkDiagnostic> other = [];
+        foreach (FrameworkDiagnostic diagnostic in file.Diagnostics)
+        {
+            if (IsRetainedAdditionDiagnostic(diagnostic, file.Document?.Additions))
+                retained.Add(diagnostic);
+            else
+                other.Add(diagnostic);
+        }
+
+        report.MergeRetainedAdditionDiagnostics(retained);
+        report.MergeFrameworkDiagnostics(other);
+    }
+
+    private static bool IsRetainedAdditionDiagnostic(
+        FrameworkDiagnostic diagnostic,
+        IList<FrameworkObjectData> additions)
+    {
+        string prefix = LevelFrameworkContract.AdditionsField + "[";
+        if (additions == null
+            || !diagnostic.Location.StartsWith(prefix, StringComparison.Ordinal)
+            || diagnostic.Message.IndexOf(
+                "Duplicate object id",
+                StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return false;
+        }
+
+        int close = diagnostic.Location.IndexOf(']', prefix.Length);
+        if (close <= prefix.Length
+            || !int.TryParse(
+                diagnostic.Location.Substring(prefix.Length, close - prefix.Length),
+                out int index)
+            || index < 0
+            || index >= additions.Count)
+        {
+            return false;
+        }
+
+        return additions[index] != null && additions[index].PreserveOriginalAddition;
+    }
+
+    private static void ReportPreservedAddition(ApplyReport report, string location)
+    {
+        report.Warning(
+            ReportCodes.AdditionUneditablePreserved,
+            location,
+            "The source addition cannot be represented by this editor profile and was retained unchanged.",
+            true);
+    }
+
+    private static void ReportValidationWarnings(
+        FrameworkObjectData data,
+        CreatorMetadata creator,
+        ApplyReport report)
+    {
+        ApplyReport validation = new();
+        PlacementValidation.Validate(data, creator, validation);
+        MergeValidationWarnings(report, validation);
+    }
+
+    private static void MergeValidationWarnings(ApplyReport report, ApplyReport validation)
+    {
+        foreach (ApplyReportEntry entry in validation.Entries)
+        {
+            report.Warning(
+                entry.Code,
+                entry.Location,
+                entry.Message,
+                entry.Skipped);
+        }
     }
 
     internal bool TryGetPlacement(string id, out PlacementRecord placement)
@@ -276,7 +360,8 @@ internal sealed class LevelEditSession
             report.Error(ReportCodes.OwnershipRejected, placement.Id, "Only Architect-owned placements can be edited.");
             return false;
         }
-        if (TryGetPlacement(placement.Id, out _))
+        if (TryGetPlacement(placement.Id, out _)
+            || IsIdIssued(placement.Id))
         {
             report.Error(ReportCodes.PlacementDuplicateId, placement.Id, "Placement id already exists.");
             return false;
@@ -345,6 +430,18 @@ internal sealed class LevelEditSession
     {
         if (!string.IsNullOrEmpty(id))
             _issuedOriginalObjectIds.Add(id);
+    }
+
+    internal bool IsIdIssued(string id)
+    {
+        return !string.IsNullOrEmpty(id)
+            && _issuedOriginalObjectIds.Contains(id);
+    }
+
+    internal IEnumerable<string> IssuedIds()
+    {
+        foreach (string id in _issuedOriginalObjectIds)
+            yield return id;
     }
 
     internal bool TryUpsertOriginalObjectModification(
@@ -528,8 +625,7 @@ internal sealed class LevelEditSession
         foreach (FrameworkObjectData sourceAddition in ImportedDocument.Additions)
         {
             importedIds.Add(sourceAddition.Id);
-            if (sourceAddition.PreserveOriginalAddition
-                || _preservedAdditionIds.Contains(sourceAddition.Id))
+            if (sourceAddition.PreserveOriginalAddition)
             {
                 additions.Add(sourceAddition.WithPreservedOriginalAddition());
                 continue;
@@ -581,8 +677,7 @@ internal sealed class LevelEditSession
 
         foreach (FrameworkObjectData addition in ImportedDocument.Additions)
         {
-            if (addition.PreserveOriginalAddition
-                || _preservedAdditionIds.Contains(addition.Id))
+            if (addition.PreserveOriginalAddition)
             {
                 report.Warning(
                     ReportCodes.UneditableAdditionPreserved,
@@ -735,8 +830,7 @@ internal sealed class LevelEditSession
         foreach (FrameworkObjectData addition in ImportedDocument.Additions)
         {
             if (addition == null
-                || addition.PreserveOriginalAddition
-                || _preservedAdditionIds.Contains(addition.Id))
+                || addition.PreserveOriginalAddition)
                 continue;
 
             importedIds.Add(addition.Id);

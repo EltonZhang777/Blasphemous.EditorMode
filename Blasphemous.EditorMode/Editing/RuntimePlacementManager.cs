@@ -1196,6 +1196,8 @@ internal sealed class RuntimePlacementManager
 
     private IEnumerable<string> AllIds()
     {
+        foreach (string id in _session.IssuedIds())
+            yield return id;
         foreach (PlacementRecord placement in _session.Placements)
             yield return placement.Id;
         foreach (string id in _projections.Keys)
