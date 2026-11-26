@@ -12,10 +12,7 @@ internal static class BaseModifier_MarkFrameworkAddition_Patch
 {
     private static void Postfix(GameObject obj, ObjectData data)
     {
-        if (obj == null || data == null
-            || !string.IsNullOrEmpty(data.scene)
-            || !string.IsNullOrEmpty(data.path)
-            || string.IsNullOrEmpty(data.id))
+        if (obj == null || !IsFrameworkAddition(data))
             return;
 
         RuntimePlacementMarker marker = obj.GetComponent<RuntimePlacementMarker>();
@@ -29,5 +26,13 @@ internal static class BaseModifier_MarkFrameworkAddition_Patch
         marker.PlacementId = data.id;
         marker.Type = data.type;
         marker.Source = "Framework";
+    }
+
+    internal static bool IsFrameworkAddition(ObjectData data)
+    {
+        return data != null
+            && string.IsNullOrEmpty(data.scene)
+            && string.IsNullOrEmpty(data.path)
+            && !string.IsNullOrEmpty(data.id);
     }
 }

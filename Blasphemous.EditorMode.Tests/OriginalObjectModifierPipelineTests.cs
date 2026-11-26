@@ -1,7 +1,9 @@
 using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
 using Blasphemous.EditorMode.Framework;
+using Blasphemous.EditorMode.HarmonyPatches;
 using Blasphemous.EditorMode.Runtime;
+using Blasphemous.Framework.Levels;
 using System;
 using System.Collections.Generic;
 using Xunit;
@@ -104,6 +106,35 @@ public sealed class OriginalObjectModifierPipelineTests
 
         Assert.Equal("Hero", target.Name);
         Assert.Equal(new[] { "Collider", "Animator" }, target.Components);
+    }
+
+    [Fact]
+    public void Framework_payload_for_modification_preserves_scene_and_path()
+    {
+        FrameworkObjectData modification = Modification();
+
+        ObjectData payload = RuntimeObjectData.Create(modification);
+
+        Assert.Equal("decoration", payload.scene);
+        Assert.Equal("DECORATION/HERO", payload.path);
+        Assert.Equal(OriginalObjectEditor.EmptyModificationType, payload.type);
+        Assert.Equal("editor-mode-empty-1", payload.id);
+        Assert.False(BaseModifier_MarkFrameworkAddition_Patch.IsFrameworkAddition(payload));
+    }
+
+    [Fact]
+    public void Framework_addition_payload_is_still_marked_as_framework()
+    {
+        PlacementRecord placement = new(
+            "bell-iron-1",
+            "bell-iron",
+            PlacementTransform.Default,
+            [],
+            PlacementOwnership.ArchitectOwned);
+
+        ObjectData payload = RuntimeObjectData.Create(placement);
+
+        Assert.True(BaseModifier_MarkFrameworkAddition_Patch.IsFrameworkAddition(payload));
     }
 
     private static FrameworkObjectData Modification()

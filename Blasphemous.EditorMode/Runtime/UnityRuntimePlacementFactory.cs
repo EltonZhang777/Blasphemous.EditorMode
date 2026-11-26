@@ -508,7 +508,9 @@ internal static class RuntimeObjectData
             modification.Id,
             PlacementTransform.FromFramework(modification),
             modification.Condition,
-            modification.Properties);
+            modification.Properties,
+            modification.Scene,
+            modification.Path);
     }
 
     private static ObjectData Create(
@@ -516,7 +518,9 @@ internal static class RuntimeObjectData
         string id,
         PlacementTransform transform,
         string condition,
-        IEnumerable<string> properties)
+        IEnumerable<string> properties,
+        string scene = null,
+        string path = null)
     {
         JObject json = new()
         {
@@ -528,6 +532,10 @@ internal static class RuntimeObjectData
             ["condition"] = condition,
             ["properties"] = new JArray(properties)
         };
+        if (scene != null)
+            json["scene"] = scene;
+        if (path != null)
+            json["path"] = path;
         return json.ToObject<ObjectData>();
     }
 
