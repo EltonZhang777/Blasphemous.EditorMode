@@ -77,7 +77,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Verbose_off_publishes_only_the_summary()
+    public void Every_diagnostic_publishes_its_full_entry_alongside_the_summary()
     {
         ApplyReport report = new ApplyReport();
         report.Warning("HIDDEN_WARNING", "item[1]", "warning entry");
@@ -86,20 +86,23 @@ public sealed class ApplyReportTests
         List<(ApplySeverity Severity, string Message)> logs = new List<(ApplySeverity Severity, string Message)>();
         ApplyReportPublisher publisher = new ApplyReportPublisher(
             surface,
-            (severity, message) => logs.Add((severity, message)),
-            false);
+            (severity, message) => logs.Add((severity, message)));
 
         publisher.Publish("import", report);
 
-        (ApplySeverity Severity, string Message) log = Assert.Single(logs);
-        Assert.Equal(ApplySeverity.Error, log.Severity);
-        Assert.Equal(surface.UiText, log.Message);
-        Assert.DoesNotContain("HIDDEN_WARNING", log.Message);
-        Assert.DoesNotContain("HIDDEN_ERROR", log.Message);
+        Assert.Equal(3, logs.Count);
+        Assert.Equal(ApplySeverity.Error, logs[0].Severity);
+        Assert.Equal(surface.UiText, logs[0].Message);
+        Assert.Equal(
+            (ApplySeverity.Warning, "[Warning] HIDDEN_WARNING item[1]: warning entry"),
+            logs[1]);
+        Assert.Equal(
+            (ApplySeverity.Error, "[Error] HIDDEN_ERROR item[2]: error entry"),
+            logs[2]);
     }
 
     [Fact]
-    public void Verbose_on_publishes_summary_then_entries_with_their_own_severity()
+    public void All_diagnostics_follow_the_summary_and_keep_their_own_severity()
     {
         ApplyReport report = new ApplyReport();
         report.Warning("VERBOSE_WARNING", "item[1]", "warning entry");
@@ -109,8 +112,7 @@ public sealed class ApplyReportTests
         List<(ApplySeverity Severity, string Message)> logs = new List<(ApplySeverity Severity, string Message)>();
         ApplyReportPublisher publisher = new ApplyReportPublisher(
             surface,
-            (severity, message) => logs.Add((severity, message)),
-            true);
+            (severity, message) => logs.Add((severity, message)));
 
         publisher.Publish("import", report);
 
@@ -129,7 +131,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Verbose_diagnostics_is_disabled_by_default()
+    public void Runtime_verbose_diagnostics_is_disabled_by_default()
     {
         EditorModeConfig config = new EditorModeConfig();
 
@@ -146,8 +148,7 @@ public sealed class ApplyReportTests
         List<(ApplySeverity Severity, string Message)> logs = new List<(ApplySeverity Severity, string Message)>();
         ApplyReportPublisher publisher = new ApplyReportPublisher(
             surface,
-            (severity, message) => logs.Add((severity, message)),
-            true);
+            (severity, message) => logs.Add((severity, message)));
 
         publisher.Publish("import", report);
 
@@ -214,6 +215,28 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
+    public void Clearing_property_diagnostics_does_not_remove_an_unrelated_report()
+    {
+        ApplyReportSurface surface = new ApplyReportSurface();
+        ApplyReport properties = new ApplyReport();
+        properties.Error("PROPERTY_INVALID", "properties[1]", "bad property");
+        surface.Publish("Properties", properties);
+
+        Assert.True(surface.ClearOperation("Properties"));
+        Assert.Null(surface.LastReport);
+        Assert.Equal(string.Empty, surface.UiText);
+        Assert.False(surface.HasActionableMessage);
+
+        ApplyReport selection = new ApplyReport();
+        selection.Info("SELECTION_PASSED", "cursor", "selected");
+        surface.Publish("Select", selection);
+
+        Assert.False(surface.ClearOperation("Properties"));
+        Assert.Same(selection, surface.LastReport);
+        Assert.Equal(selection.ToSummary("Select"), surface.UiText);
+    }
+
+    [Fact]
     public void Failed_edit_flow_returns_to_the_previous_safe_state_after_recovery()
     {
         ApplyReport report = new ApplyReport();
@@ -244,12 +267,12 @@ public sealed class ApplyReportTests
         List<(ApplySeverity Severity, string Message)> logs = new List<(ApplySeverity Severity, string Message)>();
         ApplyReportPublisher publisher = new ApplyReportPublisher(
             surface,
-            (severity, message) => logs.Add((severity, message)),
-            false);
+            (severity, message) => logs.Add((severity, message)));
 
         publisher.Publish("test", report);
 
-        (ApplySeverity Severity, string Message) log = Assert.Single(logs);
+        Assert.NotEmpty(logs);
+        (ApplySeverity Severity, string Message) log = logs[0];
         Assert.Equal(expectedSeverity, log.Severity);
         Assert.True(
             log.Message.StartsWith("test " + status + ": Applied=", StringComparison.Ordinal),

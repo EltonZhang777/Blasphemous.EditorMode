@@ -27,6 +27,7 @@ namespace Blasphemous.EditorMode;
 
 internal class EditorMode : BlasMod
 {
+    private const string PropertiesOperation = "Properties";
 
     internal EditorWidget EditorWidget { get; private set; }
 
@@ -121,8 +122,7 @@ internal class EditorMode : BlasMod
                     ModLog.Warn(message);
                 else
                     ModLog.Info(message);
-            },
-            _verboseDiagnostics);
+            });
         _editorGuard = new EditorModeGuard(
             BlasphemousEditorRuntimeState.Capture,
             BlasphemousEditorRuntimeState.Apply);
@@ -184,7 +184,7 @@ internal class EditorMode : BlasMod
                 ReportCodes.RoomEffectsStoreMissing,
                 activeScene.name,
                 "The active room has no LevelEffectsStore component; its context was not refreshed.");
-            PublishReport("Room context refresh", report);
+            PublishReport("Room context refresh", report, false);
             return;
         }
 
@@ -353,7 +353,7 @@ internal class EditorMode : BlasMod
         {
             ApplyReport report = new();
             report.Error(ReportCodes.RoomRequired, "import", "No editable Room Overlay is loaded.");
-            PublishReport("Level import", report);
+            PublishReport("Level import", report, false);
             return false;
         }
 
@@ -392,7 +392,7 @@ internal class EditorMode : BlasMod
             [],
             report,
             out _);
-        PublishReport("Place", report);
+        PublishReport("Place", report, !result);
         return result;
     }
 
@@ -437,7 +437,7 @@ internal class EditorMode : BlasMod
 
         ApplyReport report = new();
         bool result = manager.TryDelete(manager.Selected.Id, report);
-        PublishReport("Delete", report);
+        PublishReport("Delete", report, false);
         return result;
     }
 
@@ -682,7 +682,7 @@ internal class EditorMode : BlasMod
                 clipboard.Transform.ScaleZ),
             report,
             out _);
-        PublishReport("Paste", report);
+        PublishReport("Paste", report, !result);
         return result;
     }
 
@@ -801,7 +801,7 @@ internal class EditorMode : BlasMod
         return result;
     }
 
-    internal bool TrySetSelectedProperty(string key, string value)
+    internal bool TryApplySelectedProperties(string text)
     {
         if (!RequireAdditionsPage("Property"))
             return false;
@@ -811,9 +811,26 @@ internal class EditorMode : BlasMod
             return false;
 
         ApplyReport report = new();
-        bool result = manager.TrySetProperty(manager.Selected.Id, key, value, report);
-        PublishReport("Property", report);
+        bool result = manager.TryApplyProperties(manager.Selected.Id, text, report);
+        PublishReport(PropertiesOperation, report, !result);
         return result;
+    }
+
+    internal void OnRawPropertiesEditStarted()
+    {
+        if (!ClearRawPropertiesDiagnostics())
+        {
+            return;
+        }
+
+        EditorWidget widget = EditorWidget;
+        if (widget != null)
+            widget.RefreshAfterReport(true);
+    }
+
+    internal bool ClearRawPropertiesDiagnostics()
+    {
+        return _reportPublisher.Surface.ClearOperation(PropertiesOperation);
     }
 
     internal bool TrySelectAtCursor()
@@ -825,15 +842,18 @@ internal class EditorMode : BlasMod
         bool found = TryFindAllAtCursor(out IList<IRuntimePlacementHandle> handles, out string error);
         if (!found && error != null)
         {
-            ApplyReport failure = new();
-            failure.Error(ReportCodes.SelectionFailed, "cursor", error);
-            PublishReport("Select", failure);
+            if (error != null)
+            {
+                ApplyReport failure = new();
+                failure.Error(ReportCodes.SelectionFailed, "cursor", error);
+                PublishReport("Select", failure, true);
+            }
             return false;
         }
 
         ApplyReport report = new();
         bool result = Pages != null && Pages.TryPresentAdditionCandidates(handles, report);
-        PublishReport("Select", report);
+        PublishReport("Select", report, !result);
         return result;
     }
 
@@ -896,12 +916,15 @@ internal class EditorMode : BlasMod
         ExitEditorMode();
     }
 
-    private void PublishReport(string operation, ApplyReport report)
+    private void PublishReport(
+        string operation,
+        ApplyReport report,
+        bool preservePropertiesDraft = true)
     {
         _reportPublisher.Publish(operation, report);
         EditorWidget widget = EditorWidget;
         if (widget != null)
-            widget.Refresh();
+            widget.RefreshAfterReport(preservePropertiesDraft);
     }
 
     private bool RunManagerCommand(
@@ -914,7 +937,7 @@ internal class EditorMode : BlasMod
 
         ApplyReport report = new();
         bool result = command(manager, report);
-        PublishReport(operation, report);
+        PublishReport(operation, report, false);
         return result;
     }
 
@@ -980,7 +1003,7 @@ internal class EditorMode : BlasMod
             file,
             baseline,
             new UnityOriginalObjectPathResolver());
-        PublishReport("Room import", result.Report);
+        PublishReport("Room import", result.Report, false);
         if (!result.Succeeded)
         {
             ModLog.Warn("Room Overlay session was not created; see the Room import summary.");
@@ -1001,7 +1024,7 @@ internal class EditorMode : BlasMod
 
         ApplyReport report = new();
         if (!_overlayReconciler.TryClear(report) && report.Entries.Count > 0)
-            PublishReport("Room cleanup", report);
+            PublishReport("Room cleanup", report, false);
     }
 
     private void DisposePreview()
