@@ -50,30 +50,18 @@ internal class EditorWidget : MonoBehaviour
     private ScrollRect _originalOperationsScroll;
     private Text _originalInspectorText;
     private Transform _propertyRoot;
-    private RectTransform _propertiesViewport;
-    private RectTransform _propertiesContent;
     private InputField _propertiesField;
     private Text _propertiesWarning;
     private Button _propertiesApplyButton;
     private readonly RawPropertiesDraftState _propertiesDraft = new();
     private bool _settingPropertiesText;
+    private readonly PropertiesScrollViewState _propertiesScroll = new();
     private InputField _originalPropertiesField;
     private Text _originalPropertiesWarning;
     private Button _originalPropertiesApplyButton;
     private readonly RawPropertiesDraftState _originalPropertiesDraft = new(StringComparer.Ordinal);
     private bool _settingOriginalPropertiesText;
-    private readonly TextGenerator _propertiesLayoutGenerator = new();
-    private readonly TextGenerator _propertiesPreferredWidthGenerator = new();
-    private string _propertiesSizedText;
-    private float _propertiesSizedFieldWidth;
-    private float _propertiesSizedFieldHeight;
-    private float _propertiesSizedPixelsPerUnit;
-    private string _propertiesGeneratorText;
-    private float _propertiesGeneratorPixelsPerUnit;
-    private string _propertiesFollowText;
-    private int _propertiesFollowCaret = -1;
-    private float _propertiesFollowViewportWidth = float.NaN;
-    private float _propertiesFollowContentWidth = float.NaN;
+    private readonly PropertiesScrollViewState _originalPropertiesScroll = new();
     private InputField[] _positionFields;
     private InputField[] _rotationFields;
     private InputField[] _scaleFields;
@@ -202,8 +190,8 @@ internal class EditorWidget : MonoBehaviour
 
     private void OnDestroy()
     {
-        ((IDisposable)_propertiesLayoutGenerator).Dispose();
-        ((IDisposable)_propertiesPreferredWidthGenerator).Dispose();
+        _propertiesScroll.Dispose();
+        _originalPropertiesScroll.Dispose();
     }
 
     private void Update()
@@ -268,91 +256,97 @@ internal class EditorWidget : MonoBehaviour
 
     private void LateUpdate()
     {
-        FollowPropertiesCaretHorizontally();
+        FollowPropertiesCaretHorizontally(_propertiesField, _propertiesScroll);
+        FollowPropertiesCaretHorizontally(_originalPropertiesField, _originalPropertiesScroll);
     }
 
-    private void FollowPropertiesCaretHorizontally()
+    private void FollowPropertiesCaretHorizontally(
+        InputField field,
+        PropertiesScrollViewState scroll)
     {
-        if (_propertiesField == null
-            || _propertiesField.textComponent == null
-            || _propertiesViewport == null
-            || _propertiesContent == null)
+        if (field == null
+            || field.textComponent == null
+            || scroll.Viewport == null
+            || scroll.Content == null)
             return;
 
-        if (!_propertiesField.isFocused)
+        if (!field.isFocused)
         {
-            SetPropertiesHorizontalOffset(0f);
-            ClearPropertiesFollowCache();
+            SetPropertiesHorizontalOffset(scroll, 0f);
+            ClearPropertiesFollowCache(scroll);
             return;
         }
 
-        string fullText = _propertiesField.text ?? string.Empty;
-        Text text = _propertiesField.textComponent;
+        string fullText = field.text ?? string.Empty;
+        Text text = field.textComponent;
         string displayedText = text.text ?? string.Empty;
         if (displayedText.Length == 0)
         {
-            SetPropertiesHorizontalOffset(0f);
-            ClearPropertiesFollowCache();
+            SetPropertiesHorizontalOffset(scroll, 0f);
+            ClearPropertiesFollowCache(scroll);
             return;
         }
 
-        TextGenerator generator = PreparePropertiesGenerator(text, displayedText);
-        UpdatePropertiesLayout(text, displayedText, generator);
-        float viewportWidth = _propertiesViewport.rect.width;
+        TextGenerator generator = PreparePropertiesGenerator(scroll, text, displayedText);
+        UpdatePropertiesLayout(field, scroll, text, displayedText, generator);
+        float viewportWidth = scroll.Viewport.rect.width;
         if (viewportWidth <= 0f)
             return;
 
-        int caretPosition = _propertiesField.caretPosition;
-        float contentWidth = _propertiesContent.rect.width;
-        if (string.Equals(_propertiesFollowText, displayedText, StringComparison.Ordinal)
-            && _propertiesFollowCaret == caretPosition
-            && Mathf.Approximately(_propertiesFollowViewportWidth, viewportWidth)
-            && Mathf.Approximately(_propertiesFollowContentWidth, contentWidth))
+        int caretPosition = field.caretPosition;
+        float contentWidth = scroll.Content.rect.width;
+        if (string.Equals(scroll.FollowText, displayedText, StringComparison.Ordinal)
+            && scroll.FollowCaret == caretPosition
+            && Mathf.Approximately(scroll.FollowViewportWidth, viewportWidth)
+            && Mathf.Approximately(scroll.FollowContentWidth, contentWidth))
             return;
 
-        _propertiesFollowText = displayedText;
-        _propertiesFollowCaret = caretPosition;
-        _propertiesFollowViewportWidth = viewportWidth;
-        _propertiesFollowContentWidth = contentWidth;
+        scroll.FollowText = displayedText;
+        scroll.FollowCaret = caretPosition;
+        scroll.FollowViewportWidth = viewportWidth;
+        scroll.FollowContentWidth = contentWidth;
 
         int displayedStart = FindDisplayedStartIndex(fullText, displayedText, caretPosition);
         int localCaret = Mathf.Clamp(caretPosition - displayedStart, 0, displayedText.Length);
         float caretX = GetPropertiesCaretX(text, generator, displayedText, localCaret);
-        float offset = _propertiesContent.anchoredPosition.x;
-        float caretPositionInView = caretX + offset;
-        float leftEdge = 2f;
-        float rightEdge = viewportWidth - 2f;
-
-        if (caretPositionInView > rightEdge)
-            offset -= caretPositionInView - rightEdge;
-        else if (caretPositionInView < leftEdge)
-            offset += leftEdge - caretPositionInView;
-
-        float minimumOffset = Mathf.Min(0f, viewportWidth - contentWidth);
-        SetPropertiesHorizontalOffset(Mathf.Clamp(offset, minimumOffset, 0f));
+        float offset = scroll.Content.anchoredPosition.x;
+        float followedOffset = PropertiesHorizontalScroll.FollowCaret(
+            caretX,
+            offset,
+            viewportWidth,
+            contentWidth);
+        SetPropertiesHorizontalOffset(scroll, followedOffset);
     }
 
-    private TextGenerator PreparePropertiesGenerator(Text text, string displayedText)
+    private TextGenerator PreparePropertiesGenerator(
+        PropertiesScrollViewState scroll,
+        Text text,
+        string displayedText)
     {
         float pixelsPerUnit = text.pixelsPerUnit;
-        if (string.Equals(_propertiesGeneratorText, displayedText, StringComparison.Ordinal)
-            && Mathf.Approximately(_propertiesGeneratorPixelsPerUnit, pixelsPerUnit))
-            return _propertiesLayoutGenerator;
+        if (string.Equals(scroll.GeneratorText, displayedText, StringComparison.Ordinal)
+            && Mathf.Approximately(scroll.GeneratorPixelsPerUnit, pixelsPerUnit))
+            return scroll.LayoutGenerator;
 
         TextGenerationSettings settings = text.GetGenerationSettings(Vector2.zero);
         settings.generateOutOfBounds = true;
-        _propertiesLayoutGenerator.Populate(displayedText, settings);
-        _propertiesGeneratorText = displayedText;
-        _propertiesGeneratorPixelsPerUnit = pixelsPerUnit;
-        return _propertiesLayoutGenerator;
+        scroll.LayoutGenerator.Populate(displayedText, settings);
+        scroll.GeneratorText = displayedText;
+        scroll.GeneratorPixelsPerUnit = pixelsPerUnit;
+        return scroll.LayoutGenerator;
     }
 
-    private void UpdatePropertiesLayout(Text text, string displayedText, TextGenerator generator)
+    private void UpdatePropertiesLayout(
+        InputField field,
+        PropertiesScrollViewState scroll,
+        Text text,
+        string displayedText,
+        TextGenerator generator)
     {
-        if (_propertiesViewport == null || _propertiesContent == null)
+        if (scroll.Viewport == null || scroll.Content == null)
             return;
 
-        RectTransform fieldRect = _propertiesField.transform as RectTransform;
+        RectTransform fieldRect = field.transform as RectTransform;
         if (fieldRect == null)
             return;
 
@@ -361,16 +355,16 @@ internal class EditorWidget : MonoBehaviour
         if (fieldWidth <= 0f || fieldHeight <= 0f)
             return;
 
-        if (string.Equals(_propertiesSizedText, displayedText, StringComparison.Ordinal)
-            && Mathf.Approximately(_propertiesSizedFieldWidth, fieldWidth)
-            && Mathf.Approximately(_propertiesSizedFieldHeight, fieldHeight)
-            && Mathf.Approximately(_propertiesSizedPixelsPerUnit, text.pixelsPerUnit))
+        if (string.Equals(scroll.SizedText, displayedText, StringComparison.Ordinal)
+            && Mathf.Approximately(scroll.SizedFieldWidth, fieldWidth)
+            && Mathf.Approximately(scroll.SizedFieldHeight, fieldHeight)
+            && Mathf.Approximately(scroll.SizedPixelsPerUnit, text.pixelsPerUnit))
             return;
 
-        _propertiesSizedText = displayedText;
-        _propertiesSizedFieldWidth = fieldWidth;
-        _propertiesSizedFieldHeight = fieldHeight;
-        _propertiesSizedPixelsPerUnit = text.pixelsPerUnit;
+        scroll.SizedText = displayedText;
+        scroll.SizedFieldWidth = fieldWidth;
+        scroll.SizedFieldHeight = fieldHeight;
+        scroll.SizedPixelsPerUnit = text.pixelsPerUnit;
         float innerWidth = Mathf.Max(1f, fieldWidth - 8f);
         float innerHeight = Mathf.Max(1f, fieldHeight - 8f);
         float lineHeight = generator.lineCount > 0
@@ -384,17 +378,17 @@ internal class EditorWidget : MonoBehaviour
         }
 
         TextGenerationSettings widthSettings = text.GetGenerationSettings(Vector2.zero);
-        float contentWidth = _propertiesPreferredWidthGenerator.GetPreferredWidth(displayedText, widthSettings)
+        float contentWidth = scroll.PreferredWidthGenerator.GetPreferredWidth(displayedText, widthSettings)
             / text.pixelsPerUnit;
-        _propertiesContent.sizeDelta = new Vector2(
+        scroll.Content.sizeDelta = new Vector2(
             Mathf.Max(innerWidth, contentWidth + 4f),
             contentHeight);
-        SetPropertiesViewportHeight(contentHeight);
+        SetPropertiesViewportHeight(scroll, contentHeight);
     }
 
-    private void SetPropertiesViewportHeight(float height)
+    private void SetPropertiesViewportHeight(PropertiesScrollViewState scroll, float height)
     {
-        RectTransform parent = _propertiesViewport?.parent as RectTransform;
+        RectTransform parent = scroll.Viewport?.parent as RectTransform;
         if (parent == null)
             return;
 
@@ -402,14 +396,14 @@ internal class EditorWidget : MonoBehaviour
         if (parentHeight <= 0f)
             return;
 
-        Vector2 min = _propertiesViewport.offsetMin;
+        Vector2 min = scroll.Viewport.offsetMin;
         min.y = Mathf.Max(4f, parentHeight - 4f - height);
-        Vector2 max = _propertiesViewport.offsetMax;
+        Vector2 max = scroll.Viewport.offsetMax;
         max.y = -4f;
-        if (!Mathf.Approximately(_propertiesViewport.offsetMin.y, min.y))
-            _propertiesViewport.offsetMin = min;
-        if (!Mathf.Approximately(_propertiesViewport.offsetMax.y, max.y))
-            _propertiesViewport.offsetMax = max;
+        if (!Mathf.Approximately(scroll.Viewport.offsetMin.y, min.y))
+            scroll.Viewport.offsetMin = min;
+        if (!Mathf.Approximately(scroll.Viewport.offsetMax.y, max.y))
+            scroll.Viewport.offsetMax = max;
     }
 
     private static int FindDisplayedStartIndex(string fullText, string displayedText, int caretPosition)
@@ -453,25 +447,25 @@ internal class EditorWidget : MonoBehaviour
         return x / text.pixelsPerUnit;
     }
 
-    private void SetPropertiesHorizontalOffset(float offset)
+    private void SetPropertiesHorizontalOffset(PropertiesScrollViewState scroll, float offset)
     {
-        if (_propertiesContent == null)
+        if (scroll.Content == null)
             return;
 
-        Vector2 position = _propertiesContent.anchoredPosition;
+        Vector2 position = scroll.Content.anchoredPosition;
         if (Mathf.Approximately(position.x, offset))
             return;
 
         position.x = offset;
-        _propertiesContent.anchoredPosition = position;
+        scroll.Content.anchoredPosition = position;
     }
 
-    private void ClearPropertiesFollowCache()
+    private void ClearPropertiesFollowCache(PropertiesScrollViewState scroll)
     {
-        _propertiesFollowText = null;
-        _propertiesFollowCaret = -1;
-        _propertiesFollowViewportWidth = float.NaN;
-        _propertiesFollowContentWidth = float.NaN;
+        scroll.FollowText = null;
+        scroll.FollowCaret = -1;
+        scroll.FollowViewportWidth = float.NaN;
+        scroll.FollowContentWidth = float.NaN;
     }
 
     private bool IsPointerOverEditorControl()
@@ -1052,9 +1046,11 @@ internal class EditorWidget : MonoBehaviour
             new Vector2(100f, -108f),
             new Vector2(230f, 72f),
             _propertyRoot,
-            out _propertiesViewport,
-            out _propertiesContent,
+            out RectTransform propertiesViewport,
+            out RectTransform propertiesContent,
             OnPropertiesTextChanged);
+        _propertiesScroll.Viewport = propertiesViewport;
+        _propertiesScroll.Content = propertiesContent;
         _propertiesApplyButton = CreateButton(
             "Apply Properties",
             "Apply",
@@ -1077,7 +1073,7 @@ internal class EditorWidget : MonoBehaviour
         if (textChanged)
         {
             SetPropertiesFieldText(properties.Text);
-            ResetPropertiesView();
+            ResetPropertiesScrollView(_propertiesField, _propertiesScroll);
         }
         _propertiesWarning.text = properties.ContainsLineBreak ? "Stored CR/LF: read-only" : string.Empty;
         _propertiesWarning.gameObject.SetActive(properties.ContainsLineBreak);
@@ -1100,7 +1096,10 @@ internal class EditorWidget : MonoBehaviour
 
         _originalPropertiesField.readOnly = !editable;
         if (textChanged)
+        {
             SetOriginalPropertiesFieldText(properties.Text);
+            ResetPropertiesScrollView(_originalPropertiesField, _originalPropertiesScroll);
+        }
         _originalPropertiesWarning.text = properties.ContainsLineBreak
             ? "Stored CR/LF: read-only"
             : string.Empty;
@@ -1175,30 +1174,34 @@ internal class EditorWidget : MonoBehaviour
         Main.EditorMode.TryApplySelectedProperties(_propertiesField.text);
     }
 
-    private void ResetPropertiesView()
+    private void ResetPropertiesScrollView(
+        InputField field,
+        PropertiesScrollViewState scroll)
     {
-        _propertiesField.caretPosition = 0;
-        _propertiesField.ForceLabelUpdate();
-        _propertiesSizedText = null;
-        _propertiesSizedFieldWidth = float.NaN;
-        _propertiesSizedFieldHeight = float.NaN;
-        _propertiesSizedPixelsPerUnit = float.NaN;
-        _propertiesGeneratorText = null;
-        _propertiesGeneratorPixelsPerUnit = float.NaN;
-        ClearPropertiesFollowCache();
-        SetPropertiesHorizontalOffset(0f);
-        RefreshPropertiesLayout();
+        field.caretPosition = 0;
+        field.ForceLabelUpdate();
+        scroll.SizedText = null;
+        scroll.SizedFieldWidth = float.NaN;
+        scroll.SizedFieldHeight = float.NaN;
+        scroll.SizedPixelsPerUnit = float.NaN;
+        scroll.GeneratorText = null;
+        scroll.GeneratorPixelsPerUnit = float.NaN;
+        ClearPropertiesFollowCache(scroll);
+        SetPropertiesHorizontalOffset(scroll, 0f);
+        RefreshPropertiesLayout(field, scroll);
     }
 
-    private void RefreshPropertiesLayout()
+    private void RefreshPropertiesLayout(
+        InputField field,
+        PropertiesScrollViewState scroll)
     {
-        if (_propertiesField == null || _propertiesField.textComponent == null)
+        if (field == null || field.textComponent == null)
             return;
 
-        Text text = _propertiesField.textComponent;
+        Text text = field.textComponent;
         string displayedText = text.text ?? string.Empty;
-        TextGenerator generator = PreparePropertiesGenerator(text, displayedText);
-        UpdatePropertiesLayout(text, displayedText, generator);
+        TextGenerator generator = PreparePropertiesGenerator(scroll, text, displayedText);
+        UpdatePropertiesLayout(field, scroll, text, displayedText, generator);
     }
 
     private InputField CreatePropertiesInputField(
@@ -1419,9 +1422,11 @@ internal class EditorWidget : MonoBehaviour
             new Vector2(130f, -105f),
             new Vector2(200f, 46f),
             _originalPageRoot,
-            out _,
-            out _,
+            out RectTransform originalPropertiesViewport,
+            out RectTransform originalPropertiesContent,
             OnOriginalPropertiesTextChanged);
+        _originalPropertiesScroll.Viewport = originalPropertiesViewport;
+        _originalPropertiesScroll.Content = originalPropertiesContent;
         _originalPropertiesApplyButton = CreateButton(
             "Apply Original Properties",
             "Apply",
@@ -1835,5 +1840,29 @@ internal class EditorWidget : MonoBehaviour
             : Core.Logic.IsPaused;
         Text label = freezeGameButtonObj.GetComponentInChildren<Text>();
         label?.text = paused ? "Resume" : "Freeze";
+    }
+
+    private sealed class PropertiesScrollViewState
+    {
+        internal RectTransform Viewport;
+        internal RectTransform Content;
+        internal readonly TextGenerator LayoutGenerator = new();
+        internal readonly TextGenerator PreferredWidthGenerator = new();
+        internal string SizedText;
+        internal float SizedFieldWidth = float.NaN;
+        internal float SizedFieldHeight = float.NaN;
+        internal float SizedPixelsPerUnit = float.NaN;
+        internal string GeneratorText;
+        internal float GeneratorPixelsPerUnit = float.NaN;
+        internal string FollowText;
+        internal int FollowCaret = -1;
+        internal float FollowViewportWidth = float.NaN;
+        internal float FollowContentWidth = float.NaN;
+
+        internal void Dispose()
+        {
+            ((IDisposable)LayoutGenerator).Dispose();
+            ((IDisposable)PreferredWidthGenerator).Dispose();
+        }
     }
 }
