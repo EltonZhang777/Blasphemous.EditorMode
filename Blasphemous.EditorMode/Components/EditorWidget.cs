@@ -1042,6 +1042,42 @@ internal class EditorWidget : MonoBehaviour
             new Vector2(250f, 68f),
             out _originalOperationsScroll);
         SetScrollContentHeight(_originalOperationsRoot, _originalOperationsScroll, _originalOperationsScroll.viewport, 68f);
+        CreateButton(
+            "Original Import",
+            "Import",
+            new Vector2(-200f, -190f),
+            () => Main.EditorMode.ImportCurrentRoom(),
+            _originalPageRoot);
+        CreateButton(
+            "Original Export",
+            "Export",
+            new Vector2(-120f, -190f),
+            () => Main.EditorMode.ExportCurrentRoom(),
+            _originalPageRoot);
+        CreateButton(
+            "Original Undo",
+            "Undo",
+            new Vector2(-40f, -190f),
+            () => Main.EditorMode.TryUndo(),
+            _originalPageRoot);
+        CreateButton(
+            "Original Redo",
+            "Redo",
+            new Vector2(40f, -190f),
+            () => Main.EditorMode.TryRedo(),
+            _originalPageRoot);
+        CreateButton(
+            "Original Reset",
+            "Reset",
+            new Vector2(120f, -190f),
+            () => Main.EditorMode.TryReset(),
+            _originalPageRoot);
+        CreateButton(
+            "Original Exit",
+            "Exit",
+            new Vector2(200f, -190f),
+            () => Main.EditorMode.ExitFromUi(),
+            _originalPageRoot);
     }
 
     private InputField[] CreateOriginalTransformFields(string group, float x)
