@@ -70,6 +70,25 @@ internal static class PlacementValidation
         string location,
         ApplyReport report)
     {
+        if (!ValidateFiniteTransform(transform, location, report))
+            return false;
+
+        return Validate(
+            new PlacementRecord(
+                "validation",
+                creator.Type,
+                transform,
+                [],
+                PlacementOwnership.ArchitectOwned),
+            creator,
+            report);
+    }
+
+    internal static bool ValidateFiniteTransform(
+        PlacementTransform transform,
+        string location,
+        ApplyReport report)
+    {
         if (transform == null)
         {
             report.Error(ReportCodes.TransformInvalid, location, "Transform is required.");
@@ -91,15 +110,7 @@ internal static class PlacementValidation
             return false;
         }
 
-        return Validate(
-            new PlacementRecord(
-                "validation",
-                creator.Type,
-                transform,
-                [],
-                PlacementOwnership.ArchitectOwned),
-            creator,
-            report);
+        return true;
     }
 
     internal static bool ValidateCondition(

@@ -159,6 +159,33 @@ public sealed class EditorPageControllerTests
         Assert.NotNull(placement);
     }
 
+    [Fact]
+    public void Reset_without_an_original_catalog_still_clears_additions_history()
+    {
+        RuntimePlacementManager manager = CreateManager(out LevelEditSession session);
+        EditorPageController pages = new(manager);
+        ApplyReport report = new();
+        PlacementRecord placement;
+        Assert.True(
+            manager.TryPlace(
+                BaseCreatorCatalog.BellIronType,
+                PlacementTransform.Default,
+                [],
+                report,
+                out placement),
+            report.ToSummary("place"));
+        Assert.True(manager.History.CanUndo);
+
+        ApplyReport resetReport = new();
+        Assert.True(pages.TryReset(resetReport), resetReport.ToSummary("reset"));
+
+        Assert.Empty(session.Placements);
+        Assert.Empty(manager.OwnedPlacementIds);
+        Assert.False(manager.History.CanUndo);
+        Assert.False(manager.History.CanRedo);
+        Assert.Equal(LevelEditSessionState.Clean, session.State);
+    }
+
     private static PlacementRecord Place(RuntimePlacementManager manager, string id)
     {
         LevelEditSession session = GetSession(manager);

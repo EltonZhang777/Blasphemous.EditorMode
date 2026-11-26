@@ -22,38 +22,29 @@ internal sealed class UnityOriginalObjectPathResolver : IOriginalObjectPathResol
         error = null;
         try
         {
-            if (!UnityOriginalObjectPaths.TryGetScene(
+            if (!UnityOriginalObjectPaths.TryResolveGameObject(
                 frameworkLevelKey,
                 scene,
-                out Scene unityScene,
+                path,
+                out GameObject found,
                 out error))
                 return false;
-            if (string.IsNullOrEmpty(path))
-            {
-                error = "Original Object path is empty.";
-                return false;
-            }
-
-            GameObject found = unityScene.FindObject(path, false);
-            if (found == null)
-            {
-                error = "No GameObject resolves from the Framework scene/path.";
-                return false;
-            }
-            if (!UnityOriginalObjectPaths.TryIdentifyScene(
-                found.scene,
-                frameworkLevelKey,
-                out string actualScene,
-                out _)
-                || !string.Equals(actualScene, scene, StringComparison.Ordinal))
-            {
-                error = "The resolved GameObject belongs to a different target scene.";
-                return false;
-            }
 
             projection = new OriginalObjectProjection(
                 UnityOriginalObjectPaths.GetObjectKey(found),
-                found.activeInHierarchy);
+                found.activeInHierarchy,
+                new PlacementTransform(
+                    found.transform.position.x,
+                    found.transform.position.y,
+                    found.transform.position.z,
+                    found.transform.eulerAngles.x,
+                    found.transform.eulerAngles.y,
+                    found.transform.eulerAngles.z,
+                    found.transform.localScale.x,
+                    found.transform.localScale.y,
+                    found.transform.localScale.z),
+                found.name,
+                found.activeSelf);
             return true;
         }
         catch (Exception exception)
@@ -131,6 +122,48 @@ internal static class UnityOriginalObjectPaths
             return false;
         }
 
+        return true;
+    }
+
+    internal static bool TryResolveGameObject(
+        string frameworkLevelKey,
+        string scene,
+        string path,
+        out GameObject gameObject,
+        out string error)
+    {
+        gameObject = null;
+        error = null;
+        if (!TryGetScene(
+            frameworkLevelKey,
+            scene,
+            out Scene unityScene,
+            out error))
+            return false;
+        if (string.IsNullOrEmpty(path))
+        {
+            error = "Original Object path is empty.";
+            return false;
+        }
+
+        GameObject found = unityScene.FindObject(path, false);
+        if (found == null)
+        {
+            error = "No GameObject resolves from the Framework scene/path.";
+            return false;
+        }
+        if (!TryIdentifyScene(
+            found.scene,
+            frameworkLevelKey,
+            out string actualScene,
+            out _)
+            || !string.Equals(actualScene, scene, StringComparison.Ordinal))
+        {
+            error = "The resolved GameObject belongs to a different target scene.";
+            return false;
+        }
+
+        gameObject = found;
         return true;
     }
 

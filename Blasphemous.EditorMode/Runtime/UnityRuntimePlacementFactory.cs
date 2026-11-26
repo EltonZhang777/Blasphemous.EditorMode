@@ -1,5 +1,6 @@
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Editing;
+using Blasphemous.EditorMode.Framework;
 using Blasphemous.Framework.Levels;
 using Blasphemous.Framework.Levels.Modifiers;
 using Blasphemous.ModdingAPI;
@@ -492,15 +493,40 @@ internal static class RuntimeObjectData
 {
     internal static ObjectData Create(PlacementRecord placement)
     {
+        return Create(
+            placement.Type,
+            placement.Id,
+            placement.Transform,
+            placement.Condition,
+            placement.Properties);
+    }
+
+    internal static ObjectData Create(FrameworkObjectData modification)
+    {
+        return Create(
+            modification.Type,
+            modification.Id,
+            PlacementTransform.FromFramework(modification),
+            modification.Condition,
+            modification.Properties);
+    }
+
+    private static ObjectData Create(
+        string type,
+        string id,
+        PlacementTransform transform,
+        string condition,
+        IEnumerable<string> properties)
+    {
         JObject json = new()
         {
-            ["type"] = placement.Type,
-            ["id"] = placement.Id,
-            ["position"] = Vector(placement.Transform.PositionX, placement.Transform.PositionY, placement.Transform.PositionZ),
-            ["rotation"] = Vector(placement.Transform.RotationX, placement.Transform.RotationY, placement.Transform.RotationZ),
-            ["scale"] = Vector(placement.Transform.ScaleX, placement.Transform.ScaleY, placement.Transform.ScaleZ),
-            ["condition"] = placement.Condition,
-            ["properties"] = new JArray(placement.Properties)
+            ["type"] = type,
+            ["id"] = id,
+            ["position"] = Vector(transform.PositionX, transform.PositionY, transform.PositionZ),
+            ["rotation"] = Vector(transform.RotationX, transform.RotationY, transform.RotationZ),
+            ["scale"] = Vector(transform.ScaleX, transform.ScaleY, transform.ScaleZ),
+            ["condition"] = condition,
+            ["properties"] = new JArray(properties)
         };
         return json.ToObject<ObjectData>();
     }

@@ -5,6 +5,9 @@ using Blasphemous.EditorMode.Editing;
 using Blasphemous.EditorMode.Framework;
 using Blasphemous.EditorMode.Lifecycle;
 using Blasphemous.EditorMode.Runtime;
+using Blasphemous.Framework.Levels;
+using Blasphemous.Framework.Levels.Loaders;
+using Blasphemous.Framework.Levels.Modifiers;
 using Blasphemous.Framework.UI;
 using Blasphemous.ModdingAPI;
 using Framework.FrameworkCore;
@@ -76,8 +79,21 @@ internal class EditorMode : BlasMod
     private bool _creatorPreloadStarted;
     private bool _pickAfterCandidateChoice;
     private PreviewInstance _preview;
+    private IOriginalObjectLiveProjector _originalObjectLiveProjector;
 
     internal EditorMode() : base(ModInfo.MOD_ID, ModInfo.MOD_NAME, ModInfo.MOD_AUTHOR, ModInfo.MOD_VERSION) { }
+
+    protected override void OnRegisterServices(ModServiceProvider provider)
+    {
+        if (provider == null)
+            return;
+
+        provider.RegisterObjectCreator(
+            OriginalObjectEditor.EmptyModificationType,
+            new ObjectCreator(
+                new EditorModeEmptyLoader(),
+                new EditorModeEmptyFrameworkModifier()));
+    }
 
     protected override void OnInitialize()
     {
@@ -212,7 +228,11 @@ internal class EditorMode : BlasMod
                 CursorWorldPosition,
                 _verboseDiagnostics));
         _runtimeFactory = new UnityRuntimePlacementFactory(FindCurrentObjectHolder, _verboseDiagnostics);
-        _overlayReconciler = new RoomOverlayReconciler(Catalog, _runtimeFactory);
+        _originalObjectLiveProjector = new UnityOriginalObjectLiveProjector();
+        _overlayReconciler = new RoomOverlayReconciler(
+            Catalog,
+            _runtimeFactory,
+            _originalObjectLiveProjector);
         if (_lifecycleBridge.CurrentRoom != null)
         {
             StartCreatorPreload();
@@ -392,9 +412,6 @@ internal class EditorMode : BlasMod
 
     internal bool TryUndo()
     {
-        if (ActivePage != EditorPage.Additions)
-            return ReportPageCommandUnavailable("Undo");
-
         ApplyReport report = new();
         bool result = Pages != null && Pages.TryUndo(report);
         PublishReport("Undo", report);
@@ -403,9 +420,6 @@ internal class EditorMode : BlasMod
 
     internal bool TryRedo()
     {
-        if (ActivePage != EditorPage.Additions)
-            return ReportPageCommandUnavailable("Redo");
-
         ApplyReport report = new();
         bool result = Pages != null && Pages.TryRedo(report);
         PublishReport("Redo", report);
@@ -721,17 +735,25 @@ internal class EditorMode : BlasMod
 
     internal bool TryApplySelectedTransform(string[] values)
     {
-        if (!RequireAdditionsPage("Transform"))
-            return false;
-
+        EditorPageController pages = Pages;
         RuntimePlacementManager manager = PlacementManager;
-        if (manager == null || manager.Selected == null)
+        PlacementRecord selectedPlacement = manager == null ? null : manager.Selected;
+        OriginalObjectCatalogEntry selectedOriginal = pages == null
+            ? null
+            : pages.OriginalObjects.Selected;
+        if (ActivePage == EditorPage.Additions
+            && selectedPlacement == null)
             return false;
 
         ApplyReport report = new();
         if (values == null || values.Length != 9)
         {
-            report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, "Exactly nine transform values are required.");
+            report.Error(
+                ReportCodes.TransformInvalid,
+                ActivePage == EditorPage.Additions
+                    ? selectedPlacement.Id
+                    : "Original Objects",
+                "Exactly nine transform values are required.");
             PublishReport("Transform", report);
             return false;
         }
@@ -743,19 +765,38 @@ internal class EditorMode : BlasMod
                 || float.IsNaN(parsed[index])
                 || float.IsInfinity(parsed[index]))
             {
-                report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, "Transform values must be finite numbers.");
+                report.Error(
+                    ReportCodes.TransformInvalid,
+                    ActivePage == EditorPage.Additions
+                        ? selectedPlacement.Id
+                        : "Original Objects",
+                    "Transform values must be finite numbers.");
                 PublishReport("Transform", report);
                 return false;
             }
         }
 
-        bool result = manager.TryMove(
-            manager.Selected.Id,
-            new PlacementTransform(
-                parsed[0], parsed[1], parsed[2],
-                parsed[3], parsed[4], parsed[5],
-                parsed[6], parsed[7], parsed[8]),
-            report);
+        PlacementTransform transform = new(
+            parsed[0], parsed[1], parsed[2],
+            parsed[3], parsed[4], parsed[5],
+            parsed[6], parsed[7], parsed[8]);
+        bool result;
+        if (ActivePage == EditorPage.Additions)
+        {
+            result = manager.TryMove(selectedPlacement.Id, transform, report);
+        }
+        else
+        {
+            result = pages != null
+                && pages.TryApplyOriginalModification(transform, report);
+            if (selectedOriginal == null && report.Entries.Count == 0)
+            {
+                report.Warning(
+                    ReportCodes.SelectionNoCandidates,
+                    "Original Objects",
+                    "Select a locatable Original Object before applying a modification.");
+            }
+        }
         PublishReport("Transform", report);
         return result;
     }
@@ -821,10 +862,33 @@ internal class EditorMode : BlasMod
 
     internal bool TryReset()
     {
-        if (!RequireAdditionsPage("Reset"))
+        EditorPageController pages = Pages;
+        ApplyReport report = new();
+        if (pages == null)
+        {
+            report.Error(
+                ReportCodes.RoomRequired,
+                "Reset",
+                "No editable Room Overlay is loaded.");
+            PublishReport("Reset", report);
             return false;
+        }
 
-        return RunManagerCommand("Reset", (manager, report) => manager.TryReset(report));
+        bool result = pages.TryReset(report);
+        PublishReport("Reset", report);
+        return result;
+    }
+
+    internal bool TryRemoveSelectedOriginalEdit()
+    {
+        if (ActivePage != EditorPage.OriginalObjects)
+            return ReportPageCommandUnavailable("Remove Original Object edit");
+
+        EditorPageController pages = Pages;
+        ApplyReport report = new();
+        bool result = pages != null && pages.TryRemoveOriginalEdit(report);
+        PublishReport("Remove Original Object edit", report);
+        return result;
     }
 
     internal void ExitFromUi()

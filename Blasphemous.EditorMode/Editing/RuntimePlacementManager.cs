@@ -1,5 +1,6 @@
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Diagnostics;
+using Blasphemous.EditorMode.Framework;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -377,7 +378,10 @@ internal sealed class RuntimePlacementManager
         placement = null;
         if (handle == null || handle.IsOriginal)
         {
-            report.Error(ReportCodes.OwnershipRejected, "$", "Original game objects are read-only and cannot be selected.");
+            report.Error(
+                ReportCodes.OwnershipRejected,
+                "$",
+                "Original game objects are selected and edited through the Original Objects page.");
             return false;
         }
 
@@ -1085,6 +1089,11 @@ internal sealed class RuntimePlacementManager
             yield return placement.Id;
         foreach (string id in _projections.Keys)
             yield return id;
+        foreach (FrameworkObjectData modification in _session.Modifications)
+        {
+            if (modification != null && !string.IsNullOrEmpty(modification.Id))
+                yield return modification.Id;
+        }
     }
 
     private static int CompareCandidates(PlacementCandidate left, PlacementCandidate right)

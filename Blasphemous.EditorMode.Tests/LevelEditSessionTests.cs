@@ -73,7 +73,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void Import_retains_original_object_operations_as_read_only_round_trip_data()
+    public void Import_retains_original_object_operations_as_editable_round_trip_data()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -92,7 +92,9 @@ public sealed class LevelEditSessionTests
             Assert.True(result.Succeeded, result.StatusMessage);
             Assert.Single(result.Session.ImportedDocument.Modifications);
             Assert.Single(result.Session.ImportedDocument.Deletions);
-            Assert.Contains(result.Report.Entries, x => x.Code == "ORIGINAL_OBJECT_READ_ONLY");
+            Assert.Single(result.Session.Modifications);
+            Assert.Single(result.Session.Deletions);
+            Assert.DoesNotContain(result.Report.Entries, x => x.Code == "ORIGINAL_OBJECT_READ_ONLY");
         }
         finally
         {

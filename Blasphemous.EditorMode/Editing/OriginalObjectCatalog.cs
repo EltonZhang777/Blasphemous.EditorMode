@@ -174,14 +174,25 @@ internal sealed class OriginalObjectBaseline
 /// <summary>Current runtime projection of one scene/path.</summary>
 internal sealed class OriginalObjectProjection
 {
-    internal OriginalObjectProjection(string objectKey, bool active)
+    internal OriginalObjectProjection(
+        string objectKey,
+        bool active,
+        PlacementTransform transform = null,
+        string name = null,
+        bool? activeSelf = null)
     {
         ObjectKey = objectKey ?? throw new ArgumentNullException(nameof(objectKey));
         IsActive = active;
+        IsActiveSelf = activeSelf ?? active;
+        Transform = transform ?? PlacementTransform.Default;
+        Name = name ?? string.Empty;
     }
 
     internal string ObjectKey { get; }
     internal bool IsActive { get; }
+    internal bool IsActiveSelf { get; }
+    internal PlacementTransform Transform { get; }
+    internal string Name { get; }
 }
 
 /// <summary>Resolves Framework scene/path identities in the current room.</summary>
@@ -202,12 +213,18 @@ internal sealed class OriginalObjectCatalogEntry
         OriginalObjectIdentity identity,
         string objectKey,
         bool active,
-        bool runtimeActive)
+        bool runtimeActive,
+        PlacementTransform runtimeTransform = null,
+        string runtimeName = null,
+        bool? runtimeActiveSelf = null)
     {
         Identity = identity ?? throw new ArgumentNullException(nameof(identity));
         ObjectKey = objectKey ?? throw new ArgumentNullException(nameof(objectKey));
         IsActive = active;
         IsRuntimeActive = runtimeActive;
+        IsRuntimeActiveSelf = runtimeActiveSelf ?? runtimeActive;
+        RuntimeTransform = runtimeTransform ?? PlacementTransform.Default;
+        RuntimeName = runtimeName ?? string.Empty;
     }
 
     internal OriginalObjectIdentity Identity { get; }
@@ -215,7 +232,22 @@ internal sealed class OriginalObjectCatalogEntry
     /// <summary>Whether the object was active in the captured pre-mod baseline.</summary>
     internal bool IsActive { get; }
     internal bool IsRuntimeActive { get; }
+    internal bool IsRuntimeActiveSelf { get; }
+    internal PlacementTransform RuntimeTransform { get; }
+    internal string RuntimeName { get; }
     internal string DisplayText { get { return Identity.DisplayText; } }
+
+    internal OriginalObjectLiveState LiveState
+    {
+        get
+        {
+            return new OriginalObjectLiveState(
+                ObjectKey,
+                IsRuntimeActiveSelf,
+                RuntimeTransform,
+                RuntimeName);
+        }
+    }
 }
 
 /// <summary>Verified Original Objects captured from one room's vanilla baseline.</summary>
@@ -302,6 +334,16 @@ internal sealed class OriginalObjectCatalog
     {
         return entry != null
             && (entry.IsActive || _targetedObjectKeys.Contains(entry.ObjectKey));
+    }
+
+    internal void ReplaceTargetedObjectKeys(IEnumerable<string> targetedObjectKeys)
+    {
+        _targetedObjectKeys.Clear();
+        foreach (string targeted in targetedObjectKeys ?? [])
+        {
+            if (!string.IsNullOrEmpty(targeted))
+                _targetedObjectKeys.Add(targeted);
+        }
     }
 
     internal static OriginalObjectCatalog Build(
@@ -417,7 +459,10 @@ internal sealed class OriginalObjectCatalog
                 identity,
                 snapshot.ObjectKey,
                 snapshot.IsActive,
-                projection.IsActive));
+                projection.IsActive,
+                projection.Transform,
+                projection.Name,
+                projection.IsActiveSelf));
         }
 
         OriginalObjectCatalog built = new OriginalObjectCatalog(entries);
@@ -496,7 +541,8 @@ internal sealed class OriginalObjectOperation
         string id,
         bool locatable,
         bool isImported,
-        bool isPending)
+        bool isPending,
+        bool hasConflict = false)
     {
         Kind = kind;
         Source = source ?? string.Empty;
@@ -507,6 +553,7 @@ internal sealed class OriginalObjectOperation
         IsLocatable = locatable;
         IsImported = isImported;
         IsPending = isPending;
+        HasConflict = hasConflict;
     }
 
     internal OriginalObjectOperationKind Kind { get; }
@@ -518,6 +565,7 @@ internal sealed class OriginalObjectOperation
     internal bool IsLocatable { get; }
     internal bool IsImported { get; }
     internal bool IsPending { get; }
+    internal bool HasConflict { get; }
 
     internal string DisplayIdentity
     {
@@ -545,13 +593,19 @@ internal sealed class OriginalObjectCandidate
     internal EditorPage Page { get { return EditorPage.OriginalObjects; } }
 }
 
-/// <summary>Read-only Original Objects state for the active room.</summary>
+/// <summary>Original Objects state and commands for the active room.</summary>
 internal sealed class OriginalObjectPage
 {
+    private readonly LevelEditSession _session;
     private readonly OriginalObjectCatalog _catalog;
     private readonly string _frameworkLevelKey;
-    private readonly ReadOnlyCollection<OriginalObjectCatalogEntry> _visibleEntries;
-    private readonly ReadOnlyCollection<OriginalObjectOperation> _operations;
+    private readonly IOriginalObjectLiveProjector _projector;
+    private readonly EditCommandHistory _history = new();
+    private readonly Dictionary<OriginalObjectIdentity, OriginalObjectLiveState> _liveStates = [];
+    private readonly Dictionary<OriginalObjectIdentity, OriginalObjectLiveState> _importLiveStates = [];
+    private readonly List<OriginalObjectOperationProvenance> _importedOperations = [];
+    private readonly LevelEditSessionState _importedState;
+    private ReadOnlyCollection<OriginalObjectOperation> _operations;
     private ReadOnlyCollection<OriginalObjectCandidate> _candidates;
     private OriginalObjectCatalogEntry _selected;
     private bool _isActive;
@@ -562,12 +616,14 @@ internal sealed class OriginalObjectPage
         IOriginalObjectPathResolver resolver,
         IEnumerable<OriginalObjectOperation> operations)
     {
+        _session = null;
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _frameworkLevelKey = frameworkLevelKey ?? string.Empty;
-        _visibleEntries = catalog.VisibleEntries;
+        _projector = null;
         _operations = new ReadOnlyCollection<OriginalObjectOperation>(
             [.. operations ?? []]);
         _candidates = new ReadOnlyCollection<OriginalObjectCandidate>([]);
+        _importedState = LevelEditSessionState.Clean;
     }
 
     internal OriginalObjectPage(
@@ -575,12 +631,25 @@ internal sealed class OriginalObjectPage
         OriginalObjectBaseline baseline,
         IOriginalObjectPathResolver resolver,
         ApplyReport report)
+        : this(session, baseline, resolver, null, report)
+    {
+    }
+
+    internal OriginalObjectPage(
+        LevelEditSession session,
+        OriginalObjectBaseline baseline,
+        IOriginalObjectPathResolver resolver,
+        IOriginalObjectLiveProjector projector,
+        ApplyReport report)
     {
         if (session == null)
             throw new ArgumentNullException(nameof(session));
         if (report == null)
             throw new ArgumentNullException(nameof(report));
 
+        _session = session;
+        _projector = projector;
+        _importedState = session.ImportedState;
         _frameworkLevelKey = session.Room.FrameworkLevelKey;
         if (baseline != null
             && !string.Equals(
@@ -595,33 +664,22 @@ internal sealed class OriginalObjectPage
             baseline = null;
         }
 
-        List<FrameworkObjectData> modifications = [.. session.ImportedDocument.Modifications];
-        List<FrameworkObjectData> deletions = [.. session.ImportedDocument.Deletions];
         HashSet<string> targetedObjectKeys = CollectTargetedObjectKeys(
             baseline,
-            modifications,
-            deletions);
+            session.Modifications,
+            session.Deletions);
         _catalog = OriginalObjectCatalog.Build(
             baseline,
             targetedObjectKeys,
             resolver,
             report);
-        _visibleEntries = _catalog.VisibleEntries;
-
-        List<OriginalObjectOperation> operations = [];
-        AddOperations(
-            OriginalObjectOperationKind.Modification,
-            LevelFrameworkContract.ModificationsField,
-            modifications,
-            operations,
-            report);
-        AddOperations(
-            OriginalObjectOperationKind.Deletion,
-            LevelFrameworkContract.DeletionsField,
-            deletions,
-            operations,
-            report);
-        _operations = new ReadOnlyCollection<OriginalObjectOperation>(operations);
+        BuildImportedOperationProvenance(session.ImportedDocument);
+        foreach (OriginalObjectCatalogEntry entry in _catalog.Entries)
+        {
+            _liveStates[entry.Identity] = entry.LiveState;
+            _importLiveStates[entry.Identity] = entry.LiveState;
+        }
+        _operations = BuildOperations(report);
         _candidates = new ReadOnlyCollection<OriginalObjectCandidate>([]);
     }
 
@@ -638,9 +696,11 @@ internal sealed class OriginalObjectPage
     }
 
     internal int CatalogCount { get { return _catalog.Count; } }
-    internal int VisibleCount { get { return _visibleEntries.Count; } }
-    internal ReadOnlyCollection<OriginalObjectCatalogEntry> VisibleEntries { get { return _visibleEntries; } }
+    internal int VisibleCount { get { return _catalog.VisibleCount; } }
+    internal bool HasSession { get { return _session != null; } }
+    internal ReadOnlyCollection<OriginalObjectCatalogEntry> VisibleEntries { get { return _catalog.VisibleEntries; } }
     internal ReadOnlyCollection<OriginalObjectOperation> Operations { get { return _operations; } }
+    internal EditCommandHistory History { get { return _history; } }
     internal ReadOnlyCollection<OriginalObjectCandidate> Candidates
     {
         get
@@ -654,6 +714,56 @@ internal sealed class OriginalObjectPage
     internal OriginalObjectCatalogEntry Selected
     {
         get { return _isActive ? _selected : null; }
+    }
+
+    internal FrameworkObjectData SelectedModification
+    {
+        get
+        {
+            return TryGetSelectedResolvedOperations(
+                out FrameworkObjectData modification,
+                out _,
+                out bool conflict)
+                && !conflict
+                ? modification
+                : null;
+        }
+    }
+
+    internal bool SelectedHasConflict
+    {
+        get
+        {
+            TryGetSelectedResolvedOperations(
+                out _,
+                out _,
+                out bool conflict);
+            return conflict;
+        }
+    }
+
+    internal bool SelectedHasDeletion
+    {
+        get
+        {
+            return TryGetSelectedResolvedOperations(
+                out _,
+                out FrameworkObjectData deletion,
+                out bool conflict)
+                && !conflict
+                && deletion != null;
+        }
+    }
+
+    internal PlacementTransform SelectedTransform
+    {
+        get
+        {
+            FrameworkObjectData modification = SelectedModification;
+            if (modification != null)
+                return PlacementTransform.FromFramework(modification);
+            return _selected == null ? null : _selected.RuntimeTransform;
+        }
     }
 
     internal void SetActive(bool active)
@@ -859,6 +969,790 @@ internal sealed class OriginalObjectPage
         return true;
     }
 
+    internal bool TryApplySelectedModification(
+        PlacementTransform transform,
+        ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (_session == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectApplyFailed,
+                "Original Objects",
+                "No editable Level Edit Session is available.");
+            return false;
+        }
+        if (_projector == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectApplyFailed,
+                "Original Objects",
+                "Original Object live projection is unavailable.");
+            return false;
+        }
+        if (_selected == null)
+        {
+            report.Warning(
+                ReportCodes.SelectionNoCandidates,
+                "Original Objects",
+                "Select a locatable Original Object before applying a modification.");
+            return false;
+        }
+        if (!PlacementValidation.ValidateFiniteTransform(
+            transform,
+            _selected.DisplayText,
+            report))
+            return false;
+        TryGetResolvedOperations(
+            _selected.Identity,
+            out List<FrameworkObjectData> modifications,
+            out List<FrameworkObjectData> deletions);
+        if (modifications.Count + deletions.Count > 1)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditConflict,
+                _selected.DisplayText,
+                "Multiple imported operations target this identity; resolve the conflict before editing.");
+            return false;
+        }
+
+        FrameworkObjectData imported = modifications.Count == 1 ? modifications[0] : null;
+        FrameworkObjectData next = imported == null
+            ? new FrameworkObjectData(
+                _selected.Identity.Scene,
+                _selected.Identity.Path,
+                OriginalObjectEditor.EmptyModificationType,
+                _session.NextOriginalObjectModificationId(),
+                transform.Position,
+                transform.Rotation,
+                transform.Scale,
+                string.Empty,
+                [])
+            : new FrameworkObjectData(
+                imported.Scene,
+                imported.Path,
+                imported.Type,
+                imported.Id,
+                transform.Position,
+                transform.Rotation,
+                transform.Scale,
+                imported.Condition,
+                imported.Properties);
+        OriginalObjectPageSnapshot before = CaptureSnapshot(_selected.Identity);
+
+        if (!_projector.TryApplyModification(
+            _frameworkLevelKey,
+            next,
+            report,
+            out OriginalObjectLiveState appliedState))
+            return false;
+
+        if (!_session.TryUpsertOriginalObjectModification(next, report))
+        {
+            if (!RestoreLiveStateFromSnapshot(before, report))
+            {
+                report.Error(
+                    ReportCodes.HistoryRollbackFailed,
+                    _selected.DisplayText,
+                    "The live preview could not be rolled back after the session rejected the modification.");
+            }
+            return false;
+        }
+
+        _liveStates[_selected.Identity] = appliedState;
+        _history.Record(new OriginalObjectSnapshotCommand(
+            this,
+            "Modify Original Object",
+            before,
+            CaptureSnapshot(_selected.Identity)));
+        RefreshState(report);
+        report.Applied();
+        report.Info(
+            ReportCodes.OriginalObjectModificationApplied,
+            _selected.DisplayText,
+            "Applied Original Object modification " + next.Id + ".");
+        return true;
+    }
+
+    internal bool TryRemoveSelectedEdit(ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (_session == null)
+        {
+            report.Warning(
+                ReportCodes.OriginalObjectEditNotFound,
+                "Original Objects",
+                "No editable Level Edit Session is available.");
+            return false;
+        }
+        if (_projector == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectApplyFailed,
+                "Original Objects",
+                "Original Object live projection is unavailable.");
+            return false;
+        }
+        if (_selected == null)
+        {
+            report.Warning(
+                ReportCodes.OriginalObjectEditNotFound,
+                "Original Objects",
+                "Select an Original Object operation before removing it.");
+            return false;
+        }
+        if (!TryGetResolvedOperations(
+            _selected.Identity,
+            out List<FrameworkObjectData> modifications,
+            out List<FrameworkObjectData> deletions))
+            return false;
+        if (modifications.Count + deletions.Count != 1)
+        {
+            report.Warning(
+                ReportCodes.OriginalObjectEditNotFound,
+                _selected.DisplayText,
+                modifications.Count + deletions.Count == 0
+                    ? "No pending Original Object operation targets this identity."
+                    : "The identity has an unresolved conflict and cannot be removed as one operation.");
+            return false;
+        }
+        FrameworkObjectData currentModification =
+            modifications.Count == 1 ? modifications[0] : null;
+        FrameworkObjectData currentDeletion =
+            deletions.Count == 1 ? deletions[0] : null;
+        OriginalObjectOperationKind currentKind = currentModification != null
+            ? OriginalObjectOperationKind.Modification
+            : OriginalObjectOperationKind.Deletion;
+        FrameworkObjectData currentOperation =
+            currentModification ?? currentDeletion;
+        if (WasImported(currentKind, currentOperation))
+        {
+            report.Warning(
+                ReportCodes.OriginalObjectEditNotFound,
+                _selected.DisplayText,
+                "The imported Original Object operation has no pending change to remove.");
+            return false;
+        }
+
+        OriginalObjectPageSnapshot before = CaptureSnapshot(_selected.Identity);
+        OriginalObjectLiveState importState = ImportLiveState(_selected.Identity);
+        if (!_projector.TryRestore(
+            _frameworkLevelKey,
+            _selected.Identity,
+            importState,
+            report))
+            return false;
+        if (!_session.TryRestoreImportedOriginalObjectEdit(_selected.Identity, report))
+        {
+            if (!RestoreLiveStateFromSnapshot(before, report))
+            {
+                report.Error(
+                    ReportCodes.HistoryRollbackFailed,
+                    _selected.DisplayText,
+                    "The live preview could not be rolled back after the session rejected the edit removal.");
+            }
+            return false;
+        }
+
+        _liveStates[_selected.Identity] = importState;
+        _history.Record(new OriginalObjectSnapshotCommand(
+            this,
+            "Remove Original Object Edit",
+            before,
+            CaptureSnapshot(_selected.Identity)));
+        RefreshState(report);
+        report.Applied();
+        report.Info(
+            ReportCodes.OriginalObjectEditRemoved,
+            _selected.DisplayText,
+            "Removed the pending Original Object change and restored the imported state.");
+        return true;
+    }
+
+    internal bool TryUndo(ApplyReport report)
+    {
+        return _history.Undo(report);
+    }
+
+    internal bool TryRedo(ApplyReport report)
+    {
+        return _history.Redo(report);
+    }
+
+    internal bool TryReset(ApplyReport report)
+    {
+        if (!TryPrepareReset(report, out OriginalObjectResetPreparation preparation))
+            return false;
+
+        preparation.Commit(report);
+        return true;
+    }
+
+    internal bool TryPrepareReset(
+        ApplyReport report,
+        out OriginalObjectResetPreparation preparation)
+    {
+        preparation = null;
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (_session == null)
+        {
+            report.Warning(
+                ReportCodes.OriginalObjectEditNotFound,
+                "Original Objects",
+                "No editable Level Edit Session is available.");
+            return false;
+        }
+
+        List<FrameworkObjectData> modifications = [.. _session.Modifications];
+        List<FrameworkObjectData> deletions = [.. _session.Deletions];
+        LevelEditSessionState state = _session.State;
+        Dictionary<OriginalObjectIdentity, OriginalObjectLiveState> liveStates = [];
+        HashSet<OriginalObjectIdentity> identities = [];
+        AddOperationIdentities(_session.Modifications, identities);
+        AddOperationIdentities(_session.Deletions, identities);
+        AddOperationIdentities(_session.ImportedDocument.Modifications, identities);
+        AddOperationIdentities(_session.ImportedDocument.Deletions, identities);
+        foreach (OriginalObjectIdentity identity in identities)
+        {
+            if (_catalog.TryGetByIdentity(identity, out _))
+                liveStates[identity] = CurrentLiveState(identity);
+        }
+        if (_projector == null)
+        {
+            if (identities.Count != 0)
+            {
+                report.Error(
+                    ReportCodes.OriginalObjectApplyFailed,
+                    "Original Objects",
+                    "Original Object live projection is unavailable.");
+                return false;
+            }
+        }
+        else if (!TryRestoreToImportedState(identities, report))
+        {
+            return false;
+        }
+
+        _session.RestoreOriginalObjectEdits(
+            _session.ImportedDocument.Modifications,
+            _session.ImportedDocument.Deletions,
+            _importedState,
+            report);
+        foreach (OriginalObjectIdentity identity in identities)
+            _liveStates[identity] = ImportLiveState(identity);
+        preparation = new OriginalObjectResetPreparation(
+            this,
+            modifications,
+            deletions,
+            state,
+            liveStates,
+            _selected);
+        RefreshState(report);
+        return true;
+    }
+
+    internal bool TryTeardown(ApplyReport report)
+    {
+        if (!TryPrepareTeardown(report))
+            return false;
+
+        CommitTeardown();
+        return true;
+    }
+
+    internal bool TryPrepareTeardown(ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (_session == null)
+        {
+            _history.Clear();
+            return true;
+        }
+
+        HashSet<OriginalObjectIdentity> identities = [];
+        AddOperationIdentities(_session.Modifications, identities);
+        AddOperationIdentities(_session.Deletions, identities);
+        AddOperationIdentities(_session.ImportedDocument.Modifications, identities);
+        AddOperationIdentities(_session.ImportedDocument.Deletions, identities);
+        if (_projector != null)
+        {
+            if (!TryRestoreToImportedState(identities, report))
+                return false;
+        }
+        else if (identities.Count != 0)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectApplyFailed,
+                "Original Objects",
+                "Original Object live projection is unavailable during teardown.");
+            return false;
+        }
+
+        foreach (OriginalObjectIdentity identity in identities)
+        {
+            if (_catalog.TryGetByIdentity(identity, out _))
+                _liveStates[identity] = ImportLiveState(identity);
+        }
+        return true;
+    }
+
+    internal void CommitTeardown()
+    {
+        _history.Clear();
+        _selected = null;
+        _candidates = new ReadOnlyCollection<OriginalObjectCandidate>([]);
+        _operations = new ReadOnlyCollection<OriginalObjectOperation>([]);
+    }
+
+    internal bool TryCancelTeardown(ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (_session == null || _projector == null)
+            return true;
+
+        HashSet<OriginalObjectIdentity> identities = [];
+        AddOperationIdentities(_session.Modifications, identities);
+        AddOperationIdentities(_session.Deletions, identities);
+        List<OriginalObjectIdentity> ordered = [];
+        foreach (OriginalObjectIdentity identity in identities)
+        {
+            if (_catalog.TryGetByIdentity(identity, out _))
+                ordered.Add(identity);
+        }
+        ordered.Sort(CompareIdentityForRestore);
+
+        foreach (OriginalObjectIdentity identity in ordered)
+        {
+            List<FrameworkObjectData> modifications = FindMatching(
+                _session.Modifications,
+                identity);
+            List<FrameworkObjectData> deletions = FindMatching(
+                _session.Deletions,
+                identity);
+            if (modifications.Count + deletions.Count > 1)
+            {
+                report.Error(
+                    ReportCodes.OriginalObjectEditConflict,
+                    identity.DisplayText,
+                    "The Original Object preview cannot be reapplied while its operations conflict.");
+                return false;
+            }
+
+            bool restored;
+            if (modifications.Count == 1)
+            {
+                restored = _projector.TryApplyModification(
+                    _frameworkLevelKey,
+                    modifications[0],
+                    report,
+                    out OriginalObjectLiveState state);
+                if (restored)
+                    _liveStates[identity] = state;
+            }
+            else if (deletions.Count == 1)
+            {
+                restored = _projector.TryApplyDeletion(
+                    _frameworkLevelKey,
+                    identity,
+                    report,
+                    out OriginalObjectLiveState state);
+                if (restored)
+                    _liveStates[identity] = state;
+            }
+            else
+            {
+                restored = _projector.TryRestore(
+                    _frameworkLevelKey,
+                    identity,
+                    ImportLiveState(identity),
+                    report);
+                if (restored)
+                    _liveStates[identity] = ImportLiveState(identity);
+            }
+
+            if (!restored)
+                return false;
+        }
+
+        return true;
+    }
+
+    private bool TryRestoreToImportedState(
+        IEnumerable<OriginalObjectIdentity> identities,
+        ApplyReport report)
+    {
+        List<OriginalObjectIdentity> attempted = [];
+        List<OriginalObjectIdentity> ordered = [];
+        foreach (OriginalObjectIdentity identity in identities ?? [])
+        {
+            if (_catalog.TryGetByIdentity(identity, out _))
+                ordered.Add(identity);
+        }
+        ordered.Sort(CompareIdentityForRestore);
+
+        foreach (OriginalObjectIdentity identity in ordered)
+        {
+            attempted.Add(identity);
+            if (_projector.TryRestore(
+                _frameworkLevelKey,
+                identity,
+                ImportLiveState(identity),
+                report))
+                continue;
+
+            RestoreAttemptedLiveStates(attempted, report);
+            return false;
+        }
+
+        return true;
+    }
+
+    private void RestoreAttemptedLiveStates(
+        IList<OriginalObjectIdentity> attempted,
+        ApplyReport report)
+    {
+        for (int index = attempted.Count - 1; index >= 0; index--)
+        {
+            OriginalObjectIdentity identity = attempted[index];
+            if (_projector.TryRestore(
+                _frameworkLevelKey,
+                identity,
+                CurrentLiveState(identity),
+                report))
+                continue;
+
+            report.Error(
+                ReportCodes.HistoryRollbackFailed,
+                identity.DisplayText,
+                "The Original Object previews restored before the failure could not be rolled back.");
+        }
+    }
+
+    private static int CompareIdentityForRestore(
+        OriginalObjectIdentity left,
+        OriginalObjectIdentity right)
+    {
+        int scene = SceneOrderForRestore(left.Scene).CompareTo(SceneOrderForRestore(right.Scene));
+        return scene != 0
+            ? scene
+            : StringComparer.Ordinal.Compare(left.Path, right.Path);
+    }
+
+    private static int SceneOrderForRestore(string scene)
+    {
+        return scene == "decoration" ? 0 : scene == "layout" ? 1 : 2;
+    }
+
+    private void RestoreSelection(OriginalObjectCatalogEntry selected)
+    {
+        if (selected != null && _catalog.IsVisible(selected))
+            _selected = selected;
+    }
+
+    private bool TryRestoreSnapshot(
+        OriginalObjectPageSnapshot snapshot,
+        ApplyReport report)
+    {
+        if (snapshot == null)
+        {
+            report.Error(
+                ReportCodes.HistoryRestoreFailed,
+                "$",
+                "Original Object history snapshot is missing.");
+            return false;
+        }
+
+        OriginalObjectIdentity identity = snapshot.Identity;
+        List<FrameworkObjectData> targetModifications = FindMatching(
+            snapshot.Modifications,
+            identity);
+        List<FrameworkObjectData> targetDeletions = FindMatching(
+            snapshot.Deletions,
+            identity);
+        if (targetModifications.Count + targetDeletions.Count > 1)
+        {
+            report.Error(
+                ReportCodes.HistoryRestoreFailed,
+                identity.DisplayText,
+                "The history snapshot contains an unresolved Original Object conflict.");
+            return false;
+        }
+
+        OriginalObjectLiveState appliedState = null;
+        if (_projector != null)
+        {
+            bool restored;
+            if (targetModifications.Count == 1)
+            {
+                restored = _projector.TryApplyModification(
+                    _frameworkLevelKey,
+                    targetModifications[0],
+                    report,
+                    out appliedState);
+            }
+            else if (targetDeletions.Count == 1)
+            {
+                restored = _projector.TryApplyDeletion(
+                    _frameworkLevelKey,
+                    identity,
+                    report,
+                    out appliedState);
+            }
+            else
+            {
+                restored = _projector.TryRestore(
+                    _frameworkLevelKey,
+                    identity,
+                    ImportLiveState(identity),
+                    report);
+            }
+
+            if (!restored)
+                return false;
+        }
+
+        _session.RestoreOriginalObjectEdits(
+            snapshot.Modifications,
+            snapshot.Deletions,
+            snapshot.State,
+            report);
+        if (targetModifications.Count == 1)
+        {
+            _liveStates[identity] = appliedState;
+        }
+        else if (targetDeletions.Count == 1)
+        {
+            _liveStates[identity] = appliedState;
+        }
+        else
+        {
+            _liveStates[identity] = ImportLiveState(identity);
+        }
+
+        RefreshState(report);
+        report.Applied();
+        return true;
+    }
+
+    private bool RestoreLiveStateFromSnapshot(
+        OriginalObjectPageSnapshot snapshot,
+        ApplyReport report)
+    {
+        if (_projector == null || snapshot == null)
+            return true;
+
+        List<FrameworkObjectData> modifications = FindMatching(
+            snapshot.Modifications,
+            snapshot.Identity);
+        List<FrameworkObjectData> deletions = FindMatching(
+            snapshot.Deletions,
+            snapshot.Identity);
+        if (modifications.Count == 1)
+        {
+            return _projector.TryApplyModification(
+                _frameworkLevelKey,
+                modifications[0],
+                report,
+                out _);
+        }
+        if (deletions.Count == 1)
+        {
+            return _projector.TryApplyDeletion(
+                _frameworkLevelKey,
+                snapshot.Identity,
+                report,
+                out _);
+        }
+
+        return _projector.TryRestore(
+            _frameworkLevelKey,
+            snapshot.Identity,
+            ImportLiveState(snapshot.Identity),
+            report);
+    }
+
+    private void RefreshState(ApplyReport report)
+    {
+        HashSet<string> targetedObjectKeys = [];
+        AddCatalogTargetedObjectKeys(_session.Modifications, targetedObjectKeys);
+        AddCatalogTargetedObjectKeys(_session.Deletions, targetedObjectKeys);
+        _catalog.ReplaceTargetedObjectKeys(targetedObjectKeys);
+        _operations = BuildOperations(report);
+        if (_selected != null && !_catalog.IsVisible(_selected))
+            _selected = null;
+    }
+
+    private ReadOnlyCollection<OriginalObjectOperation> BuildOperations(ApplyReport report)
+    {
+        if (_session == null)
+            return new ReadOnlyCollection<OriginalObjectOperation>([]);
+
+        List<OriginalObjectOperation> operations = [];
+        AddOperations(
+            OriginalObjectOperationKind.Modification,
+            LevelFrameworkContract.ModificationsField,
+            _session.Modifications,
+            operations,
+            report);
+        AddOperations(
+            OriginalObjectOperationKind.Deletion,
+            LevelFrameworkContract.DeletionsField,
+            _session.Deletions,
+            operations,
+            report);
+        return new ReadOnlyCollection<OriginalObjectOperation>(operations);
+    }
+
+    private bool TryGetSelectedResolvedOperations(
+        out FrameworkObjectData modification,
+        out FrameworkObjectData deletion,
+        out bool conflict)
+    {
+        modification = null;
+        deletion = null;
+        conflict = false;
+        if (_selected == null)
+            return false;
+
+        TryGetResolvedOperations(
+            _selected.Identity,
+            out List<FrameworkObjectData> modifications,
+            out List<FrameworkObjectData> deletions);
+        conflict = modifications.Count + deletions.Count > 1;
+        modification = modifications.Count == 1 ? modifications[0] : null;
+        deletion = deletions.Count == 1 ? deletions[0] : null;
+        return !conflict && (modification != null || deletion != null);
+    }
+
+    private bool TryGetResolvedOperations(
+        OriginalObjectIdentity identity,
+        out List<FrameworkObjectData> modifications,
+        out List<FrameworkObjectData> deletions)
+    {
+        modifications = FindMatching(_session.Modifications, identity);
+        deletions = FindMatching(_session.Deletions, identity);
+        return modifications.Count + deletions.Count == 1;
+    }
+
+    private static List<FrameworkObjectData> FindMatching(
+        IEnumerable<FrameworkObjectData> operations,
+        OriginalObjectIdentity identity)
+    {
+        List<FrameworkObjectData> matching = [];
+        foreach (FrameworkObjectData operation in operations ?? [])
+        {
+            if (operation != null
+                && string.Equals(operation.Scene, identity.Scene, StringComparison.Ordinal)
+                && string.Equals(operation.Path, identity.Path, StringComparison.Ordinal))
+                matching.Add(operation);
+        }
+
+        return matching;
+    }
+
+    private OriginalObjectLiveState CurrentLiveState(OriginalObjectIdentity identity)
+    {
+        if (_liveStates.TryGetValue(identity, out OriginalObjectLiveState state))
+            return state;
+
+        return _catalog.TryGetByIdentity(identity, out OriginalObjectCatalogEntry entry)
+            ? entry.LiveState
+            : new OriginalObjectLiveState(string.Empty, true, PlacementTransform.Default, string.Empty);
+    }
+
+    private OriginalObjectLiveState ImportLiveState(OriginalObjectIdentity identity)
+    {
+        if (_importLiveStates.TryGetValue(identity, out OriginalObjectLiveState state))
+            return state;
+
+        return CurrentLiveState(identity);
+    }
+
+    private OriginalObjectPageSnapshot CaptureSnapshot(OriginalObjectIdentity identity)
+    {
+        return new OriginalObjectPageSnapshot(
+            identity,
+            _session.Modifications,
+            _session.Deletions,
+            _session.State);
+    }
+
+    private void AddCatalogTargetedObjectKeys(
+        IEnumerable<FrameworkObjectData> operations,
+        HashSet<string> targeted)
+    {
+        foreach (FrameworkObjectData operation in operations ?? [])
+        {
+            if (operation == null
+                || !OriginalObjectIdentity.TryCreate(
+                    operation.Scene,
+                    operation.Path,
+                    out OriginalObjectIdentity identity,
+                    out _))
+                continue;
+            if (_catalog.TryGetByIdentity(identity, out OriginalObjectCatalogEntry entry))
+                targeted.Add(entry.ObjectKey);
+        }
+    }
+
+    private static void AddOperationIdentities(
+        IEnumerable<FrameworkObjectData> operations,
+        HashSet<OriginalObjectIdentity> identities)
+    {
+        foreach (FrameworkObjectData operation in operations ?? [])
+        {
+            if (operation != null
+                && OriginalObjectIdentity.TryCreate(
+                    operation.Scene,
+                    operation.Path,
+                    out OriginalObjectIdentity identity,
+                    out _))
+                identities.Add(identity);
+        }
+    }
+
+    private void BuildImportedOperationProvenance(FrameworkLevelEdit imported)
+    {
+        AddImportedOperationProvenance(
+            OriginalObjectOperationKind.Modification,
+            imported.Modifications);
+        AddImportedOperationProvenance(
+            OriginalObjectOperationKind.Deletion,
+            imported.Deletions);
+    }
+
+    private void AddImportedOperationProvenance(
+        OriginalObjectOperationKind kind,
+        IEnumerable<FrameworkObjectData> operations)
+    {
+        foreach (FrameworkObjectData operation in operations ?? [])
+        {
+            if (operation == null)
+                continue;
+            _importedOperations.Add(new OriginalObjectOperationProvenance(
+                kind,
+                operation));
+        }
+    }
+
+    private bool WasImported(
+        OriginalObjectOperationKind kind,
+        FrameworkObjectData operation)
+    {
+        foreach (OriginalObjectOperationProvenance imported in _importedOperations)
+        {
+            if (imported.Matches(kind, operation))
+                return true;
+        }
+
+        return false;
+    }
+
     private static HashSet<string> CollectTargetedObjectKeys(
         OriginalObjectBaseline baseline,
         IEnumerable<FrameworkObjectData> modifications,
@@ -923,6 +1817,8 @@ internal sealed class OriginalObjectPage
             string sourceName = field + "[" + index + "]";
             index++;
             bool locatable = TryLocateOperation(source, out _);
+            bool imported = WasImported(kind, source);
+            int operationCount = CountOperations(source.Scene, source.Path);
             OriginalObjectOperation operation = new(
                 kind,
                 sourceName,
@@ -931,8 +1827,9 @@ internal sealed class OriginalObjectPage
                 source.Type,
                 source.Id,
                 locatable,
-                isImported: true,
-                isPending: false);
+                isImported: imported,
+                isPending: !imported,
+                hasConflict: operationCount > 1);
             destination.Add(operation);
             if (!locatable)
             {
@@ -941,7 +1838,33 @@ internal sealed class OriginalObjectPage
                     sourceName,
                     "The operation remains in the export but does not locate a vanilla baseline Original Object.");
             }
+            if (operationCount > 1)
+            {
+                report.Warning(
+                    ReportCodes.OriginalObjectEditConflict,
+                    sourceName,
+                    "Multiple imported operations target this identity; the entries remain read-only until resolved.");
+            }
         }
+    }
+
+    private int CountOperations(string scene, string path)
+    {
+        int count = 0;
+        foreach (FrameworkObjectData operation in _session.Modifications)
+        {
+            if (string.Equals(operation.Scene, scene, StringComparison.Ordinal)
+                && string.Equals(operation.Path, path, StringComparison.Ordinal))
+                count++;
+        }
+        foreach (FrameworkObjectData operation in _session.Deletions)
+        {
+            if (string.Equals(operation.Scene, scene, StringComparison.Ordinal)
+                && string.Equals(operation.Path, path, StringComparison.Ordinal))
+                count++;
+        }
+
+        return count;
     }
 
     private bool TryLocateOperation(
@@ -966,5 +1889,156 @@ internal sealed class OriginalObjectPage
             ? "<unaddressable>"
             : hit.Scene + ":" + hit.Path;
         return identity + "#" + (hit.ObjectKey ?? string.Empty);
+    }
+
+    private sealed class OriginalObjectOperationProvenance
+    {
+        internal OriginalObjectOperationProvenance(
+            OriginalObjectOperationKind kind,
+            FrameworkObjectData operation)
+        {
+            Kind = kind;
+            Operation = operation;
+        }
+
+        internal OriginalObjectOperationKind Kind { get; }
+        internal FrameworkObjectData Operation { get; }
+
+        internal bool Matches(
+            OriginalObjectOperationKind kind,
+            FrameworkObjectData operation)
+        {
+            return Kind == kind && ReferenceEquals(Operation, operation);
+        }
+    }
+
+    private sealed class OriginalObjectPageSnapshot
+    {
+        internal OriginalObjectPageSnapshot(
+            OriginalObjectIdentity identity,
+            IEnumerable<FrameworkObjectData> modifications,
+            IEnumerable<FrameworkObjectData> deletions,
+            LevelEditSessionState state)
+        {
+            Identity = identity ?? throw new ArgumentNullException(nameof(identity));
+            Modifications = [.. modifications ?? []];
+            Deletions = [.. deletions ?? []];
+            State = state;
+        }
+
+        internal OriginalObjectIdentity Identity { get; }
+        internal IList<FrameworkObjectData> Modifications { get; }
+        internal IList<FrameworkObjectData> Deletions { get; }
+        internal LevelEditSessionState State { get; }
+    }
+
+    internal sealed class OriginalObjectResetPreparation
+    {
+        private readonly OriginalObjectPage _page;
+        private readonly List<FrameworkObjectData> _modifications;
+        private readonly List<FrameworkObjectData> _deletions;
+        private readonly LevelEditSessionState _state;
+        private readonly List<KeyValuePair<OriginalObjectIdentity, OriginalObjectLiveState>> _liveStates;
+        private readonly OriginalObjectCatalogEntry _selected;
+        private bool _pending = true;
+
+        internal OriginalObjectResetPreparation(
+            OriginalObjectPage page,
+            IEnumerable<FrameworkObjectData> modifications,
+            IEnumerable<FrameworkObjectData> deletions,
+            LevelEditSessionState state,
+            IDictionary<OriginalObjectIdentity, OriginalObjectLiveState> liveStates,
+            OriginalObjectCatalogEntry selected)
+        {
+            _page = page;
+            _modifications = [.. modifications ?? []];
+            _deletions = [.. deletions ?? []];
+            _state = state;
+            _liveStates = [.. liveStates ?? new Dictionary<OriginalObjectIdentity, OriginalObjectLiveState>()];
+            _selected = selected;
+        }
+
+        internal void Commit(ApplyReport report)
+        {
+            if (!_pending)
+                return;
+
+            _pending = false;
+            _page._history.Clear();
+            report.Info(
+                ReportCodes.SessionReset,
+                _page._frameworkLevelKey,
+                "Original Object edits were reset to the imported snapshot.");
+        }
+
+        internal bool Rollback(ApplyReport report)
+        {
+            if (!_pending)
+                return true;
+
+            _pending = false;
+            _page._session.RestoreOriginalObjectEdits(
+                _modifications,
+                _deletions,
+                _state,
+                report);
+            foreach (KeyValuePair<OriginalObjectIdentity, OriginalObjectLiveState> entry in _liveStates)
+                _page._liveStates[entry.Key] = entry.Value;
+
+            bool restored = true;
+            if (_page._projector != null)
+            {
+                foreach (KeyValuePair<OriginalObjectIdentity, OriginalObjectLiveState> entry in _liveStates)
+                {
+                    if (_page._projector.TryRestore(
+                        _page._frameworkLevelKey,
+                        entry.Key,
+                        entry.Value,
+                        report))
+                        continue;
+
+                    restored = false;
+                    report.Error(
+                        ReportCodes.HistoryRollbackFailed,
+                        entry.Key.DisplayText,
+                        "The Original Object preview could not be restored after the global Reset failed.");
+                }
+            }
+
+            _page.RefreshState(report);
+            _page.RestoreSelection(_selected);
+            return restored;
+        }
+    }
+
+    private sealed class OriginalObjectSnapshotCommand : IReversibleEditCommand
+    {
+        private readonly OriginalObjectPage _page;
+        private readonly OriginalObjectPageSnapshot _before;
+        private readonly OriginalObjectPageSnapshot _after;
+
+        internal OriginalObjectSnapshotCommand(
+            OriginalObjectPage page,
+            string name,
+            OriginalObjectPageSnapshot before,
+            OriginalObjectPageSnapshot after)
+        {
+            _page = page;
+            Name = name;
+            _before = before;
+            _after = after;
+        }
+
+        public string Name { get; }
+
+        public bool Undo(ApplyReport report)
+        {
+            return _page.TryRestoreSnapshot(_before, report);
+        }
+
+        public bool Redo(ApplyReport report)
+        {
+            return _page.TryRestoreSnapshot(_after, report);
+        }
     }
 }

@@ -38,15 +38,25 @@ internal sealed class RoomOverlayReconciler
 {
     private readonly ContentCatalog _catalog;
     private readonly IRuntimePlacementFactory _factory;
+    private readonly IOriginalObjectLiveProjector _originalObjectProjector;
     private RuntimePlacementManager _manager;
     private EditorPageController _pages;
     private RoomIdentity _room;
     private LevelEditSession _session;
 
     internal RoomOverlayReconciler(ContentCatalog catalog, IRuntimePlacementFactory factory)
+        : this(catalog, factory, null)
+    {
+    }
+
+    internal RoomOverlayReconciler(
+        ContentCatalog catalog,
+        IRuntimePlacementFactory factory,
+        IOriginalObjectLiveProjector originalObjectProjector)
     {
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _originalObjectProjector = originalObjectProjector;
     }
 
     internal RoomIdentity CurrentRoom { get { return _room; } }
@@ -92,6 +102,11 @@ internal sealed class RoomOverlayReconciler
         }
 
         next.CaptureInitialSnapshot();
+        if (_pages != null && !_pages.OriginalObjects.TryPrepareTeardown(report))
+        {
+            next.TryClear(report);
+            return new RoomOverlayReconcileResult(room, null, null, null, report);
+        }
         OriginalObjectPage originalObjects = originalObjectBaseline == null
             && originalObjectResolver == null
             ? OriginalObjectPage.Empty
@@ -99,6 +114,7 @@ internal sealed class RoomOverlayReconciler
                 imported.Session,
                 originalObjectBaseline,
                 originalObjectResolver,
+                _originalObjectProjector,
                 report);
         if (report.IsPartial)
             imported.Session.SetState(LevelEditSessionState.Partial, report);
@@ -106,8 +122,12 @@ internal sealed class RoomOverlayReconciler
         if (_manager != null && !_manager.TryClear(report))
         {
             next.TryClear(report);
+            if (_pages != null)
+                _pages.OriginalObjects.TryCancelTeardown(report);
             return new RoomOverlayReconcileResult(room, null, null, null, report);
         }
+        if (_pages != null)
+            _pages.OriginalObjects.CommitTeardown();
 
         _manager = next;
         _pages = new EditorPageController(next, originalObjects);
@@ -125,7 +145,18 @@ internal sealed class RoomOverlayReconciler
             return true;
         }
 
+        if (_pages != null
+            && !_pages.OriginalObjects.TryPrepareTeardown(report))
+            return false;
         bool result = _manager.TryClear(report);
+        if (!result)
+        {
+            if (_pages != null)
+                _pages.OriginalObjects.TryCancelTeardown(report);
+            return false;
+        }
+        if (_pages != null)
+            _pages.OriginalObjects.CommitTeardown();
         if (result)
         {
             _manager = null;

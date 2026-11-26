@@ -4,7 +4,7 @@ Status: callback mapping and pure lifecycle behavior are implemented. The target
 
 ## Domain vocabulary
 
-Use the root [GLOSSARY.md](../GLOSSARY.md) as the authoritative vocabulary. Relevant decisions are recorded in [ADR 0002](adr/0002-level-edit-session-owns-authored-room-state.md), [ADR 0003](adr/0003-preserve-original-objects-as-read-only.md), [ADR 0004](adr/0004-preserve-unmodelable-additions.md), and [ADR 0005](adr/0005-name-editable-overlay-placements-by-edit-authority.md).
+Use the root [GLOSSARY.md](../GLOSSARY.md) as the authoritative vocabulary. Relevant decisions are recorded in [ADR 0002](adr/0002-level-edit-session-owns-authored-room-state.md), [ADR 0003](adr/0003-preserve-original-objects-as-read-only.md), [ADR 0004](adr/0004-preserve-unmodelable-additions.md), [ADR 0005](adr/0005-name-editable-overlay-placements-by-edit-authority.md), and [ADR 0007](adr/0007-enable-original-object-edits.md).
 
 ## Runtime facts
 

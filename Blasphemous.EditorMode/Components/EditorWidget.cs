@@ -1,6 +1,7 @@
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
+using Blasphemous.EditorMode.Framework;
 using Blasphemous.Framework.UI;
 using Blasphemous.ModdingAPI;
 using Framework.Managers;
@@ -52,6 +53,9 @@ internal class EditorWidget : MonoBehaviour
     private InputField[] _positionFields;
     private InputField[] _rotationFields;
     private InputField[] _scaleFields;
+    private InputField[] _originalPositionFields;
+    private InputField[] _originalRotationFields;
+    private InputField[] _originalScaleFields;
     private string _selectedId;
     private string _candidateSignature;
     private bool _catalogBuilt;
@@ -401,15 +405,30 @@ internal class EditorWidget : MonoBehaviour
             _originalInspectorText.text = page?.Selected == null
                 ? "No Original Object selected.\nUse P or click an object in the room.\nMultiple overlaps require a row click."
                 : string.Format(
-                    "Identity: {0}\nActive at baseline: {1}\nActive now: {2}\nRuntime key: {3}\nLocatable: yes\nEditing: unavailable in this ticket",
+                    "Identity: {0}\nActive at baseline: {1}   Active now: {2}\nRuntime key: {3}\nEdit: {4}",
                     page.Selected.DisplayText,
                     page.Selected.IsActive ? "yes" : "no (targeted)",
                     page.Selected.IsRuntimeActive ? "yes" : "no",
-                    page.Selected.ObjectKey);
+                    page.Selected.ObjectKey,
+                    FormatOriginalEditState(page));
         }
 
+        SetOriginalTransformFields(page);
         BuildOriginalOperations(page);
         BuildOriginalCandidates(page);
+    }
+
+    private static string FormatOriginalEditState(OriginalObjectPage page)
+    {
+        if (page.SelectedHasConflict)
+            return "conflict; resolve duplicate imported operations";
+        if (page.SelectedHasDeletion)
+            return "deletion preview";
+
+        FrameworkObjectData modification = page.SelectedModification;
+        return modification == null
+            ? "baseline; Apply Modify creates a pending transform edit"
+            : "modification " + modification.Type + " / " + modification.Id;
     }
 
     private void BuildOriginalCandidates(OriginalObjectPage page)
@@ -538,7 +557,6 @@ internal class EditorWidget : MonoBehaviour
             text.Append(" type=").Append(operation.Type);
         if (!string.IsNullOrEmpty(operation.Id))
             text.Append(" id=").Append(operation.Id);
-        text.Append(" [read-only]");
         return text.ToString();
     }
 
@@ -733,6 +751,40 @@ internal class EditorWidget : MonoBehaviour
             ]);
     }
 
+    private void SetOriginalTransformFields(OriginalObjectPage page)
+    {
+        PlacementTransform transform = page == null ? null : page.SelectedTransform;
+        if (transform == null)
+        {
+            SetFieldValues(_originalPositionFields, new string[3]);
+            SetFieldValues(_originalRotationFields, new string[3]);
+            SetFieldValues(_originalScaleFields, new string[3]);
+            return;
+        }
+
+        SetFieldValues(
+            _originalPositionFields,
+            [
+                transform.PositionX.ToString("R", CultureInfo.InvariantCulture),
+                transform.PositionY.ToString("R", CultureInfo.InvariantCulture),
+                transform.PositionZ.ToString("R", CultureInfo.InvariantCulture)
+            ]);
+        SetFieldValues(
+            _originalRotationFields,
+            [
+                transform.RotationX.ToString("R", CultureInfo.InvariantCulture),
+                transform.RotationY.ToString("R", CultureInfo.InvariantCulture),
+                transform.RotationZ.ToString("R", CultureInfo.InvariantCulture)
+            ]);
+        SetFieldValues(
+            _originalScaleFields,
+            [
+                transform.ScaleX.ToString("R", CultureInfo.InvariantCulture),
+                transform.ScaleY.ToString("R", CultureInfo.InvariantCulture),
+                transform.ScaleZ.ToString("R", CultureInfo.InvariantCulture)
+            ]);
+    }
+
     private static void SetFieldValues(InputField[] fields, string[] values)
     {
         if (fields == null)
@@ -747,15 +799,28 @@ internal class EditorWidget : MonoBehaviour
         if (Main.EditorMode == null)
             return;
 
+        bool original = Main.EditorMode.ActivePage == EditorPage.OriginalObjects;
         string[] values = new string[9];
-        CopyFieldValues(_positionFields, values, 0);
-        CopyFieldValues(_rotationFields, values, 3);
-        CopyFieldValues(_scaleFields, values, 6);
+        CopyFieldValues(
+            original ? _originalPositionFields : _positionFields,
+            values,
+            0);
+        CopyFieldValues(
+            original ? _originalRotationFields : _rotationFields,
+            values,
+            3);
+        CopyFieldValues(
+            original ? _originalScaleFields : _scaleFields,
+            values,
+            6);
         Main.EditorMode.TryApplySelectedTransform(values);
     }
 
     private static void CopyFieldValues(InputField[] fields, string[] target, int offset)
     {
+        if (fields == null)
+            return;
+
         for (int index = 0; index < fields.Length; index++)
             target[offset + index] = fields[index] == null ? string.Empty : fields[index].text;
     }
@@ -906,11 +971,49 @@ internal class EditorWidget : MonoBehaviour
         _originalStatusText.verticalOverflow = VerticalWrapMode.Truncate;
         _originalInspectorText = CreateText(
             "Original Inspector",
-            new Vector2(165f, 42f),
-            new Vector2(250f, 82f),
-            12,
+            new Vector2(165f, 67f),
+            new Vector2(250f, 40f),
+            10,
             TextAnchor.UpperLeft,
             _originalPageRoot);
+        CreateText(
+            "Original Position Label",
+            new Vector2(90f, 37f),
+            new Vector2(64f, 18f),
+            10,
+            TextAnchor.MiddleCenter,
+            _originalPageRoot).text = "Position";
+        CreateText(
+            "Original Rotation Label",
+            new Vector2(165f, 37f),
+            new Vector2(64f, 18f),
+            10,
+            TextAnchor.MiddleCenter,
+            _originalPageRoot).text = "Rotation";
+        CreateText(
+            "Original Scale Label",
+            new Vector2(240f, 37f),
+            new Vector2(64f, 18f),
+            10,
+            TextAnchor.MiddleCenter,
+            _originalPageRoot).text = "Scale";
+        _originalPositionFields = CreateOriginalTransformFields("Original Position", 90f);
+        _originalRotationFields = CreateOriginalTransformFields("Original Rotation", 165f);
+        _originalScaleFields = CreateOriginalTransformFields("Original Scale", 240f);
+        Button apply = CreateButton(
+            "Apply Original Modification",
+            "Apply Modify",
+            new Vector2(112f, -56f),
+            ApplyTransform,
+            _originalPageRoot);
+        apply.GetComponent<RectTransform>().sizeDelta = new Vector2(110f, 26f);
+        Button remove = CreateButton(
+            "Remove Original Edit",
+            "Remove Edit",
+            new Vector2(238f, -56f),
+            () => Main.EditorMode.TryRemoveSelectedOriginalEdit(),
+            _originalPageRoot);
+        remove.GetComponent<RectTransform>().sizeDelta = new Vector2(86f, 26f);
         CreateText(
             "Original Candidate Header",
             new Vector2(-190f, 86f),
@@ -927,18 +1030,35 @@ internal class EditorWidget : MonoBehaviour
         _originalCandidateScroll.gameObject.SetActive(false);
         CreateText(
             "Original Operations Header",
-            new Vector2(165f, -15f),
+            new Vector2(165f, -80f),
             new Vector2(250f, 22f),
-            13,
+            10,
             TextAnchor.MiddleLeft,
-            _originalPageRoot).text = "Imported / pending operations (read-only)";
+            _originalPageRoot).text = "Imported / pending operations — select a row";
         _originalOperationsRoot = CreateScrollView(
             "Original Operations",
             _originalPageRoot,
-            new Vector2(165f, -95f),
-            new Vector2(250f, 132f),
+            new Vector2(165f, -124f),
+            new Vector2(250f, 68f),
             out _originalOperationsScroll);
-        SetScrollContentHeight(_originalOperationsRoot, _originalOperationsScroll, _originalOperationsScroll.viewport, 132f);
+        SetScrollContentHeight(_originalOperationsRoot, _originalOperationsScroll, _originalOperationsScroll.viewport, 68f);
+    }
+
+    private InputField[] CreateOriginalTransformFields(string group, float x)
+    {
+        InputField[] fields = new InputField[3];
+        string[] axes = ["X", "Y", "Z"];
+        for (int index = 0; index < fields.Length; index++)
+        {
+            InputField field = CreateInputField(
+                group + " " + axes[index],
+                new Vector2(x, 17f - (index * 24f)),
+                _originalPageRoot);
+            field.GetComponent<RectTransform>().sizeDelta = new Vector2(64f, 22f);
+            fields[index] = field;
+        }
+
+        return fields;
     }
 
     private Transform CreateScrollView(

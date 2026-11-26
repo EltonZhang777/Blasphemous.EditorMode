@@ -108,11 +108,53 @@ internal sealed class EditorPageController
 
     internal bool TryUndo(ApplyReport report)
     {
-        return ActivePage == EditorPage.Additions && _additions.TryUndo(report);
+        return ActivePage == EditorPage.Additions
+            ? _additions.TryUndo(report)
+            : _originalObjects.TryUndo(report);
     }
 
     internal bool TryRedo(ApplyReport report)
     {
-        return ActivePage == EditorPage.Additions && _additions.TryRedo(report);
+        return ActivePage == EditorPage.Additions
+            ? _additions.TryRedo(report)
+            : _originalObjects.TryRedo(report);
+    }
+
+    internal bool TryReset(ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+
+        OriginalObjectPage.OriginalObjectResetPreparation preparation = null;
+        if (_originalObjects.HasSession
+            && !_originalObjects.TryPrepareReset(report, out preparation))
+            return false;
+
+        if (!_additions.TryReset(report))
+        {
+            if (preparation != null)
+                preparation.Rollback(report);
+
+            return false;
+        }
+
+        if (preparation != null)
+            preparation.Commit(report);
+
+        return true;
+    }
+
+    internal bool TryApplyOriginalModification(
+        PlacementTransform transform,
+        ApplyReport report)
+    {
+        return ActivePage == EditorPage.OriginalObjects
+            && _originalObjects.TryApplySelectedModification(transform, report);
+    }
+
+    internal bool TryRemoveOriginalEdit(ApplyReport report)
+    {
+        return ActivePage == EditorPage.OriginalObjects
+            && _originalObjects.TryRemoveSelectedEdit(report);
     }
 }
