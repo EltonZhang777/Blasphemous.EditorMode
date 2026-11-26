@@ -693,7 +693,7 @@ internal class EditorWidget : MonoBehaviour
             "Apply Properties",
             "Apply",
             new Vector2(282f, -108f),
-            null,
+            ApplyProperties,
             _propertyRoot);
         _propertiesApplyButton.interactable = false;
     }
@@ -702,8 +702,9 @@ internal class EditorWidget : MonoBehaviour
     {
         RawPropertiesText properties = RawPropertiesText.Create(placement?.Properties);
         bool textChanged = !string.Equals(_propertiesField.text, properties.Text, StringComparison.Ordinal);
+        bool editable = placement != null && !properties.ContainsLineBreak;
 
-        _propertiesField.readOnly = true;
+        _propertiesField.readOnly = !editable;
         if (selectionChanged || textChanged)
         {
             _propertiesField.text = properties.Text;
@@ -711,7 +712,15 @@ internal class EditorWidget : MonoBehaviour
         }
         _propertiesWarning.text = properties.ContainsLineBreak ? "Stored CR/LF: read-only" : string.Empty;
         _propertiesWarning.gameObject.SetActive(properties.ContainsLineBreak);
-        _propertiesApplyButton.interactable = false;
+        _propertiesApplyButton.interactable = editable;
+    }
+
+    private void ApplyProperties()
+    {
+        if (Main.EditorMode == null)
+            return;
+
+        Main.EditorMode.TryApplySelectedProperties(_propertiesField.text);
     }
 
     private void ResetPropertiesView()

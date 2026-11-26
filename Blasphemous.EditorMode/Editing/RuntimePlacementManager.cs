@@ -583,6 +583,51 @@ internal sealed class RuntimePlacementManager
         return true;
     }
 
+    internal bool TryApplyProperties(
+        string id,
+        string rawText,
+        ApplyReport report)
+    {
+        PlacementManagerSnapshot before = CaptureSnapshot();
+        if (!TrySelect(id, report, out PlacementRecord current)
+            || !_projections.TryGetValue(id, out IRuntimePlacementHandle handle))
+            return false;
+        if (current.IsLocked)
+        {
+            report.Error(ReportCodes.PlacementLocked, id, "Locked placement cannot be edited.");
+            return false;
+        }
+
+        List<string> properties = NormalizeRawProperties(rawText);
+        if (PropertiesEqual(current.Properties, properties))
+        {
+            report.Applied();
+            return true;
+        }
+
+        PlacementRecord changed = current.WithProperties(properties);
+        if (!handle.TryApply(changed, out string error))
+        {
+            RestoreRuntime(handle, current, report);
+            report.Error(
+                ReportCodes.RuntimeApplyFailed,
+                id,
+                error ?? "Runtime projection rejected the properties.");
+            return false;
+        }
+
+        if (!_session.TryReplacePlacement(changed, report))
+        {
+            RestoreRuntime(handle, current, report);
+            return false;
+        }
+
+        Selected = changed;
+        report.Applied();
+        RecordSnapshotCommand("properties", before, CaptureSnapshot());
+        return true;
+    }
+
     internal bool TryRemove(string id, ApplyReport report)
     {
         PlacementManagerSnapshot before = CaptureSnapshot();
@@ -900,6 +945,38 @@ internal sealed class RuntimePlacementManager
     {
         if (!handle.TryApply(placement, out string error))
             report.Error(ReportCodes.RuntimeRollbackFailed, placement.Id, error ?? "Runtime projection could not be restored.");
+    }
+
+    private static List<string> NormalizeRawProperties(string rawText)
+    {
+        List<string> properties = [];
+        string[] lines = (rawText ?? string.Empty).Split(
+            ["\r\n", "\n", "\r"],
+            StringSplitOptions.None);
+        foreach (string line in lines)
+        {
+            string property = line.Trim();
+            if (property.Length > 0)
+                properties.Add(property);
+        }
+
+        return properties;
+    }
+
+    private static bool PropertiesEqual(
+        IList<string> left,
+        IList<string> right)
+    {
+        if (left.Count != right.Count)
+            return false;
+
+        for (int index = 0; index < left.Count; index++)
+        {
+            if (!string.Equals(left[index], right[index], StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
     }
 
     private sealed class PlacementManagerSnapshot

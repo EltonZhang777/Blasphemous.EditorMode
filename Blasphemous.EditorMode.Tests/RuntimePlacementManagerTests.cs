@@ -3,8 +3,10 @@ using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
 using Blasphemous.EditorMode.Framework;
 using Blasphemous.EditorMode.Lifecycle;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Xunit;
 
 namespace Blasphemous.EditorMode.Tests;
@@ -178,6 +180,306 @@ public sealed class RuntimePlacementManagerTests
         Assert.Equal(PlacementTransform.Default, handle.AppliedPlacement.Transform);
         Assert.Contains(report.Entries, x => x.Code == "RUNTIME_APPLY_FAILED");
         Assert.DoesNotContain(report.Entries, x => x.Code == "RUNTIME_ROLLBACK_FAILED");
+    }
+
+    [Fact]
+    public void Apply_properties_accepts_exact_three_line_acceptance_input()
+    {
+        CreatorMetadata creator = new CreatorMetadata(
+            "typed",
+            "Typed",
+            "Test",
+            CreatorOrigin.Architect,
+            "scene",
+            "path",
+            TransformCapabilities.Position,
+            new[] { new CreatorPropertyDefinition("count", CreatorPropertyType.Integer) },
+            true);
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { creator }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            creator.Type,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        report = new ApplyReport();
+
+        const string text = "length = 3.0\ncolor = #ff00ff\nOneWayDown";
+
+        Assert.True(manager.TryApplyProperties(placement.Id, text, report), report.ToSummary("properties"));
+
+        string[] expected =
+        [
+            "length = 3.0",
+            "color = #ff00ff",
+            "OneWayDown"
+        ];
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Equal(expected, placement.Properties);
+        Assert.Equal(expected, factory.Created[0].AppliedPlacement.Properties);
+        Assert.Equal(LevelEditSessionState.Dirty, session.State);
+        Assert.Equal(2, manager.History.UndoCount);
+        Assert.Equal(1, report.AppliedCount);
+    }
+
+    [Fact]
+    public void Apply_properties_splits_trims_and_preserves_raw_duplicate_entries()
+    {
+        CreatorMetadata creator = new CreatorMetadata(
+            "typed",
+            "Typed",
+            "Test",
+            CreatorOrigin.Architect,
+            "scene",
+            "path",
+            TransformCapabilities.Position,
+            new[] { new CreatorPropertyDefinition("count", CreatorPropertyType.Integer) },
+            true);
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { creator }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            creator.Type,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+
+        const string text =
+            " \t\r\ncount = bad\t \rMiXeD = Value\n\nUnknown Field\r\nMiXeD = Value\r\nNoEquals Value  \n";
+
+        Assert.True(manager.TryApplyProperties(placement.Id, text, report), report.ToSummary("properties"));
+
+        string[] expected =
+        [
+            "count = bad",
+            "MiXeD = Value",
+            "Unknown Field",
+            "MiXeD = Value",
+            "NoEquals Value"
+        ];
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Equal(expected, placement.Properties);
+        Assert.Equal(expected, factory.Created[0].AppliedPlacement.Properties);
+    }
+
+    [Fact]
+    public void Apply_properties_clears_all_entries_for_blank_input()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        Assert.True(
+            manager.TryApplyProperties(placement.Id, "x=1\ny=2", report),
+            report.ToSummary("initial properties"));
+        report = new ApplyReport();
+
+        Assert.True(manager.TryApplyProperties(placement.Id, "\r\n \t\r\n", report), report.ToSummary("properties"));
+
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Empty(placement.Properties);
+        Assert.Empty(factory.Created[0].AppliedPlacement.Properties);
+    }
+
+    [Fact]
+    public void Apply_properties_no_op_reports_success_without_runtime_dirty_or_history_change()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        Assert.True(
+            manager.TryApplyProperties(placement.Id, "x=1\nmode=Ready", report),
+            report.ToSummary("initial properties"));
+        report = new ApplyReport();
+        session.SetState(LevelEditSessionState.Clean, new ApplyReport());
+        int undoCount = manager.History.UndoCount;
+        int applyCount = factory.Created[0].ApplyCount;
+        report = new ApplyReport();
+
+        Assert.True(
+            manager.TryApplyProperties(placement.Id, "\r\n  x=1  \nmode=Ready\r\n", report),
+            report.ToSummary("properties"));
+
+        Assert.Equal(LevelEditSessionState.Clean, session.State);
+        Assert.Equal(undoCount, manager.History.UndoCount);
+        Assert.Equal(applyCount, factory.Created[0].ApplyCount);
+        Assert.Equal(1, report.AppliedCount);
+    }
+
+    [Fact]
+    public void Apply_properties_rejects_locked_placement_without_mutation()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        Assert.True(
+            manager.TryApplyProperties(placement.Id, "x=1", report),
+            report.ToSummary("initial properties"));
+        report = new ApplyReport();
+        Assert.True(manager.TrySetLocked(placement.Id, true, report));
+        LevelEditSessionState state = session.State;
+        int undoCount = manager.History.UndoCount;
+        int applyCount = factory.Created[0].ApplyCount;
+        report = new ApplyReport();
+
+        Assert.False(manager.TryApplyProperties(placement.Id, "y=2", report));
+
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Equal(new[] { "x=1" }, placement.Properties);
+        Assert.Equal(new[] { "x=1" }, factory.Created[0].AppliedPlacement.Properties);
+        Assert.Equal(state, session.State);
+        Assert.Equal(undoCount, manager.History.UndoCount);
+        Assert.Equal(applyCount, factory.Created[0].ApplyCount);
+        Assert.Contains(report.Entries, entry => entry.Code == "PLACEMENT_LOCKED");
+    }
+
+    [Fact]
+    public void Apply_properties_runtime_rejection_restores_previous_projection_and_history()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        Assert.True(
+            manager.TryApplyProperties(placement.Id, "x=1", report),
+            report.ToSummary("initial properties"));
+        report = new ApplyReport();
+        FakeHandle handle = factory.Created[0];
+        LevelEditSessionState state = session.State;
+        int undoCount = manager.History.UndoCount;
+        handle.FailNextApplyAfterMutation = true;
+        report = new ApplyReport();
+
+        Assert.False(manager.TryApplyProperties(placement.Id, "y=2", report));
+
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Equal(new[] { "x=1" }, placement.Properties);
+        Assert.Equal(new[] { "x=1" }, handle.AppliedPlacement.Properties);
+        Assert.Equal(state, session.State);
+        Assert.Equal(undoCount, manager.History.UndoCount);
+        Assert.Contains(report.Entries, entry => entry.Code == "RUNTIME_APPLY_FAILED");
+        Assert.DoesNotContain(report.Entries, entry => entry.Code == "RUNTIME_ROLLBACK_FAILED");
+    }
+
+    [Fact]
+    public void Apply_properties_undo_redo_and_export_preserve_complete_ordered_list()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        Assert.True(
+            manager.TryApplyProperties(placement.Id, "before=1", report),
+            report.ToSummary("initial properties"));
+        report = new ApplyReport();
+
+        const string appliedText = "length = 3.0\ncolor = #ff00ff\nOneWayDown\nOneWayDown";
+        string[] applied =
+        [
+            "length = 3.0",
+            "color = #ff00ff",
+            "OneWayDown",
+            "OneWayDown"
+        ];
+        int undoCountBeforeApply = manager.History.UndoCount;
+        Assert.True(manager.TryApplyProperties(placement.Id, appliedText, report), report.ToSummary("properties"));
+        Assert.Equal(undoCountBeforeApply + 1, manager.History.UndoCount);
+
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "editor-mode-properties-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(directory, session.Room.ExportFileKey + ".json");
+        try
+        {
+            Directory.CreateDirectory(directory);
+            LevelEditSessionExportResult exported = session.Export(path);
+            Assert.True(exported.Succeeded, exported.StatusMessage);
+            Assert.Equal(applied, ExportedProperties(path, placement.Id));
+
+            Assert.True(manager.TryUndo(report), report.ToSummary("undo"));
+            Assert.True(session.TryGetPlacement(placement.Id, out placement));
+            Assert.Equal(new[] { "before=1" }, placement.Properties);
+            Assert.Equal(new[] { "before=1" }, factory.Created[0].AppliedPlacement.Properties);
+
+            Assert.True(manager.TryRedo(report), report.ToSummary("redo"));
+            Assert.True(session.TryGetPlacement(placement.Id, out placement));
+            Assert.Equal(applied, placement.Properties);
+            Assert.Equal(applied, factory.Created[0].AppliedPlacement.Properties);
+
+            exported = session.Export(path);
+            Assert.True(exported.Succeeded, exported.StatusMessage);
+            Assert.Equal(applied, ExportedProperties(path, placement.Id));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
     }
 
     [Fact]
@@ -391,6 +693,15 @@ public sealed class RuntimePlacementManagerTests
         FrameworkFileResult result = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
         System.IO.Directory.Delete(directory, true);
         return result;
+    }
+
+    private static string[] ExportedProperties(string path, string placementId)
+    {
+        JObject document = JObject.Parse(File.ReadAllText(path));
+        JObject addition = Assert.Single(
+            document["additions"].Children<JObject>(),
+            item => string.Equals((string)item["id"], placementId, StringComparison.Ordinal));
+        return addition["properties"].ToObject<string[]>();
     }
 
     private sealed class FakeFactory : IRuntimePlacementFactory
