@@ -56,9 +56,12 @@ public sealed class RawPropertiesFixtureTests
         Assert.Equal(4, result.Session.Placements.Count);
         PlacementRecord placement = result.Session.Placements[2];
         Assert.Equal("bell-iron-3", placement.Id);
-        Assert.Equal(24, placement.Properties.Count);
+        Assert.Equal(25, placement.Properties.Count);
         Assert.Equal("x=1", placement.Properties[0]);
         Assert.Equal("note=length = 3.0", placement.Properties[14]);
+        Assert.Equal(
+            "note=horizontal-scroll-focus-0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            placement.Properties[24]);
         RawPropertiesText properties = RawPropertiesText.Create(placement.Properties);
         Assert.Equal(string.Join("\n", placement.Properties), properties.Text);
         Assert.False(properties.ContainsLineBreak);

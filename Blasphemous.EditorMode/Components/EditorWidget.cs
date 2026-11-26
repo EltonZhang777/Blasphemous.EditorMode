@@ -38,10 +38,23 @@ internal class EditorWidget : MonoBehaviour
     private Text _statusText;
     private Transform _catalogRoot;
     private Transform _propertyRoot;
+    private RectTransform _propertiesViewport;
+    private RectTransform _propertiesContent;
     private InputField _propertiesField;
     private Text _propertiesWarning;
     private Button _propertiesApplyButton;
-    private ScrollRect _propertiesScroll;
+    private readonly TextGenerator _propertiesLayoutGenerator = new();
+    private readonly TextGenerator _propertiesPreferredWidthGenerator = new();
+    private string _propertiesSizedText;
+    private float _propertiesSizedFieldWidth;
+    private float _propertiesSizedFieldHeight;
+    private float _propertiesSizedPixelsPerUnit;
+    private string _propertiesGeneratorText;
+    private float _propertiesGeneratorPixelsPerUnit;
+    private string _propertiesFollowText;
+    private int _propertiesFollowCaret = -1;
+    private float _propertiesFollowViewportWidth = float.NaN;
+    private float _propertiesFollowContentWidth = float.NaN;
     private InputField[] _positionFields;
     private InputField[] _rotationFields;
     private InputField[] _scaleFields;
@@ -93,23 +106,23 @@ internal class EditorWidget : MonoBehaviour
         CreateButton("Apply Transform", "Apply", new Vector2(190f, -38f), ApplyTransform);
         CreatePropertiesEditor();
 
-        CreateButton("Import", "Import", new Vector2(-235f, -182f), () => Main.EditorMode.ImportCurrentRoom());
-        CreateButton("Export", "Export", new Vector2(-155f, -182f), () => Main.EditorMode.ExportCurrentRoom());
-        CreateButton("Undo", "Undo", new Vector2(-75f, -182f), () => Main.EditorMode.TryUndo());
-        CreateButton("Redo", "Redo", new Vector2(5f, -182f), () => Main.EditorMode.TryRedo());
-        CreateButton("Copy", "Copy Ctrl+C", new Vector2(85f, -182f), () => Main.EditorMode.TryCopySelected());
-        CreateButton("Paste", "Paste Ctrl+V", new Vector2(165f, -182f), () => Main.EditorMode.TryPasteAtCursor());
-        CreateButton("Delete", "Delete", new Vector2(245f, -182f), () => Main.EditorMode.TryDeleteSelected());
-        CreateButton("Lock", "Lock", new Vector2(-155f, -147f), () => Main.EditorMode.TryToggleSelectedLock());
-        CreateButton("Reset", "Reset", new Vector2(-75f, -147f), () => Main.EditorMode.TryReset());
-        CreateButton("Exit", "Exit", new Vector2(5f, -147f), () => Main.EditorMode.ExitFromUi());
+        CreateButton("Import", "Import", new Vector2(-235f, -192f), () => Main.EditorMode.ImportCurrentRoom());
+        CreateButton("Export", "Export", new Vector2(-155f, -192f), () => Main.EditorMode.ExportCurrentRoom());
+        CreateButton("Undo", "Undo", new Vector2(-75f, -192f), () => Main.EditorMode.TryUndo());
+        CreateButton("Redo", "Redo", new Vector2(5f, -192f), () => Main.EditorMode.TryRedo());
+        CreateButton("Copy", "Copy Ctrl+C", new Vector2(85f, -192f), () => Main.EditorMode.TryCopySelected());
+        CreateButton("Paste", "Paste Ctrl+V", new Vector2(165f, -192f), () => Main.EditorMode.TryPasteAtCursor());
+        CreateButton("Delete", "Delete", new Vector2(245f, -192f), () => Main.EditorMode.TryDeleteSelected());
+        CreateButton("Lock", "Lock", new Vector2(-155f, -160f), () => Main.EditorMode.TryToggleSelectedLock());
+        CreateButton("Reset", "Reset", new Vector2(-75f, -160f), () => Main.EditorMode.TryReset());
+        CreateButton("Exit", "Exit", new Vector2(5f, -160f), () => Main.EditorMode.ExitFromUi());
         freezeGameButtonObj = CreateButton(
             "Freeze Game Button",
             "Freeze",
-            new Vector2(85f, -147f),
+            new Vector2(85f, -160f),
             OnFreezeGameButtonClicked).gameObject;
-        CreateButton("Pick", "Pick P", new Vector2(165f, -147f), () => Main.EditorMode.TryPickSelected());
-        CreateButton("Clear Preview", "Clear", new Vector2(245f, -147f), () => Main.EditorMode.ClearPreview());
+        CreateButton("Pick", "Pick P", new Vector2(165f, -160f), () => Main.EditorMode.TryPickSelected());
+        CreateButton("Clear Preview", "Clear", new Vector2(245f, -160f), () => Main.EditorMode.ClearPreview());
     }
 
     private void OnEnable()
@@ -141,6 +154,12 @@ internal class EditorWidget : MonoBehaviour
         _inputModulesWereEnabled = null;
         _standaloneInputModule = null;
         _fallbackEventSystem?.SetActive(false);
+    }
+
+    private void OnDestroy()
+    {
+        ((IDisposable)_propertiesLayoutGenerator).Dispose();
+        ((IDisposable)_propertiesPreferredWidthGenerator).Dispose();
     }
 
     private void Update()
@@ -192,6 +211,214 @@ internal class EditorWidget : MonoBehaviour
         {
             editor.TrySelectAtCursor();
         }
+    }
+
+    private void LateUpdate()
+    {
+        FollowPropertiesCaretHorizontally();
+    }
+
+    private void FollowPropertiesCaretHorizontally()
+    {
+        if (_propertiesField == null
+            || _propertiesField.textComponent == null
+            || _propertiesViewport == null
+            || _propertiesContent == null)
+            return;
+
+        if (!_propertiesField.isFocused)
+        {
+            SetPropertiesHorizontalOffset(0f);
+            ClearPropertiesFollowCache();
+            return;
+        }
+
+        string fullText = _propertiesField.text ?? string.Empty;
+        Text text = _propertiesField.textComponent;
+        string displayedText = text.text ?? string.Empty;
+        if (displayedText.Length == 0)
+        {
+            SetPropertiesHorizontalOffset(0f);
+            ClearPropertiesFollowCache();
+            return;
+        }
+
+        TextGenerator generator = PreparePropertiesGenerator(text, displayedText);
+        UpdatePropertiesLayout(text, displayedText, generator);
+        float viewportWidth = _propertiesViewport.rect.width;
+        if (viewportWidth <= 0f)
+            return;
+
+        int caretPosition = _propertiesField.caretPosition;
+        float contentWidth = _propertiesContent.rect.width;
+        if (string.Equals(_propertiesFollowText, displayedText, StringComparison.Ordinal)
+            && _propertiesFollowCaret == caretPosition
+            && Mathf.Approximately(_propertiesFollowViewportWidth, viewportWidth)
+            && Mathf.Approximately(_propertiesFollowContentWidth, contentWidth))
+            return;
+
+        _propertiesFollowText = displayedText;
+        _propertiesFollowCaret = caretPosition;
+        _propertiesFollowViewportWidth = viewportWidth;
+        _propertiesFollowContentWidth = contentWidth;
+
+        int displayedStart = FindDisplayedStartIndex(fullText, displayedText, caretPosition);
+        int localCaret = Mathf.Clamp(caretPosition - displayedStart, 0, displayedText.Length);
+        float caretX = GetPropertiesCaretX(text, generator, displayedText, localCaret);
+        float offset = _propertiesContent.anchoredPosition.x;
+        float caretPositionInView = caretX + offset;
+        float leftEdge = 2f;
+        float rightEdge = viewportWidth - 2f;
+
+        if (caretPositionInView > rightEdge)
+            offset -= caretPositionInView - rightEdge;
+        else if (caretPositionInView < leftEdge)
+            offset += leftEdge - caretPositionInView;
+
+        float minimumOffset = Mathf.Min(0f, viewportWidth - contentWidth);
+        SetPropertiesHorizontalOffset(Mathf.Clamp(offset, minimumOffset, 0f));
+    }
+
+    private TextGenerator PreparePropertiesGenerator(Text text, string displayedText)
+    {
+        float pixelsPerUnit = text.pixelsPerUnit;
+        if (string.Equals(_propertiesGeneratorText, displayedText, StringComparison.Ordinal)
+            && Mathf.Approximately(_propertiesGeneratorPixelsPerUnit, pixelsPerUnit))
+            return _propertiesLayoutGenerator;
+
+        TextGenerationSettings settings = text.GetGenerationSettings(Vector2.zero);
+        settings.generateOutOfBounds = true;
+        _propertiesLayoutGenerator.Populate(displayedText, settings);
+        _propertiesGeneratorText = displayedText;
+        _propertiesGeneratorPixelsPerUnit = pixelsPerUnit;
+        return _propertiesLayoutGenerator;
+    }
+
+    private void UpdatePropertiesLayout(Text text, string displayedText, TextGenerator generator)
+    {
+        if (_propertiesViewport == null || _propertiesContent == null)
+            return;
+
+        RectTransform fieldRect = _propertiesField.transform as RectTransform;
+        if (fieldRect == null)
+            return;
+
+        float fieldWidth = fieldRect.rect.width;
+        float fieldHeight = fieldRect.rect.height;
+        if (fieldWidth <= 0f || fieldHeight <= 0f)
+            return;
+
+        if (string.Equals(_propertiesSizedText, displayedText, StringComparison.Ordinal)
+            && Mathf.Approximately(_propertiesSizedFieldWidth, fieldWidth)
+            && Mathf.Approximately(_propertiesSizedFieldHeight, fieldHeight)
+            && Mathf.Approximately(_propertiesSizedPixelsPerUnit, text.pixelsPerUnit))
+            return;
+
+        _propertiesSizedText = displayedText;
+        _propertiesSizedFieldWidth = fieldWidth;
+        _propertiesSizedFieldHeight = fieldHeight;
+        _propertiesSizedPixelsPerUnit = text.pixelsPerUnit;
+        float innerWidth = Mathf.Max(1f, fieldWidth - 8f);
+        float innerHeight = Mathf.Max(1f, fieldHeight - 8f);
+        float lineHeight = generator.lineCount > 0
+            ? generator.lines[0].height / text.pixelsPerUnit
+            : 0f;
+        float contentHeight = innerHeight;
+        if (lineHeight > 0f)
+        {
+            int visibleLines = Mathf.Max(1, Mathf.FloorToInt((innerHeight + 0.001f) / lineHeight));
+            contentHeight = Mathf.Min(innerHeight, visibleLines * lineHeight);
+        }
+
+        TextGenerationSettings widthSettings = text.GetGenerationSettings(Vector2.zero);
+        float contentWidth = _propertiesPreferredWidthGenerator.GetPreferredWidth(displayedText, widthSettings)
+            / text.pixelsPerUnit;
+        _propertiesContent.sizeDelta = new Vector2(
+            Mathf.Max(innerWidth, contentWidth + 4f),
+            contentHeight);
+        SetPropertiesViewportHeight(contentHeight);
+    }
+
+    private void SetPropertiesViewportHeight(float height)
+    {
+        RectTransform parent = _propertiesViewport?.parent as RectTransform;
+        if (parent == null)
+            return;
+
+        float parentHeight = parent.rect.height;
+        if (parentHeight <= 0f)
+            return;
+
+        Vector2 min = _propertiesViewport.offsetMin;
+        min.y = Mathf.Max(4f, parentHeight - 4f - height);
+        Vector2 max = _propertiesViewport.offsetMax;
+        max.y = -4f;
+        if (!Mathf.Approximately(_propertiesViewport.offsetMin.y, min.y))
+            _propertiesViewport.offsetMin = min;
+        if (!Mathf.Approximately(_propertiesViewport.offsetMax.y, max.y))
+            _propertiesViewport.offsetMax = max;
+    }
+
+    private static int FindDisplayedStartIndex(string fullText, string displayedText, int caretPosition)
+    {
+        int firstMatch = fullText.IndexOf(displayedText, StringComparison.Ordinal);
+        int candidate = firstMatch;
+        while (candidate >= 0)
+        {
+            int end = candidate + displayedText.Length;
+            if (caretPosition >= candidate && caretPosition <= end)
+                return candidate;
+
+            candidate = fullText.IndexOf(displayedText, candidate + 1, StringComparison.Ordinal);
+        }
+
+        return firstMatch < 0 ? 0 : firstMatch;
+    }
+
+    private static float GetPropertiesCaretX(
+        Text text,
+        TextGenerator generator,
+        string displayedText,
+        int caretIndex)
+    {
+        float x = 0f;
+        if (caretIndex == displayedText.Length && caretIndex > 0
+            && (displayedText[caretIndex - 1] == '\n' || displayedText[caretIndex - 1] == '\r'))
+        {
+            x = 0f;
+        }
+        else if (caretIndex < generator.characterCountVisible)
+        {
+            x = generator.characters[caretIndex].cursorPos.x;
+        }
+        else if (caretIndex > 0)
+        {
+            UICharInfo previous = generator.characters[caretIndex - 1];
+            x = previous.cursorPos.x + previous.charWidth;
+        }
+
+        return x / text.pixelsPerUnit;
+    }
+
+    private void SetPropertiesHorizontalOffset(float offset)
+    {
+        if (_propertiesContent == null)
+            return;
+
+        Vector2 position = _propertiesContent.anchoredPosition;
+        if (Mathf.Approximately(position.x, offset))
+            return;
+
+        position.x = offset;
+        _propertiesContent.anchoredPosition = position;
+    }
+
+    private void ClearPropertiesFollowCache()
+    {
+        _propertiesFollowText = null;
+        _propertiesFollowCaret = -1;
+        _propertiesFollowViewportWidth = float.NaN;
+        _propertiesFollowContentWidth = float.NaN;
     }
 
     private bool IsPointerOverEditorControl()
@@ -455,15 +682,17 @@ internal class EditorWidget : MonoBehaviour
             _propertyRoot);
         _propertiesWarning.color = new Color(1f, 0.75f, 0.35f, 1f);
         _propertiesWarning.gameObject.SetActive(false);
-        _propertiesField = CreateMultilineInputField(
+        _propertiesField = CreatePropertiesInputField(
             "Properties Field",
-            new Vector2(100f, -100f),
-            new Vector2(230f, 52f),
-            _propertyRoot);
+            new Vector2(100f, -108f),
+            new Vector2(230f, 72f),
+            _propertyRoot,
+            out _propertiesViewport,
+            out _propertiesContent);
         _propertiesApplyButton = CreateButton(
             "Apply Properties",
             "Apply",
-            new Vector2(282f, -100f),
+            new Vector2(282f, -108f),
             null,
             _propertyRoot);
         _propertiesApplyButton.interactable = false;
@@ -478,18 +707,46 @@ internal class EditorWidget : MonoBehaviour
         if (selectionChanged || textChanged)
         {
             _propertiesField.text = properties.Text;
-            _propertiesScroll.verticalNormalizedPosition = 1f;
+            ResetPropertiesView();
         }
         _propertiesWarning.text = properties.ContainsLineBreak ? "Stored CR/LF: read-only" : string.Empty;
         _propertiesWarning.gameObject.SetActive(properties.ContainsLineBreak);
         _propertiesApplyButton.interactable = false;
     }
 
-    private InputField CreateMultilineInputField(
+    private void ResetPropertiesView()
+    {
+        _propertiesField.caretPosition = 0;
+        _propertiesField.ForceLabelUpdate();
+        _propertiesSizedText = null;
+        _propertiesSizedFieldWidth = float.NaN;
+        _propertiesSizedFieldHeight = float.NaN;
+        _propertiesSizedPixelsPerUnit = float.NaN;
+        _propertiesGeneratorText = null;
+        _propertiesGeneratorPixelsPerUnit = float.NaN;
+        ClearPropertiesFollowCache();
+        SetPropertiesHorizontalOffset(0f);
+        RefreshPropertiesLayout();
+    }
+
+    private void RefreshPropertiesLayout()
+    {
+        if (_propertiesField == null || _propertiesField.textComponent == null)
+            return;
+
+        Text text = _propertiesField.textComponent;
+        string displayedText = text.text ?? string.Empty;
+        TextGenerator generator = PreparePropertiesGenerator(text, displayedText);
+        UpdatePropertiesLayout(text, displayedText, generator);
+    }
+
+    private InputField CreatePropertiesInputField(
         string name,
         Vector2 position,
         Vector2 size,
-        Transform parent)
+        Transform parent,
+        out RectTransform viewport,
+        out RectTransform content)
     {
         GameObject obj = new(name)
         {
@@ -510,7 +767,7 @@ internal class EditorWidget : MonoBehaviour
             layer = LayerMask.NameToLayer("UI")
         };
         viewportObject.transform.SetParent(obj.transform, false);
-        RectTransform viewport = viewportObject.AddComponent<RectTransform>();
+        viewport = viewportObject.AddComponent<RectTransform>();
         viewport.anchorMin = Vector2.zero;
         viewport.anchorMax = Vector2.one;
         viewport.offsetMin = new Vector2(4f, 4f);
@@ -520,17 +777,28 @@ internal class EditorWidget : MonoBehaviour
         Mask mask = viewportObject.AddComponent<Mask>();
         mask.showMaskGraphic = false;
 
+        GameObject contentObject = new("Content")
+        {
+            layer = LayerMask.NameToLayer("UI")
+        };
+        contentObject.transform.SetParent(viewportObject.transform, false);
+        content = contentObject.AddComponent<RectTransform>();
+        content.anchorMin = new Vector2(0f, 1f);
+        content.anchorMax = new Vector2(0f, 1f);
+        content.pivot = new Vector2(0f, 1f);
+        content.anchoredPosition = Vector2.zero;
+        content.sizeDelta = new Vector2(size.x - 8f, size.y - 8f);
+
         GameObject textObject = new("Text")
         {
             layer = LayerMask.NameToLayer("UI")
         };
-        textObject.transform.SetParent(viewportObject.transform, false);
+        textObject.transform.SetParent(contentObject.transform, false);
         RectTransform textRect = textObject.AddComponent<RectTransform>();
-        textRect.anchorMin = new Vector2(0f, 1f);
-        textRect.anchorMax = new Vector2(1f, 1f);
-        textRect.pivot = new Vector2(0.5f, 1f);
-        textRect.anchoredPosition = Vector2.zero;
-        textRect.sizeDelta = Vector2.zero;
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
         Text text = textObject.AddComponent<Text>();
         text.font = UIModder.Fonts.Blasphemous ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
         text.fontSize = 12;
@@ -538,30 +806,17 @@ internal class EditorWidget : MonoBehaviour
         text.color = Color.black;
         text.raycastTarget = false;
         text.supportRichText = false;
-        text.horizontalOverflow = HorizontalWrapMode.Wrap;
-        text.verticalOverflow = VerticalWrapMode.Overflow;
-        ContentSizeFitter fitter = textObject.AddComponent<ContentSizeFitter>();
-        fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
-        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-
-        ScrollRect scroll = obj.AddComponent<ScrollRect>();
-        scroll.content = textRect;
-        scroll.viewport = viewport;
-        scroll.horizontal = false;
-        scroll.vertical = true;
-        scroll.movementType = ScrollRect.MovementType.Clamped;
-        scroll.elasticity = 0f;
-        scroll.inertia = false;
-        scroll.scrollSensitivity = 24f;
 
         InputField input = obj.AddComponent<InputField>();
         input.targetGraphic = image;
         input.contentType = InputField.ContentType.Standard;
         input.lineType = InputField.LineType.MultiLineNewline;
         input.textComponent = text;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        text.verticalOverflow = VerticalWrapMode.Truncate;
+        text.lineSpacing = 1f;
         input.readOnly = true;
         input.caretWidth = 1;
-        _propertiesScroll = scroll;
         return input;
     }
 
