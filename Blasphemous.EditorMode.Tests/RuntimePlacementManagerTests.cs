@@ -656,6 +656,50 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
+    public void Paste_preserves_raw_properties_accepted_by_apply()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord source;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out source));
+        Assert.True(
+            manager.TryApplyProperties(source.Id, "OneWayDown\nlength = 3.0", report),
+            report.ToSummary("raw properties"));
+
+        PlacementRecord cursor;
+        Assert.True(manager.TryPick(source.Id, report, out cursor));
+        PlacementRecord pasted;
+        Assert.True(manager.TryPaste(report, out pasted), report.ToSummary("paste"));
+
+        string[] expected = ["OneWayDown", "length = 3.0"];
+        Assert.Equal(expected, pasted.Properties);
+        Assert.True(session.TryGetPlacement(pasted.Id, out PlacementRecord committed));
+        Assert.Equal(expected, committed.Properties);
+        Assert.Equal(2, session.Placements.Count);
+
+        ApplyReport invalidReport = new ApplyReport();
+        PlacementRecord rejected;
+        Assert.False(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            new[] { "OneWayDown" },
+            null,
+            invalidReport,
+            out rejected));
+        Assert.Contains(invalidReport.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
+    }
+
+    [Fact]
     public void Lock_is_editor_only_and_blocks_mutating_operations()
     {
         LevelEditSession session = CreateSession();

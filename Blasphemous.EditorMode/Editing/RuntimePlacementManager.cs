@@ -252,7 +252,7 @@ internal sealed class RuntimePlacementManager
         ApplyReport report,
         out PlacementRecord placement)
     {
-        return TryPlaceCore(type, transform, properties, report, "place", condition, out placement);
+        return TryPlaceCore(type, transform, properties, report, "place", condition, true, out placement);
     }
 
     private bool TryPlaceCore(
@@ -262,6 +262,7 @@ internal sealed class RuntimePlacementManager
         ApplyReport report,
         string commandName,
         string condition,
+        bool validatePropertySchema,
         out PlacementRecord placement)
     {
         PlacementManagerSnapshot before = CaptureSnapshot();
@@ -291,7 +292,10 @@ internal sealed class RuntimePlacementManager
             return false;
         }
 
-        if (!PlacementValidation.Validate(placement, creator, report))
+        bool placementValid = validatePropertySchema
+            ? PlacementValidation.Validate(placement, creator, report)
+            : PlacementValidation.ValidateTransform(placement.Transform, creator, id, report);
+        if (!placementValid)
         {
             placement = null;
             return false;
@@ -549,6 +553,7 @@ internal sealed class RuntimePlacementManager
             report,
             "paste",
             Clipboard.Condition,
+            false,
             out pasted);
     }
 
