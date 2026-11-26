@@ -167,6 +167,22 @@ internal sealed class RoomOverlayReconciler
 
         return result;
     }
+
+    internal bool TryClearForRoomUnload(ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+
+        bool result = _manager == null || _manager.TryClear(report);
+        if (_pages != null)
+            _pages.OriginalObjects.CommitTeardown();
+
+        _manager = null;
+        _pages = null;
+        _room = null;
+        _session = null;
+        return result;
+    }
 }
 
 /// <summary>Compares observable placement state across a room round-trip.</summary>

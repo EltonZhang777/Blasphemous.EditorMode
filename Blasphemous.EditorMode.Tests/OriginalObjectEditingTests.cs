@@ -2164,6 +2164,63 @@ public sealed class OriginalObjectEditingTests
     }
 
     [Fact]
+    public void Room_unload_discards_original_previews_without_restoring_unloaded_objects()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            FakeOriginalObjectPathResolver resolver = new();
+            resolver.Add(
+                "decoration",
+                "DECORATION/HERO",
+                "original",
+                true,
+                new PlacementTransform(1f, 2f, 3f, 4f, 5f, 6f, 1f, 1f, 1f),
+                "original");
+            RoomOverlayReconciler reconciler = new(
+                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                new FakeRuntimeFactory(),
+                projector);
+            RoomOverlayReconcileResult result = reconciler.Apply(
+                CreateRoom(),
+                FileResult(path, source),
+                new OriginalObjectBaseline(
+                    "D03Z02S06",
+                    [Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f)],
+                    new ApplyReport()),
+                resolver);
+            Assert.True(result.Succeeded, result.StatusMessage);
+            ApplyOriginalModification(
+                result,
+                "decoration:DECORATION/HERO",
+                9f);
+            EditCommandHistory history = result.Pages.OriginalObjects.History;
+            Assert.True(history.CanUndo);
+            projector.FailRestore = true;
+
+            ApplyReport unloadReport = new();
+            Assert.True(
+                reconciler.TryClearForRoomUnload(unloadReport),
+                unloadReport.ToSummary("room unload"));
+
+            Assert.Empty(unloadReport.Entries);
+            Assert.Null(reconciler.CurrentSession);
+            Assert.Null(reconciler.Manager);
+            Assert.False(history.CanUndo);
+            Assert.Empty(projector.RestoreAttempts);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void Replacing_the_room_overlay_restores_the_previous_preview_before_import()
     {
         string directory = MakeDirectory();

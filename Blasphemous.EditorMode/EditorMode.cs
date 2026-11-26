@@ -969,7 +969,7 @@ internal class EditorMode : BlasMod
     {
         ExitEditorMode();
         DisposePreview();
-        ClearRoomOverlay();
+        ClearRoomOverlay(roomUnloading: true);
         ModLog.Info("Room Overlay cleared: " + room.FrameworkLevelKey);
     }
 
@@ -1031,7 +1031,7 @@ internal class EditorMode : BlasMod
         return true;
     }
 
-    private void ClearRoomOverlay()
+    private void ClearRoomOverlay(bool roomUnloading = false)
     {
         if (_roomPreparation != null && UIController.instance != null)
             UIController.instance.StopCoroutine(_roomPreparation);
@@ -1041,7 +1041,10 @@ internal class EditorMode : BlasMod
             return;
 
         ApplyReport report = new();
-        if (!_overlayReconciler.TryClear(report) && report.Entries.Count > 0)
+        bool cleared = roomUnloading
+            ? _overlayReconciler.TryClearForRoomUnload(report)
+            : _overlayReconciler.TryClear(report);
+        if (!cleared && report.Entries.Count > 0)
             PublishReport("Room cleanup", report, false);
     }
 
