@@ -417,6 +417,152 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
+    public void Apply_properties_runtime_exception_restores_previous_projection_and_history()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        Assert.True(
+            manager.TryApplyProperties(placement.Id, "x=1", report),
+            report.ToSummary("initial properties"));
+        report = new ApplyReport();
+        FakeHandle handle = factory.Created[0];
+        LevelEditSessionState state = session.State;
+        int undoCount = manager.History.UndoCount;
+        handle.ThrowNextApplyAfterMutation = true;
+
+        Assert.False(manager.TryApplyProperties(placement.Id, "y=2", report));
+
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Equal(new[] { "x=1" }, placement.Properties);
+        Assert.Equal(new[] { "x=1" }, handle.AppliedPlacement.Properties);
+        Assert.Equal(state, session.State);
+        Assert.Equal(undoCount, manager.History.UndoCount);
+        ApplyReportEntry failure = Assert.Single(
+            report.Entries,
+            entry => entry.Code == "RUNTIME_APPLY_FAILED");
+        Assert.Equal(placement.Id, failure.Location);
+        Assert.Contains("InvalidOperationException", failure.Message);
+        Assert.DoesNotContain(report.Entries, entry => entry.Code == "RUNTIME_ROLLBACK_FAILED");
+    }
+
+    [Fact]
+    public void Apply_properties_rollback_exception_reports_runtime_rollback_failure()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        Assert.True(
+            manager.TryApplyProperties(placement.Id, "x=1", report),
+            report.ToSummary("initial properties"));
+        report = new ApplyReport();
+        FakeHandle handle = factory.Created[0];
+        LevelEditSessionState state = session.State;
+        int undoCount = manager.History.UndoCount;
+        handle.ThrowOnApply = true;
+
+        Assert.False(manager.TryApplyProperties(placement.Id, "y=2", report));
+
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Equal(new[] { "x=1" }, placement.Properties);
+        Assert.Equal(state, session.State);
+        Assert.Equal(undoCount, manager.History.UndoCount);
+        Assert.Contains(
+            report.Entries,
+            entry => entry.Code == "RUNTIME_APPLY_FAILED" && entry.Location == placement.Id);
+        ApplyReportEntry rollback = Assert.Single(
+            report.Entries,
+            entry => entry.Code == "RUNTIME_ROLLBACK_FAILED");
+        Assert.Equal(placement.Id, rollback.Location);
+        Assert.Contains("InvalidOperationException", rollback.Message);
+    }
+
+    [Fact]
+    public void Apply_properties_rejects_committed_line_breaks_with_per_property_diagnostics()
+    {
+        CreatorMetadata creator = new CreatorMetadata(
+            "lined",
+            "Lined",
+            "Test",
+            CreatorOrigin.Architect,
+            "scene",
+            "path",
+            TransformCapabilities.Position,
+            new[]
+            {
+                new CreatorPropertyDefinition("safe", CreatorPropertyType.String),
+                new CreatorPropertyDefinition("note", CreatorPropertyType.String),
+                new CreatorPropertyDefinition("middle", CreatorPropertyType.String)
+            },
+            true);
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { creator }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        string[] committed =
+        [
+            "safe=1",
+            "note=first\r\nsecond",
+            "middle=2",
+            "note=third\nfourth"
+        ];
+        Assert.True(manager.TryPlace(
+            creator.Type,
+            PlacementTransform.Default,
+            committed,
+            report,
+            out placement));
+        LevelEditSessionState state = session.State;
+        int undoCount = manager.History.UndoCount;
+        int applyCount = factory.Created[0].ApplyCount;
+        report = new ApplyReport();
+
+        Assert.False(manager.TryApplyProperties(placement.Id, "replacement=1", report));
+
+        Assert.True(session.TryGetPlacement(placement.Id, out placement));
+        Assert.Equal(committed, placement.Properties);
+        Assert.Equal(committed, factory.Created[0].AppliedPlacement.Properties);
+        Assert.Equal(state, session.State);
+        Assert.Equal(undoCount, manager.History.UndoCount);
+        Assert.Equal(applyCount, factory.Created[0].ApplyCount);
+        ApplyReportEntry first = Assert.Single(
+            report.Entries,
+            entry => entry.Location == "additions[" + placement.Id + "].properties[1]");
+        Assert.Equal("PROPERTY_INVALID", first.Code);
+        Assert.Contains("embedded CR or LF", first.Message);
+        ApplyReportEntry second = Assert.Single(
+            report.Entries,
+            entry => entry.Location == "additions[" + placement.Id + "].properties[3]");
+        Assert.Equal("PROPERTY_INVALID", second.Code);
+    }
+
+    [Fact]
     public void Apply_properties_undo_redo_and_export_preserve_complete_ordered_list()
     {
         LevelEditSession session = CreateSession();
@@ -759,6 +905,8 @@ public sealed class RuntimePlacementManagerTests
         internal int ApplyCount { get; private set; }
         internal int DestroyCount { get; private set; }
         internal bool FailNextApplyAfterMutation;
+        internal bool ThrowNextApplyAfterMutation;
+        internal bool ThrowOnApply;
         internal PlacementRecord AppliedPlacement { get; private set; }
 
         public bool TryApply(PlacementRecord placement, out string error)
@@ -772,6 +920,11 @@ public sealed class RuntimePlacementManagerTests
 
             ApplyCount++;
             AppliedPlacement = placement;
+            if (ThrowOnApply || ThrowNextApplyAfterMutation)
+            {
+                ThrowNextApplyAfterMutation = false;
+                throw new InvalidOperationException("injected apply exception after partial mutation");
+            }
             if (FailNextApplyAfterMutation)
             {
                 FailNextApplyAfterMutation = false;

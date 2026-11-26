@@ -8,7 +8,6 @@ using Gameplay.UI;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Text;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -43,6 +42,8 @@ internal class EditorWidget : MonoBehaviour
     private InputField _propertiesField;
     private Text _propertiesWarning;
     private Button _propertiesApplyButton;
+    private readonly RawPropertiesDraftState _propertiesDraft = new();
+    private bool _settingPropertiesText;
     private readonly TextGenerator _propertiesLayoutGenerator = new();
     private readonly TextGenerator _propertiesPreferredWidthGenerator = new();
     private string _propertiesSizedText;
@@ -448,6 +449,17 @@ internal class EditorWidget : MonoBehaviour
 
     internal void Refresh()
     {
+        Main.EditorMode?.ClearRawPropertiesDiagnostics();
+        RefreshCore(false);
+    }
+
+    internal void RefreshAfterReport(bool preservePropertiesDraft)
+    {
+        RefreshCore(preservePropertiesDraft);
+    }
+
+    private void RefreshCore(bool preservePropertiesDraft)
+    {
         EditorMode editor = Main.EditorMode;
         if (editor == null)
             return;
@@ -471,9 +483,10 @@ internal class EditorWidget : MonoBehaviour
         if (selectionChanged)
         {
             _selectedId = selectedPlacementId;
+            editor.ClearRawPropertiesDiagnostics();
             SetTransformFields(selectedPlacement);
         }
-        SetPropertiesEditor(selectedPlacement, selectionChanged);
+        SetPropertiesEditor(selectedPlacement, preservePropertiesDraft);
         string dependency = Main.DependencyStatus == null
             ? "unknown"
             : Main.DependencyStatus.IsCompatible ? "compatible" : "blocked";
@@ -499,62 +512,21 @@ internal class EditorWidget : MonoBehaviour
 
     private string ComposeStatusText(ApplyReportSurface reportSurface, string prefix)
     {
-        string baseText = prefix + reportSurface.UiText;
-        if (reportSurface.HasActionableMessage)
-            baseText += "\n" + reportSurface.ActionableMessage;
-
-        List<DiagnosticCodeCount> groups = new List<DiagnosticCodeCount>();
-        foreach (ApplyReportEntry entry in reportSurface.LastReport.Entries)
-        {
-            if (entry.Severity == ApplySeverity.Info)
-                continue;
-
-            DiagnosticCodeCount group = groups.Find(existing =>
-                string.Equals(existing.Code, entry.Code, StringComparison.Ordinal));
-            if (group == null)
-                groups.Add(new DiagnosticCodeCount(entry.Code));
-            else
-                group.Count++;
-        }
+        string statusText = prefix + reportSurface.UiText;
+        string baseText = reportSurface.HasActionableMessage
+            ? statusText + "\n" + reportSurface.ActionableMessage
+            : statusText;
 
         int fontSize = StatusFontSize;
         while (fontSize > StatusMinimumFontSize && !FitsStatusText(baseText, fontSize))
             fontSize--;
         _statusText.fontSize = fontSize;
 
-        if (groups.Count == 0)
-            return baseText;
-
-        string candidate = baseText + "\n" + FormatGroups(groups, groups.Count);
-        if (FitsStatusText(candidate, fontSize))
-            return candidate;
-
-        for (int included = groups.Count - 1; included >= 0; included--)
-        {
-            int omitted = groups.Count - included;
-            string marker = "+" + omitted + " more diagnostic code(s)";
-            candidate = included == 0
-                ? baseText + "\n" + marker
-                : baseText + "\n" + FormatGroups(groups, included) + "\n" + marker;
-            if (FitsStatusText(candidate, fontSize))
-                return candidate;
-        }
-
-        return baseText;
-    }
-
-    private static string FormatGroups(List<DiagnosticCodeCount> groups, int count)
-    {
-        StringBuilder text = new();
-        for (int index = 0; index < count; index++)
-        {
-            if (index > 0)
-                text.Append(", ");
-            DiagnosticCodeCount group = groups[index];
-            text.Append(group.Code).Append(" x").Append(group.Count);
-        }
-
-        return text.ToString();
+        return ApplyReportStatusText.AppendCodeGroups(
+            statusText,
+            reportSurface.ActionableMessage,
+            reportSurface.LastReport,
+            candidate => FitsStatusText(candidate, fontSize));
     }
 
     private bool FitsStatusText(string text, int fontSize)
@@ -571,18 +543,6 @@ internal class EditorWidget : MonoBehaviour
     {
         GameObject selected = EventSystem.current?.currentSelectedGameObject;
         return selected != null && selected.GetComponentInParent<InputField>() != null;
-    }
-
-    private sealed class DiagnosticCodeCount
-    {
-        internal DiagnosticCodeCount(string code)
-        {
-            Code = code;
-            Count = 1;
-        }
-
-        internal string Code { get; }
-        internal int Count { get; set; }
     }
 
     private InputField[] CreateTransformFields(string group, float x)
@@ -698,21 +658,52 @@ internal class EditorWidget : MonoBehaviour
         _propertiesApplyButton.interactable = false;
     }
 
-    private void SetPropertiesEditor(PlacementRecord placement, bool selectionChanged)
+    private void SetPropertiesEditor(PlacementRecord placement, bool preservePropertiesDraft)
     {
         RawPropertiesText properties = RawPropertiesText.Create(placement?.Properties);
-        bool textChanged = !string.Equals(_propertiesField.text, properties.Text, StringComparison.Ordinal);
+        bool textChanged = _propertiesDraft.Reload(
+            placement?.Id,
+            properties.Text,
+            preservePropertiesDraft);
         bool editable = placement != null && !properties.ContainsLineBreak;
 
         _propertiesField.readOnly = !editable;
-        if (selectionChanged || textChanged)
+        if (textChanged)
         {
-            _propertiesField.text = properties.Text;
+            SetPropertiesFieldText(properties.Text);
             ResetPropertiesView();
         }
         _propertiesWarning.text = properties.ContainsLineBreak ? "Stored CR/LF: read-only" : string.Empty;
         _propertiesWarning.gameObject.SetActive(properties.ContainsLineBreak);
         _propertiesApplyButton.interactable = editable;
+    }
+
+    private void SetPropertiesFieldText(string text)
+    {
+        _settingPropertiesText = true;
+        try
+        {
+            _propertiesField.text = text;
+        }
+        finally
+        {
+            _settingPropertiesText = false;
+        }
+    }
+
+    private void OnPropertiesTextChanged(string text)
+    {
+        if (_settingPropertiesText)
+        {
+            return;
+        }
+
+        if (!_propertiesDraft.Edit(text) || Main.EditorMode == null)
+        {
+            return;
+        }
+
+        Main.EditorMode.OnRawPropertiesEditStarted();
     }
 
     private void ApplyProperties()
@@ -826,6 +817,7 @@ internal class EditorWidget : MonoBehaviour
         text.lineSpacing = 1f;
         input.readOnly = true;
         input.caretWidth = 1;
+        input.onValueChanged.AddListener(OnPropertiesTextChanged);
         return input;
     }
 

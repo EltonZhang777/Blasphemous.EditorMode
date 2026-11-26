@@ -597,6 +597,10 @@ internal sealed class RuntimePlacementManager
             report.Error(ReportCodes.PlacementLocked, id, "Locked placement cannot be edited.");
             return false;
         }
+        if (!ValidateCommittedProperties(current, report))
+        {
+            return false;
+        }
 
         List<string> properties = NormalizeRawProperties(rawText);
         if (PropertiesEqual(current.Properties, properties))
@@ -606,7 +610,23 @@ internal sealed class RuntimePlacementManager
         }
 
         PlacementRecord changed = current.WithProperties(properties);
-        if (!handle.TryApply(changed, out string error))
+        bool applied;
+        string error;
+        try
+        {
+            applied = handle.TryApply(changed, out error);
+        }
+        catch (Exception exception)
+        {
+            RestoreRuntime(handle, current, report);
+            report.Error(
+                ReportCodes.RuntimeApplyFailed,
+                id,
+                "Runtime modifier threw " + exception.GetType().Name + ": " + exception.Message);
+            return false;
+        }
+
+        if (!applied)
         {
             RestoreRuntime(handle, current, report);
             report.Error(
@@ -943,8 +963,25 @@ internal sealed class RuntimePlacementManager
         PlacementRecord placement,
         ApplyReport report)
     {
-        if (!handle.TryApply(placement, out string error))
-            report.Error(ReportCodes.RuntimeRollbackFailed, placement.Id, error ?? "Runtime projection could not be restored.");
+        try
+        {
+            if (handle.TryApply(placement, out string error))
+            {
+                return;
+            }
+
+            report.Error(
+                ReportCodes.RuntimeRollbackFailed,
+                placement.Id,
+                error ?? "Runtime projection could not be restored.");
+        }
+        catch (Exception exception)
+        {
+            report.Error(
+                ReportCodes.RuntimeRollbackFailed,
+                placement.Id,
+                "Runtime rollback threw " + exception.GetType().Name + ": " + exception.Message);
+        }
     }
 
     private static List<string> NormalizeRawProperties(string rawText)
@@ -961,6 +998,29 @@ internal sealed class RuntimePlacementManager
         }
 
         return properties;
+    }
+
+    private static bool ValidateCommittedProperties(
+        PlacementRecord placement,
+        ApplyReport report)
+    {
+        bool valid = true;
+        for (int index = 0; index < placement.Properties.Count; index++)
+        {
+            string property = placement.Properties[index];
+            if (property == null || property.IndexOfAny(['\r', '\n']) < 0)
+            {
+                continue;
+            }
+
+            report.Error(
+                ReportCodes.PropertyInvalid,
+                "additions[" + placement.Id + "].properties[" + index + "]",
+                "Committed property contains an embedded CR or LF and cannot be replaced as raw text.");
+            valid = false;
+        }
+
+        return valid;
     }
 
     private static bool PropertiesEqual(
