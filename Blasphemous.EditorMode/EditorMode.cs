@@ -815,15 +815,21 @@ internal class EditorMode : BlasMod
 
     internal bool TryApplySelectedProperties(string text)
     {
-        if (!RequireAdditionsPage("Property"))
-            return false;
-
-        RuntimePlacementManager manager = PlacementManager;
-        if (manager == null || manager.Selected == null)
-            return false;
-
         ApplyReport report = new();
-        bool result = manager.TryApplyProperties(manager.Selected.Id, text, report);
+        bool result;
+        if (ActivePage == EditorPage.OriginalObjects)
+        {
+            EditorPageController pages = Pages;
+            result = pages != null
+                && pages.TryApplyOriginalProperties(text, report);
+        }
+        else
+        {
+            RuntimePlacementManager manager = PlacementManager;
+            result = manager != null
+                && manager.Selected != null
+                && manager.TryApplyProperties(manager.Selected.Id, text, report);
+        }
         PublishReport(PropertiesOperation, report, !result);
         return result;
     }

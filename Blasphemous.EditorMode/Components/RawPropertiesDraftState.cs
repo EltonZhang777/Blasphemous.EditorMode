@@ -5,10 +5,16 @@ namespace Blasphemous.EditorMode.Components;
 /// <summary>Tracks the multiline raw-properties draft independently of Unity UI state.</summary>
 internal sealed class RawPropertiesDraftState
 {
+    private readonly StringComparer _identityComparer;
     private string _selectedId;
     private string _committedText = string.Empty;
     private string _text = string.Empty;
     private bool _loaded;
+
+    internal RawPropertiesDraftState(StringComparer identityComparer = null)
+    {
+        _identityComparer = identityComparer ?? StringComparer.OrdinalIgnoreCase;
+    }
 
     internal string Text { get { return _text; } }
 
@@ -18,7 +24,7 @@ internal sealed class RawPropertiesDraftState
         bool preserveDraft)
     {
         bool selectionChanged = !_loaded
-            || !string.Equals(_selectedId, selectedId, StringComparison.OrdinalIgnoreCase);
+            || !_identityComparer.Equals(_selectedId, selectedId);
         string normalizedCommittedText = committedText ?? string.Empty;
         bool committedTextChanged = !string.Equals(
             _committedText,

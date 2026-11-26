@@ -57,6 +57,11 @@ internal class EditorWidget : MonoBehaviour
     private Button _propertiesApplyButton;
     private readonly RawPropertiesDraftState _propertiesDraft = new();
     private bool _settingPropertiesText;
+    private InputField _originalPropertiesField;
+    private Text _originalPropertiesWarning;
+    private Button _originalPropertiesApplyButton;
+    private readonly RawPropertiesDraftState _originalPropertiesDraft = new(StringComparer.Ordinal);
+    private bool _settingOriginalPropertiesText;
     private readonly TextGenerator _propertiesLayoutGenerator = new();
     private readonly TextGenerator _propertiesPreferredWidthGenerator = new();
     private string _propertiesSizedText;
@@ -552,7 +557,7 @@ internal class EditorWidget : MonoBehaviour
         RefreshPageVisibility(activePage);
         if (activePage == EditorPage.OriginalObjects)
         {
-            RefreshOriginalPage(editor);
+            RefreshOriginalPage(editor, preservePropertiesDraft);
             return;
         }
 
@@ -616,7 +621,9 @@ internal class EditorWidget : MonoBehaviour
             label.text = showOriginal ? "Page: Original" : "Page: Additions";
     }
 
-    private void RefreshOriginalPage(EditorMode editor)
+    private void RefreshOriginalPage(
+        EditorMode editor,
+        bool preservePropertiesDraft)
     {
         if (_originalStatusText == null)
             return;
@@ -659,6 +666,7 @@ internal class EditorWidget : MonoBehaviour
         }
 
         SetOriginalTransformFields(page);
+        SetOriginalPropertiesEditor(page, preservePropertiesDraft);
         BuildOriginalOperations(page);
         BuildOriginalCandidates(page);
     }
@@ -1045,7 +1053,8 @@ internal class EditorWidget : MonoBehaviour
             new Vector2(230f, 72f),
             _propertyRoot,
             out _propertiesViewport,
-            out _propertiesContent);
+            out _propertiesContent,
+            OnPropertiesTextChanged);
         _propertiesApplyButton = CreateButton(
             "Apply Properties",
             "Apply",
@@ -1073,6 +1082,61 @@ internal class EditorWidget : MonoBehaviour
         _propertiesWarning.text = properties.ContainsLineBreak ? "Stored CR/LF: read-only" : string.Empty;
         _propertiesWarning.gameObject.SetActive(properties.ContainsLineBreak);
         _propertiesApplyButton.interactable = editable;
+    }
+
+    private void SetOriginalPropertiesEditor(
+        OriginalObjectPage page,
+        bool preservePropertiesDraft)
+    {
+        RawPropertiesText properties = page == null
+            ? RawPropertiesText.Create([])
+            : page.SelectedPropertiesText;
+        string selectedIdentity = page?.Selected?.Identity.DisplayText;
+        bool textChanged = _originalPropertiesDraft.Reload(
+            selectedIdentity,
+            properties.Text,
+            preservePropertiesDraft);
+        bool editable = page != null && page.CanEditSelectedProperties;
+
+        _originalPropertiesField.readOnly = !editable;
+        if (textChanged)
+            SetOriginalPropertiesFieldText(properties.Text);
+        _originalPropertiesWarning.text = properties.ContainsLineBreak
+            ? "Stored CR/LF: read-only"
+            : string.Empty;
+        _originalPropertiesWarning.gameObject.SetActive(properties.ContainsLineBreak);
+        _originalPropertiesApplyButton.interactable = editable;
+    }
+
+    private void SetOriginalPropertiesFieldText(string text)
+    {
+        _settingOriginalPropertiesText = true;
+        try
+        {
+            _originalPropertiesField.text = text;
+        }
+        finally
+        {
+            _settingOriginalPropertiesText = false;
+        }
+    }
+
+    private void OnOriginalPropertiesTextChanged(string text)
+    {
+        if (_settingOriginalPropertiesText)
+            return;
+        if (!_originalPropertiesDraft.Edit(text) || Main.EditorMode == null)
+            return;
+
+        Main.EditorMode.OnRawPropertiesEditStarted();
+    }
+
+    private void ApplyOriginalProperties()
+    {
+        if (Main.EditorMode == null || _originalPropertiesField == null)
+            return;
+
+        Main.EditorMode.TryApplySelectedProperties(_originalPropertiesField.text);
     }
 
     private void SetPropertiesFieldText(string text)
@@ -1143,7 +1207,8 @@ internal class EditorWidget : MonoBehaviour
         Vector2 size,
         Transform parent,
         out RectTransform viewport,
-        out RectTransform content)
+        out RectTransform content,
+        UnityAction<string> onChanged)
     {
         GameObject obj = new(name)
         {
@@ -1214,7 +1279,7 @@ internal class EditorWidget : MonoBehaviour
         text.lineSpacing = 1f;
         input.readOnly = true;
         input.caretWidth = 1;
-        input.onValueChanged.AddListener(OnPropertiesTextChanged);
+        input.onValueChanged.AddListener(onChanged);
         return input;
     }
 
@@ -1334,6 +1399,38 @@ internal class EditorWidget : MonoBehaviour
             _originalPageRoot);
         remove.GetComponent<RectTransform>().sizeDelta = new Vector2(86f, 26f);
         CreateText(
+            "Original Properties Heading",
+            new Vector2(95f, -76f),
+            new Vector2(90f, 10f),
+            11,
+            TextAnchor.MiddleLeft,
+            _originalPageRoot).text = "Properties";
+        _originalPropertiesWarning = CreateText(
+            "Original Properties Warning",
+            new Vector2(225f, -76f),
+            new Vector2(130f, 10f),
+            8,
+            TextAnchor.MiddleRight,
+            _originalPageRoot);
+        _originalPropertiesWarning.color = new Color(1f, 0.75f, 0.35f, 1f);
+        _originalPropertiesWarning.gameObject.SetActive(false);
+        _originalPropertiesField = CreatePropertiesInputField(
+            "Original Properties Field",
+            new Vector2(130f, -105f),
+            new Vector2(200f, 46f),
+            _originalPageRoot,
+            out _,
+            out _,
+            OnOriginalPropertiesTextChanged);
+        _originalPropertiesApplyButton = CreateButton(
+            "Apply Original Properties",
+            "Apply",
+            new Vector2(262f, -105f),
+            ApplyOriginalProperties,
+            _originalPageRoot);
+        _originalPropertiesApplyButton.GetComponent<RectTransform>().sizeDelta = new Vector2(54f, 40f);
+        _originalPropertiesApplyButton.interactable = false;
+        CreateText(
             "Original Candidate Header",
             new Vector2(-190f, 86f),
             new Vector2(250f, 22f),
@@ -1349,18 +1446,18 @@ internal class EditorWidget : MonoBehaviour
         _originalCandidateScroll.gameObject.SetActive(false);
         CreateText(
             "Original Operations Header",
-            new Vector2(165f, -80f),
-            new Vector2(250f, 22f),
+            new Vector2(165f, -135f),
+            new Vector2(250f, 12f),
             10,
             TextAnchor.MiddleLeft,
             _originalPageRoot).text = "Imported / pending operations — select a row";
         _originalOperationsRoot = CreateScrollView(
             "Original Operations",
             _originalPageRoot,
-            new Vector2(165f, -124f),
-            new Vector2(250f, 68f),
+            new Vector2(165f, -158f),
+            new Vector2(250f, 32f),
             out _originalOperationsScroll);
-        SetScrollContentHeight(_originalOperationsRoot, _originalOperationsScroll, _originalOperationsScroll.viewport, 68f);
+        SetScrollContentHeight(_originalOperationsRoot, _originalOperationsScroll, _originalOperationsScroll.viewport, 32f);
         CreateButton(
             "Original Import",
             "Import",

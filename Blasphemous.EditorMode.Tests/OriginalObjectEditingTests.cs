@@ -2220,6 +2220,420 @@ public sealed class OriginalObjectEditingTests
         }
     }
 
+    [Fact]
+    public void Original_object_properties_expose_raw_text_and_apply_the_normalized_list()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"custom-modifier\",\"id\":\"imported-id\",\"position\":{\"x\":1,\"y\":2,\"z\":3},\"rotation\":{\"x\":4,\"y\":5,\"z\":6},\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"condition\":\"\",\"properties\":[\"old=1\"]}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            OriginalObjectPage page = result.Pages.OriginalObjects;
+
+            Assert.True(page.CanEditSelectedProperties);
+            Assert.Equal("old=1", page.SelectedPropertiesText.Text);
+            ApplyReport report = new();
+
+            bool applied = page.TryApplySelectedProperties(
+                "\r\n  first = 1 \rduplicate\t\nduplicate\n\nMiXeD\r\n",
+                report);
+
+            Assert.True(applied, report.ToSummary("apply properties"));
+            string[] expected =
+            [
+                "first = 1",
+                "duplicate",
+                "duplicate",
+                "MiXeD"
+            ];
+            FrameworkObjectData modification = Assert.Single(result.Session.Modifications);
+            Assert.Equal(expected, modification.Properties);
+            Assert.Equal(expected, Assert.Single(projector.AppliedModifications).Properties);
+            Assert.Equal(1, report.AppliedCount);
+            Assert.Equal(1, page.History.UndoCount);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Original_object_properties_clear_on_blank_and_no_op_normalized_input_adds_no_history()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"custom-modifier\",\"id\":\"imported-id\",\"position\":{\"x\":1,\"y\":2,\"z\":3},\"rotation\":{\"x\":4,\"y\":5,\"z\":6},\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"condition\":\"\",\"properties\":[\"a=1\",\"b=2\"]}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            OriginalObjectPage page = result.Pages.OriginalObjects;
+            ApplyReport clearReport = new();
+
+            Assert.True(
+                page.TryApplySelectedProperties("\r\n \t\r\n", clearReport),
+                clearReport.ToSummary("clear properties"));
+
+            Assert.Empty(Assert.Single(result.Session.Modifications).Properties);
+            Assert.Empty(Assert.Single(projector.AppliedModifications).Properties);
+            Assert.Equal(1, page.History.UndoCount);
+            result.Session.SetState(LevelEditSessionState.Clean, new ApplyReport());
+            int appliedCount = projector.AppliedModifications.Count;
+            ApplyReport noOpReport = new();
+
+            Assert.True(
+                page.TryApplySelectedProperties(" \r\n\t", noOpReport),
+                noOpReport.ToSummary("no-op properties"));
+
+            Assert.Equal(LevelEditSessionState.Clean, result.Session.State);
+            Assert.Equal(1, page.History.UndoCount);
+            Assert.Equal(appliedCount, projector.AppliedModifications.Count);
+            Assert.Equal(1, noOpReport.AppliedCount);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Original_object_properties_with_committed_line_breaks_are_read_only_and_refuse_replacement()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"custom-modifier\",\"id\":\"imported-id\",\"position\":{\"x\":1,\"y\":2,\"z\":3},\"rotation\":{\"x\":4,\"y\":5,\"z\":6},\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"condition\":\"\",\"properties\":[\"note=first\\r\\nsecond\",\"safe=1\"]}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            OriginalObjectPage page = result.Pages.OriginalObjects;
+
+            Assert.False(page.CanEditSelectedProperties);
+            Assert.True(page.SelectedPropertiesText.ContainsLineBreak);
+            ApplyReport report = new();
+
+            Assert.False(page.TryApplySelectedProperties("replacement=2", report));
+
+            Assert.Equal(
+                new[] { "note=first\r\nsecond", "safe=1" },
+                Assert.Single(result.Session.Modifications).Properties);
+            Assert.Empty(projector.AppliedModifications);
+            Assert.False(page.History.CanUndo);
+            Assert.Contains(
+                report.Entries,
+                entry => entry.Code == ReportCodes.PropertyInvalid
+                    && entry.Severity == ApplySeverity.Warning
+                    && entry.Location.EndsWith(".properties[0]", StringComparison.Ordinal));
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Unknown_original_object_type_properties_remain_editable_and_exportable_without_live_application()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"unknown-modifier\",\"id\":\"imported-id\",\"position\":{\"x\":1,\"y\":2,\"z\":3},\"rotation\":{\"x\":4,\"y\":5,\"z\":6},\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"condition\":\"\",\"properties\":[\"old=1\"]}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            projector.UnavailableModifierTypes.Add("unknown-modifier");
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            OriginalObjectPage page = result.Pages.OriginalObjects;
+            ApplyReport report = new();
+
+            Assert.True(page.CanEditSelectedProperties);
+            Assert.True(
+                page.TryApplySelectedProperties("alpha\nunknown = raw\nALPHA", report),
+                report.ToSummary("unknown type properties"));
+
+            string[] expected = ["alpha", "unknown = raw", "ALPHA"];
+            Assert.Equal(expected, Assert.Single(result.Session.Modifications).Properties);
+            Assert.Empty(projector.AppliedModifications);
+            Assert.Equal(1, report.AppliedCount);
+            Assert.Contains(
+                report.Entries,
+                entry => entry.Code == ReportCodes.OriginalObjectModifierUnavailable
+                    && entry.Severity == ApplySeverity.Warning);
+            Assert.Equal(source, File.ReadAllText(path));
+
+            ApplyReport undoReport = new();
+            Assert.True(page.TryUndo(undoReport), undoReport.ToSummary("undo unknown properties"));
+            Assert.Equal(new[] { "old=1" }, Assert.Single(result.Session.Modifications).Properties);
+            Assert.Empty(projector.AppliedModifications);
+
+            ApplyReport redoReport = new();
+            Assert.True(page.TryRedo(redoReport), redoReport.ToSummary("redo unknown properties"));
+            Assert.Equal(expected, Assert.Single(result.Session.Modifications).Properties);
+            Assert.Empty(projector.AppliedModifications);
+            Assert.Equal(source, File.ReadAllText(path));
+
+            LevelEditSessionExportResult exported = result.Session.Export(path);
+
+            Assert.True(exported.Succeeded, exported.StatusMessage);
+            JObject root = JObject.Parse(File.ReadAllText(path));
+            Assert.Equal(
+                expected,
+                root["modifications"][0]["properties"].Values<string>());
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Unavailable_modifier_delete_undo_redo_restores_imported_live_state()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"unknown-modifier\",\"id\":\"imported-id\",\"position\":{\"x\":3,\"y\":4,\"z\":5},\"rotation\":{\"x\":0,\"y\":0,\"z\":0},\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"condition\":\"\",\"properties\":[]}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            projector.UnavailableModifierTypes.Add("unknown-modifier");
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 3f, 4f, 5f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            Assert.True(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete unavailable modification"));
+            Assert.Single(result.Session.Deletions);
+            Assert.Empty(result.Session.Modifications);
+            Assert.False(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+
+            int appliedModificationCount = projector.AppliedModifications.Count;
+            ApplyReport undoReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryUndo(undoReport),
+                undoReport.ToSummary("undo unavailable modification deletion"));
+
+            OriginalObjectLiveState restored = Assert.Single(projector.RestoredStates);
+            Assert.True(restored.IsActiveSelf);
+            Assert.Equal(1f, restored.Transform.PositionX);
+            Assert.Equal(appliedModificationCount, projector.AppliedModifications.Count);
+            Assert.Single(result.Session.Modifications);
+            Assert.Empty(result.Session.Deletions);
+            Assert.True(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+
+            ApplyReport redoReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryRedo(redoReport),
+                redoReport.ToSummary("redo unavailable modification deletion"));
+            Assert.Single(result.Session.Deletions);
+            Assert.Empty(result.Session.Modifications);
+            Assert.False(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Cancel_teardown_keeps_unavailable_modification_on_imported_live_state()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"unknown-modifier\",\"id\":\"imported-id\",\"position\":{\"x\":3,\"y\":4,\"z\":5},\"rotation\":{\"x\":0,\"y\":0,\"z\":0},\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"condition\":\"\",\"properties\":[]}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            projector.UnavailableModifierTypes.Add("unknown-modifier");
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 3f, 4f, 5f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+
+            ApplyReport teardownReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryPrepareTeardown(teardownReport),
+                teardownReport.ToSummary("prepare teardown with unavailable modification"));
+            int restoreCount = projector.RestoredStates.Count;
+
+            ApplyReport cancelReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryCancelTeardown(cancelReport),
+                cancelReport.ToSummary("cancel teardown with unavailable modification"));
+
+            Assert.Equal(restoreCount + 1, projector.RestoredStates.Count);
+            Assert.True(projector.RestoredStates[projector.RestoredStates.Count - 1].IsActiveSelf);
+            Assert.Equal(1f, projector.RestoredStates[projector.RestoredStates.Count - 1].Transform.PositionX);
+            Assert.Empty(projector.AppliedModifications);
+            Assert.Single(result.Session.Modifications);
+            Assert.True(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Failed_original_object_property_projection_preserves_committed_state_and_source()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"custom-modifier\",\"id\":\"imported-id\",\"position\":{\"x\":1,\"y\":2,\"z\":3},\"rotation\":{\"x\":4,\"y\":5,\"z\":6},\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"condition\":\"\",\"properties\":[\"old=1\"]}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new()
+            {
+                FailModification = true
+            };
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            OriginalObjectPage page = result.Pages.OriginalObjects;
+            LevelEditSessionState stateBefore = result.Session.State;
+            ApplyReport report = new();
+
+            Assert.False(page.TryApplySelectedProperties("replacement=2", report));
+
+            Assert.Equal(
+                new[] { "old=1" },
+                Assert.Single(result.Session.Modifications).Properties);
+            Assert.Equal(stateBefore, result.Session.State);
+            Assert.Empty(projector.AppliedModifications);
+            Assert.False(page.History.CanUndo);
+            Assert.Contains(
+                report.Entries,
+                entry => entry.Code == ReportCodes.OriginalObjectModifierFailed);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Original_object_property_history_and_canonical_round_trip_preserve_the_ordered_list()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"custom-modifier\",\"id\":\"imported-id\",\"position\":{\"x\":1,\"y\":2,\"z\":3},\"rotation\":{\"x\":4,\"y\":5,\"z\":6},\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"condition\":\"\",\"properties\":[\"old=1\"],\"futureField\":{\"nested\":true}}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            OriginalObjectPage page = result.Pages.OriginalObjects;
+            ApplyReport applyReport = new();
+            Assert.True(
+                page.TryApplySelectedProperties("first\nsecond\nfirst", applyReport),
+                applyReport.ToSummary("apply history"));
+            string[] expected = ["first", "second", "first"];
+            Assert.Equal(expected, Assert.Single(result.Session.Modifications).Properties);
+            Assert.Equal(0, result.Pages.Additions.History.UndoCount);
+
+            ApplyReport undoReport = new();
+            Assert.True(page.TryUndo(undoReport), undoReport.ToSummary("undo properties"));
+            Assert.Equal(new[] { "old=1" }, Assert.Single(result.Session.Modifications).Properties);
+            Assert.Equal(
+                new[] { "old=1" },
+                projector.AppliedModifications[projector.AppliedModifications.Count - 1].Properties);
+
+            ApplyReport redoReport = new();
+            Assert.True(page.TryRedo(redoReport), redoReport.ToSummary("redo properties"));
+            Assert.Equal(expected, Assert.Single(result.Session.Modifications).Properties);
+            Assert.Equal(
+                expected,
+                projector.AppliedModifications[projector.AppliedModifications.Count - 1].Properties);
+            Assert.Equal(source, File.ReadAllText(path));
+
+            LevelEditSessionExportResult exported = result.Session.Export(path);
+            Assert.True(exported.Succeeded, exported.StatusMessage);
+            JObject exportedRoot = JObject.Parse(File.ReadAllText(path));
+            Assert.Null(exportedRoot["modifications"][0]["futureField"]);
+            FrameworkCodecResult sourceParse = LevelFrameworkAdapter.Parse(source);
+            Assert.Contains(
+                sourceParse.Diagnostics,
+                diagnostic => diagnostic.Severity == FrameworkDiagnosticSeverity.Warning
+                    && diagnostic.Location.EndsWith(".futureField", StringComparison.Ordinal)
+                    && diagnostic.Message == "Unknown field ignored.");
+            Assert.Contains(
+                result.Report.Entries,
+                entry => entry.Severity == ApplySeverity.Warning
+                    && entry.Code == ReportCodes.JsonUnknownField
+                    && entry.Location.EndsWith(".futureField", StringComparison.Ordinal));
+            FrameworkFileResult reimported = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
+            LevelEditSessionImportResult imported = LevelEditSession.Import(
+                CreateRoom(),
+                reimported,
+                new[] { BaseCreatorCatalog.BellIron });
+
+            Assert.True(imported.Succeeded, imported.StatusMessage);
+            Assert.Equal(expected, Assert.Single(imported.Session.Modifications).Properties);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
     private static RoomOverlayReconcileResult Reconcile(
         string path,
         string source,
@@ -2429,6 +2843,7 @@ public sealed class OriginalObjectEditingTests
         internal List<OriginalObjectIdentity> AppliedDeletions { get; } = [];
         internal List<OriginalObjectLiveState> RestoredStates { get; } = [];
         internal List<RestoreAttempt> RestoreAttempts { get; } = [];
+        internal HashSet<string> UnavailableModifierTypes { get; } = new(StringComparer.Ordinal);
         internal Func<FrameworkObjectData, OriginalObjectLiveState> AppliedStateFactory { get; set; }
         internal Func<OriginalObjectIdentity, OriginalObjectLiveState> DeletedStateFactory { get; set; }
         internal bool FailModification { get; set; }
@@ -2438,6 +2853,11 @@ public sealed class OriginalObjectEditingTests
         internal int FailRestoreOnAttempt { get; set; }
         internal OriginalObjectLiveState LastAppliedState { get; private set; }
         private int _restoreAttemptCount;
+
+        public bool IsModifierAvailable(string type)
+        {
+            return !UnavailableModifierTypes.Contains(type);
+        }
 
         public bool TryApplyModification(
             string frameworkLevelKey,

@@ -1,3 +1,4 @@
+using Blasphemous.EditorMode.Components;
 using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Framework;
 using System;
@@ -787,6 +788,24 @@ internal sealed class OriginalObjectPage
         }
     }
 
+    internal RawPropertiesText SelectedPropertiesText
+    {
+        get
+        {
+            FrameworkObjectData modification = SelectedModification;
+            return RawPropertiesText.Create(modification?.Properties);
+        }
+    }
+
+    internal bool CanEditSelectedProperties
+    {
+        get
+        {
+            return SelectedModification != null
+                && !SelectedPropertiesText.ContainsLineBreak;
+        }
+    }
+
     internal void SetActive(bool active)
     {
         _isActive = active;
@@ -1107,6 +1126,150 @@ internal sealed class OriginalObjectPage
             _selected.DisplayText,
             "Applied Original Object modification " + next.Id + ".");
         return true;
+    }
+
+    internal bool TryApplySelectedProperties(
+        string rawText,
+        ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (_session == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectApplyFailed,
+                "Original Objects",
+                "No editable Level Edit Session is available.");
+            return false;
+        }
+        if (_projector == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectApplyFailed,
+                "Original Objects",
+                "Original Object live projection is unavailable.");
+            return false;
+        }
+        if (_selected == null)
+        {
+            report.Warning(
+                ReportCodes.SelectionNoCandidates,
+                "Original Objects",
+                "Select a locatable Original Object before applying properties.");
+            return false;
+        }
+
+        TryGetResolvedOperations(
+            _selected.Identity,
+            out List<FrameworkObjectData> modifications,
+            out List<FrameworkObjectData> deletions);
+        if (modifications.Count + deletions.Count > 1)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditConflict,
+                _selected.DisplayText,
+                "Multiple imported operations target this identity; resolve the conflict before editing properties.");
+            return false;
+        }
+
+        FrameworkObjectData current = modifications.Count == 1 ? modifications[0] : null;
+        if (current == null)
+        {
+            report.Warning(
+                ReportCodes.OriginalObjectEditNotFound,
+                _selected.DisplayText,
+                "Apply Modify before editing raw properties.");
+            return false;
+        }
+        if (!ValidateCommittedProperties(current, report))
+            return false;
+
+        List<string> properties = RawPropertiesText.Normalize(rawText);
+        if (RawPropertiesText.SequenceEqual(current.Properties, properties))
+        {
+            report.Applied();
+            return true;
+        }
+
+        FrameworkObjectData next = new(
+            current.Scene,
+            current.Path,
+            current.Type,
+            current.Id,
+            current.Position,
+            current.Rotation,
+            current.Scale,
+            current.Condition,
+            properties);
+        OriginalObjectPageSnapshot before = CaptureSnapshot(_selected.Identity);
+        bool modifierAvailable = _projector.IsModifierAvailable(current.Type);
+        OriginalObjectLiveState appliedState = null;
+        if (modifierAvailable
+            && !_projector.TryApplyModification(
+                _frameworkLevelKey,
+                next,
+                report,
+                out appliedState))
+            return false;
+
+        if (!_session.TryUpsertOriginalObjectModification(next, report))
+        {
+            if (modifierAvailable
+                && !RestoreLiveStateFromSnapshot(before, report))
+            {
+                report.Error(
+                    ReportCodes.HistoryRollbackFailed,
+                    _selected.DisplayText,
+                    "The live preview could not be rolled back after the session rejected the property change.");
+            }
+            return false;
+        }
+
+        if (modifierAvailable)
+            _liveStates[_selected.Identity] = appliedState;
+        _history.Record(new OriginalObjectSnapshotCommand(
+            this,
+            "Edit Original Object Properties",
+            before,
+            CaptureSnapshot(_selected.Identity)));
+        RefreshState(report);
+        report.Applied();
+        if (modifierAvailable)
+        {
+            report.Info(
+                ReportCodes.OriginalObjectModificationApplied,
+                _selected.DisplayText,
+                "Applied raw properties to Original Object modification " + next.Id + ".");
+        }
+        else
+        {
+            report.Warning(
+                ReportCodes.OriginalObjectModifierUnavailable,
+                _selected.DisplayText,
+                "Modifier '" + current.Type + "' is unavailable; raw properties were committed to the session but were not applied in this session.");
+        }
+        return true;
+    }
+
+    private bool ValidateCommittedProperties(
+        FrameworkObjectData modification,
+        ApplyReport report)
+    {
+        bool valid = true;
+        for (int index = 0; index < modification.Properties.Count; index++)
+        {
+            string property = modification.Properties[index];
+            if (property == null || property.IndexOfAny(['\r', '\n']) < 0)
+                continue;
+
+            report.Warning(
+                ReportCodes.PropertyInvalid,
+                _selected.DisplayText + ".properties[" + index + "]",
+                "Committed property contains an embedded CR or LF and cannot be replaced through the line editor.");
+            valid = false;
+        }
+
+        return valid;
     }
 
     internal bool TryDeleteSelected(ApplyReport report)
@@ -1470,16 +1633,28 @@ internal sealed class OriginalObjectPage
             bool restored;
             if (modifications.Count == 1)
             {
-                bool reactivated = TryReactivateAuthoredState(identity, report);
-                OriginalObjectLiveState state = null;
-                restored = reactivated
-                    && _projector.TryApplyModification(
-                        _frameworkLevelKey,
-                        modifications[0],
+                if (!_projector.IsModifierAvailable(modifications[0].Type))
+                {
+                    restored = TryRestoreImportedLiveState(
+                        identity,
                         report,
-                        out state);
-                if (restored)
-                    _liveStates[identity] = state;
+                        out OriginalObjectLiveState state);
+                    if (restored)
+                        _liveStates[identity] = state;
+                }
+                else
+                {
+                    bool reactivated = TryReactivateAuthoredState(identity, report);
+                    OriginalObjectLiveState state = null;
+                    restored = reactivated
+                        && _projector.TryApplyModification(
+                            _frameworkLevelKey,
+                            modifications[0],
+                            report,
+                            out state);
+                    if (restored)
+                        _liveStates[identity] = state;
+                }
             }
             else if (deletions.Count == 1)
             {
@@ -1664,22 +1839,32 @@ internal sealed class OriginalObjectPage
             bool restored;
             if (targetModifications.Count == 1)
             {
-                OriginalObjectPageSnapshot current = CaptureSnapshot(identity);
-                bool reactivated = TryReactivateAuthoredState(identity, report);
-                restored = reactivated
-                    && _projector.TryApplyModification(
-                        _frameworkLevelKey,
-                        targetModifications[0],
+                if (!_projector.IsModifierAvailable(targetModifications[0].Type))
+                {
+                    restored = TryRestoreImportedLiveState(
+                        identity,
                         report,
                         out appliedState);
-                if (!restored
-                    && reactivated
-                    && !RestoreLiveStateFromSnapshot(current, report))
+                }
+                else
                 {
-                    report.Error(
-                        ReportCodes.HistoryRollbackFailed,
-                        identity.DisplayText,
-                        "The live preview could not be rolled back after the history restore failed.");
+                    OriginalObjectPageSnapshot current = CaptureSnapshot(identity);
+                    bool reactivated = TryReactivateAuthoredState(identity, report);
+                    restored = reactivated
+                        && _projector.TryApplyModification(
+                            _frameworkLevelKey,
+                            targetModifications[0],
+                            report,
+                            out appliedState);
+                    if (!restored
+                        && reactivated
+                        && !RestoreLiveStateFromSnapshot(current, report))
+                    {
+                        report.Error(
+                            ReportCodes.HistoryRollbackFailed,
+                            identity.DisplayText,
+                            "The live preview could not be rolled back after the history restore failed.");
+                    }
                 }
             }
             else if (targetDeletions.Count == 1)
@@ -1742,6 +1927,14 @@ internal sealed class OriginalObjectPage
             snapshot.Identity);
         if (modifications.Count == 1)
         {
+            if (!_projector.IsModifierAvailable(modifications[0].Type))
+            {
+                return TryRestoreImportedLiveState(
+                    snapshot.Identity,
+                    report,
+                    out _);
+            }
+
             if (!TryReactivateAuthoredState(snapshot.Identity, report))
                 return false;
 
@@ -1778,6 +1971,26 @@ internal sealed class OriginalObjectPage
             return false;
 
         _liveStates[snapshot.Identity] = importState;
+        return true;
+    }
+
+    private bool TryRestoreImportedLiveState(
+        OriginalObjectIdentity identity,
+        ApplyReport report,
+        out OriginalObjectLiveState state)
+    {
+        state = ImportLiveState(identity);
+        if (!_projector.TryRestore(
+            _frameworkLevelKey,
+            identity,
+            state,
+            report))
+        {
+            state = null;
+            return false;
+        }
+
+        _liveStates[identity] = state;
         return true;
     }
 

@@ -51,6 +51,8 @@ internal sealed class OriginalObjectLiveState
 /// <summary>Applies and restores Original Object live projections.</summary>
 internal interface IOriginalObjectLiveProjector
 {
+    bool IsModifierAvailable(string type);
+
     bool TryApplyModification(
         string frameworkLevelKey,
         FrameworkObjectData modification,

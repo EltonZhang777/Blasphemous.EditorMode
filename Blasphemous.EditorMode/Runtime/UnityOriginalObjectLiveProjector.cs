@@ -38,6 +38,11 @@ internal sealed class EditorModeEmptyFrameworkModifier :
 /// <summary>Projects Original Object modifications onto live room GameObjects.</summary>
 internal sealed class UnityOriginalObjectLiveProjector : IOriginalObjectLiveProjector
 {
+    public bool IsModifierAvailable(string type)
+    {
+        return RuntimeOriginalObjectModifierSource.IsModifierAvailable(type);
+    }
+
     public bool TryApplyModification(
         string frameworkLevelKey,
         FrameworkObjectData modification,
@@ -272,6 +277,20 @@ internal sealed class RuntimeOriginalObjectModifierSource : IOriginalObjectModif
     internal RuntimeOriginalObjectModifierSource(GameObject target)
     {
         _target = target;
+    }
+
+    internal static bool IsModifierAvailable(string type)
+    {
+        if (!RuntimeCreatorRegistry.TryGet(type, out ObjectCreator creator, out _))
+            return false;
+        if (creator == null || creator.Modifier == null)
+            return false;
+
+        return !string.Equals(
+                type,
+                OriginalObjectEditor.EmptyModificationType,
+                StringComparison.Ordinal)
+            || creator.Modifier is IOriginalObjectModifier;
     }
 
     public bool TryCreate(

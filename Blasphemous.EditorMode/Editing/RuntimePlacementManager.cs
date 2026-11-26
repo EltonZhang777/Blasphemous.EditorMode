@@ -1,3 +1,4 @@
+using Blasphemous.EditorMode.Components;
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Framework;
@@ -728,8 +729,8 @@ internal sealed class RuntimePlacementManager
             return false;
         }
 
-        List<string> properties = NormalizeRawProperties(rawText);
-        if (PropertiesEqual(current.Properties, properties))
+        List<string> properties = RawPropertiesText.Normalize(rawText);
+        if (RawPropertiesText.SequenceEqual(current.Properties, properties))
         {
             report.Applied();
             return true;
@@ -1114,22 +1115,6 @@ internal sealed class RuntimePlacementManager
         }
     }
 
-    private static List<string> NormalizeRawProperties(string rawText)
-    {
-        List<string> properties = [];
-        string[] lines = (rawText ?? string.Empty).Split(
-            ["\r\n", "\n", "\r"],
-            StringSplitOptions.None);
-        foreach (string line in lines)
-        {
-            string property = line.Trim();
-            if (property.Length > 0)
-                properties.Add(property);
-        }
-
-        return properties;
-    }
-
     private static bool ValidateCommittedProperties(
         PlacementRecord placement,
         ApplyReport report)
@@ -1151,22 +1136,6 @@ internal sealed class RuntimePlacementManager
         }
 
         return valid;
-    }
-
-    private static bool PropertiesEqual(
-        IList<string> left,
-        IList<string> right)
-    {
-        if (left.Count != right.Count)
-            return false;
-
-        for (int index = 0; index < left.Count; index++)
-        {
-            if (!string.Equals(left[index], right[index], StringComparison.Ordinal))
-                return false;
-        }
-
-        return true;
     }
 
     private sealed class PlacementManagerSnapshot

@@ -81,4 +81,15 @@ public sealed class RawPropertiesDraftStateTests
 
         Assert.False(state.Edit(state.Text));
     }
+
+    [Fact]
+    public void Ordinal_selection_comparison_discards_a_draft_when_only_case_changes()
+    {
+        RawPropertiesDraftState state = new RawPropertiesDraftState(StringComparer.Ordinal);
+        state.Reload("decoration:DECORATION/HERO", "same=1", false);
+        state.Edit("draft=2");
+
+        Assert.True(state.Reload("decoration:decoration/hero", "same=1", true));
+        Assert.Equal("same=1", state.Text);
+    }
 }
