@@ -384,6 +384,43 @@ internal sealed class LevelEditSession
         return true;
     }
 
+    internal bool TryUpsertOriginalObjectDeletion(
+        OriginalObjectIdentity identity,
+        ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (!ValidateOriginalObjectDeletion(identity, report))
+            return false;
+
+        int modificationIndex = FindModificationIndex(identity.Scene, identity.Path);
+        int deletionIndex = FindDeletionIndex(identity.Scene, identity.Path);
+        int operationCount = CountMatchingOperations(identity.Scene, identity.Path);
+        if (operationCount > 1)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditConflict,
+                identity.DisplayText,
+                "Multiple imported operations target this identity; resolve the conflict before editing.");
+            return false;
+        }
+
+        FrameworkObjectData deletion = OriginalObjectEditor.CreateDeletion(identity);
+        if (deletionIndex >= 0)
+        {
+            _deletions[deletionIndex] = deletion;
+        }
+        else
+        {
+            if (modificationIndex >= 0)
+                _modifications.RemoveAt(modificationIndex);
+            _deletions.Add(deletion);
+        }
+
+        MarkDirty(report);
+        return true;
+    }
+
     internal bool TryRestoreImportedOriginalObjectEdit(
         OriginalObjectIdentity identity,
         ApplyReport report)
@@ -840,6 +877,34 @@ internal sealed class LevelEditSession
                 ReportCodes.OriginalObjectModificationInvalid,
                 modification.Scene + ":" + modification.Path,
                 "Original Object modification type and id are required.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ValidateOriginalObjectDeletion(
+        OriginalObjectIdentity identity,
+        ApplyReport report)
+    {
+        if (identity == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectDeletionInvalid,
+                "$",
+                "Original Object deletion identity is required.");
+            return false;
+        }
+        if (!OriginalObjectIdentity.TryCreate(
+            identity.Scene,
+            identity.Path,
+            out _,
+            out string identityError))
+        {
+            report.Error(
+                ReportCodes.OriginalObjectIdentityInvalid,
+                "$",
+                identityError);
             return false;
         }
 

@@ -107,6 +107,7 @@ internal sealed class UnityOriginalObjectLiveProjector : IOriginalObjectLiveProj
     public bool TryApplyDeletion(
         string frameworkLevelKey,
         OriginalObjectIdentity identity,
+        OriginalObjectLiveState authoredState,
         ApplyReport report,
         out OriginalObjectLiveState appliedState)
     {
@@ -119,6 +120,14 @@ internal sealed class UnityOriginalObjectLiveProjector : IOriginalObjectLiveProj
                 ReportCodes.OriginalObjectIdentityInvalid,
                 "$",
                 "Original Object identity is required.");
+            return false;
+        }
+        if (authoredState == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectDeletionInvalid,
+                identity.DisplayText,
+                "Original Object recoverable authored state is required for deletion.");
             return false;
         }
         if (!TryResolve(
@@ -134,7 +143,11 @@ internal sealed class UnityOriginalObjectLiveProjector : IOriginalObjectLiveProj
         try
         {
             before = modifierTarget.CaptureState();
-            target.SetActive(false);
+            modifierTarget.RestoreState(new OriginalObjectLiveState(
+                authoredState.ObjectKey,
+                false,
+                authoredState.Transform,
+                authoredState.Name));
             appliedState = modifierTarget.CaptureState();
             return true;
         }

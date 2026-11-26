@@ -107,12 +107,14 @@ internal sealed class OriginalObjectSnapshotEntry
         bool active,
         OriginalObjectProvenance provenance,
         bool addressable,
-        string addressError = null)
+        string addressError = null,
+        bool? activeSelf = null)
     {
         ObjectKey = objectKey ?? throw new ArgumentNullException(nameof(objectKey));
         Scene = scene;
         Path = path;
         IsActive = active;
+        IsActiveSelf = activeSelf ?? active;
         Provenance = provenance;
         IsAddressable = addressable;
         AddressError = addressError;
@@ -122,6 +124,7 @@ internal sealed class OriginalObjectSnapshotEntry
     internal string Scene { get; }
     internal string Path { get; }
     internal bool IsActive { get; }
+    internal bool IsActiveSelf { get; }
     internal OriginalObjectProvenance Provenance { get; }
     internal bool IsAddressable { get; }
     internal string AddressError { get; }
@@ -216,11 +219,13 @@ internal sealed class OriginalObjectCatalogEntry
         bool runtimeActive,
         PlacementTransform runtimeTransform = null,
         string runtimeName = null,
-        bool? runtimeActiveSelf = null)
+        bool? runtimeActiveSelf = null,
+        bool? baselineActiveSelf = null)
     {
         Identity = identity ?? throw new ArgumentNullException(nameof(identity));
         ObjectKey = objectKey ?? throw new ArgumentNullException(nameof(objectKey));
         IsActive = active;
+        IsBaselineActiveSelf = baselineActiveSelf ?? active;
         IsRuntimeActive = runtimeActive;
         IsRuntimeActiveSelf = runtimeActiveSelf ?? runtimeActive;
         RuntimeTransform = runtimeTransform ?? PlacementTransform.Default;
@@ -231,6 +236,7 @@ internal sealed class OriginalObjectCatalogEntry
     internal string ObjectKey { get; }
     /// <summary>Whether the object was active in the captured pre-mod baseline.</summary>
     internal bool IsActive { get; }
+    internal bool IsBaselineActiveSelf { get; }
     internal bool IsRuntimeActive { get; }
     internal bool IsRuntimeActiveSelf { get; }
     internal PlacementTransform RuntimeTransform { get; }
@@ -462,7 +468,8 @@ internal sealed class OriginalObjectCatalog
                 projection.IsActive,
                 projection.Transform,
                 projection.Name,
-                projection.IsActiveSelf));
+                projection.IsActiveSelf,
+                snapshot.IsActiveSelf));
         }
 
         OriginalObjectCatalog built = new OriginalObjectCatalog(entries);
@@ -755,6 +762,20 @@ internal sealed class OriginalObjectPage
         }
     }
 
+    internal bool SelectedIsRuntimeActive
+    {
+        get
+        {
+            OriginalObjectCatalogEntry selected = Selected;
+            if (selected == null || !CurrentLiveState(selected.Identity).IsActiveSelf)
+                return false;
+
+            return selected.IsRuntimeActiveSelf
+                ? selected.IsRuntimeActive
+                : selected.IsActive;
+        }
+    }
+
     internal PlacementTransform SelectedTransform
     {
         get
@@ -1040,13 +1061,26 @@ internal sealed class OriginalObjectPage
                 imported.Condition,
                 imported.Properties);
         OriginalObjectPageSnapshot before = CaptureSnapshot(_selected.Identity);
+        bool replacingDeletion = deletions.Count == 1;
+        if (replacingDeletion && !TryReactivateAuthoredState(_selected.Identity, report))
+            return false;
 
         if (!_projector.TryApplyModification(
             _frameworkLevelKey,
             next,
             report,
             out OriginalObjectLiveState appliedState))
+        {
+            if (replacingDeletion
+                && !RestoreLiveStateFromSnapshot(before, report))
+            {
+                report.Error(
+                    ReportCodes.HistoryRollbackFailed,
+                    _selected.DisplayText,
+                    "The live preview could not be rolled back after the modification failed.");
+            }
             return false;
+        }
 
         if (!_session.TryUpsertOriginalObjectModification(next, report))
         {
@@ -1072,6 +1106,92 @@ internal sealed class OriginalObjectPage
             ReportCodes.OriginalObjectModificationApplied,
             _selected.DisplayText,
             "Applied Original Object modification " + next.Id + ".");
+        return true;
+    }
+
+    internal bool TryDeleteSelected(ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (_session == null)
+        {
+            report.Warning(
+                ReportCodes.OriginalObjectEditNotFound,
+                "Original Objects",
+                "No editable Level Edit Session is available.");
+            return false;
+        }
+        if (_projector == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectApplyFailed,
+                "Original Objects",
+                "Original Object live projection is unavailable.");
+            return false;
+        }
+        if (_selected == null)
+        {
+            report.Warning(
+                ReportCodes.SelectionNoCandidates,
+                "Original Objects",
+                "Select a locatable Original Object before deleting it.");
+            return false;
+        }
+
+        List<FrameworkObjectData> modifications =
+            FindMatching(_session.Modifications, _selected.Identity);
+        List<FrameworkObjectData> deletions =
+            FindMatching(_session.Deletions, _selected.Identity);
+        if (modifications.Count + deletions.Count > 1)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditConflict,
+                _selected.DisplayText,
+                "Multiple imported operations target this identity; resolve the conflict before deleting.");
+            return false;
+        }
+        if (deletions.Count == 1)
+        {
+            report.Warning(
+                ReportCodes.OriginalObjectEditNotFound,
+                _selected.DisplayText,
+                "The Original Object already has a pending deletion.");
+            return false;
+        }
+
+        OriginalObjectPageSnapshot before = CaptureSnapshot(_selected.Identity);
+        if (!_projector.TryApplyDeletion(
+            _frameworkLevelKey,
+            _selected.Identity,
+            HiddenImportLiveState(_selected.Identity),
+            report,
+            out OriginalObjectLiveState appliedState))
+            return false;
+
+        if (!_session.TryUpsertOriginalObjectDeletion(_selected.Identity, report))
+        {
+            if (!RestoreLiveStateFromSnapshot(before, report))
+            {
+                report.Error(
+                    ReportCodes.HistoryRollbackFailed,
+                    _selected.DisplayText,
+                    "The live preview could not be rolled back after the session rejected the deletion.");
+            }
+            return false;
+        }
+
+        _liveStates[_selected.Identity] = appliedState;
+        _history.Record(new OriginalObjectSnapshotCommand(
+            this,
+            "Delete Original Object",
+            before,
+            CaptureSnapshot(_selected.Identity)));
+        RefreshState(report);
+        report.Applied();
+        report.Info(
+            ReportCodes.OriginalObjectDeletionApplied,
+            _selected.DisplayText,
+            "Applied Original Object deletion for " + _selected.DisplayText + ".");
         return true;
     }
 
@@ -1325,6 +1445,9 @@ internal sealed class OriginalObjectPage
                 ordered.Add(identity);
         }
         ordered.Sort(CompareIdentityForRestore);
+        Dictionary<OriginalObjectIdentity, OriginalObjectLiveState> before = [];
+        foreach (OriginalObjectIdentity identity in ordered)
+            before[identity] = CurrentLiveState(identity);
 
         foreach (OriginalObjectIdentity identity in ordered)
         {
@@ -1340,17 +1463,21 @@ internal sealed class OriginalObjectPage
                     ReportCodes.OriginalObjectEditConflict,
                     identity.DisplayText,
                     "The Original Object preview cannot be reapplied while its operations conflict.");
+                RestoreCancelTeardownStates(ordered, before, report);
                 return false;
             }
 
             bool restored;
             if (modifications.Count == 1)
             {
-                restored = _projector.TryApplyModification(
-                    _frameworkLevelKey,
-                    modifications[0],
-                    report,
-                    out OriginalObjectLiveState state);
+                bool reactivated = TryReactivateAuthoredState(identity, report);
+                OriginalObjectLiveState state = null;
+                restored = reactivated
+                    && _projector.TryApplyModification(
+                        _frameworkLevelKey,
+                        modifications[0],
+                        report,
+                        out state);
                 if (restored)
                     _liveStates[identity] = state;
             }
@@ -1359,6 +1486,7 @@ internal sealed class OriginalObjectPage
                 restored = _projector.TryApplyDeletion(
                     _frameworkLevelKey,
                     identity,
+                    HiddenImportLiveState(identity),
                     report,
                     out OriginalObjectLiveState state);
                 if (restored)
@@ -1376,10 +1504,57 @@ internal sealed class OriginalObjectPage
             }
 
             if (!restored)
+            {
+                RestoreCancelTeardownStates(ordered, before, report);
                 return false;
+            }
         }
 
         return true;
+    }
+
+    private void RestoreCancelTeardownStates(
+        IList<OriginalObjectIdentity> identities,
+        IDictionary<OriginalObjectIdentity, OriginalObjectLiveState> states,
+        ApplyReport report)
+    {
+        for (int index = identities.Count - 1; index >= 0; index--)
+        {
+            OriginalObjectIdentity identity = identities[index];
+            if (!states.TryGetValue(identity, out OriginalObjectLiveState state))
+                continue;
+
+            TryRestoreLiveState(
+                identity,
+                state,
+                report,
+                "The Original Object preview could not be rolled back after teardown cancellation failed.");
+        }
+    }
+
+    private bool TryRestoreLiveState(
+        OriginalObjectIdentity identity,
+        OriginalObjectLiveState state,
+        ApplyReport report,
+        string rollbackFailure)
+    {
+        if (_projector == null)
+            return true;
+        if (_projector.TryRestore(
+            _frameworkLevelKey,
+            identity,
+            state,
+            report))
+        {
+            _liveStates[identity] = state;
+            return true;
+        }
+
+        report.Error(
+            ReportCodes.HistoryRollbackFailed,
+            identity.DisplayText,
+            rollbackFailure);
+        return false;
     }
 
     private bool TryRestoreToImportedState(
@@ -1489,17 +1664,30 @@ internal sealed class OriginalObjectPage
             bool restored;
             if (targetModifications.Count == 1)
             {
-                restored = _projector.TryApplyModification(
-                    _frameworkLevelKey,
-                    targetModifications[0],
-                    report,
-                    out appliedState);
+                OriginalObjectPageSnapshot current = CaptureSnapshot(identity);
+                bool reactivated = TryReactivateAuthoredState(identity, report);
+                restored = reactivated
+                    && _projector.TryApplyModification(
+                        _frameworkLevelKey,
+                        targetModifications[0],
+                        report,
+                        out appliedState);
+                if (!restored
+                    && reactivated
+                    && !RestoreLiveStateFromSnapshot(current, report))
+                {
+                    report.Error(
+                        ReportCodes.HistoryRollbackFailed,
+                        identity.DisplayText,
+                        "The live preview could not be rolled back after the history restore failed.");
+                }
             }
             else if (targetDeletions.Count == 1)
             {
                 restored = _projector.TryApplyDeletion(
                     _frameworkLevelKey,
                     identity,
+                    HiddenImportLiveState(identity),
                     report,
                     out appliedState);
             }
@@ -1554,26 +1742,72 @@ internal sealed class OriginalObjectPage
             snapshot.Identity);
         if (modifications.Count == 1)
         {
-            return _projector.TryApplyModification(
+            if (!TryReactivateAuthoredState(snapshot.Identity, report))
+                return false;
+
+            if (!_projector.TryApplyModification(
                 _frameworkLevelKey,
                 modifications[0],
                 report,
-                out _);
+                out OriginalObjectLiveState modificationState))
+                return false;
+
+            _liveStates[snapshot.Identity] = modificationState;
+            return true;
         }
         if (deletions.Count == 1)
         {
-            return _projector.TryApplyDeletion(
+            if (!_projector.TryApplyDeletion(
                 _frameworkLevelKey,
                 snapshot.Identity,
+                HiddenImportLiveState(snapshot.Identity),
                 report,
-                out _);
+                out OriginalObjectLiveState deletionState))
+                return false;
+
+            _liveStates[snapshot.Identity] = deletionState;
+            return true;
         }
 
-        return _projector.TryRestore(
+        OriginalObjectLiveState importState = ImportLiveState(snapshot.Identity);
+        if (!_projector.TryRestore(
             _frameworkLevelKey,
             snapshot.Identity,
-            ImportLiveState(snapshot.Identity),
-            report);
+            importState,
+            report))
+            return false;
+
+        _liveStates[snapshot.Identity] = importState;
+        return true;
+    }
+
+    private bool TryReactivateAuthoredState(
+        OriginalObjectIdentity identity,
+        ApplyReport report)
+    {
+        if (_projector == null)
+            return true;
+
+        OriginalObjectLiveState current = CurrentLiveState(identity);
+        if (current.IsActiveSelf
+            || !_catalog.TryGetByIdentity(identity, out OriginalObjectCatalogEntry entry)
+            || !entry.IsBaselineActiveSelf)
+            return true;
+
+        OriginalObjectLiveState authored = new(
+            current.ObjectKey,
+            true,
+            current.Transform,
+            current.Name);
+        if (!_projector.TryRestore(
+            _frameworkLevelKey,
+            identity,
+            authored,
+            report))
+            return false;
+
+        _liveStates[identity] = authored;
+        return true;
     }
 
     private void RefreshState(ApplyReport report)
@@ -1671,6 +1905,16 @@ internal sealed class OriginalObjectPage
             return state;
 
         return CurrentLiveState(identity);
+    }
+
+    private OriginalObjectLiveState HiddenImportLiveState(OriginalObjectIdentity identity)
+    {
+        OriginalObjectLiveState importState = ImportLiveState(identity);
+        return new OriginalObjectLiveState(
+            importState.ObjectKey,
+            false,
+            importState.Transform,
+            importState.Name);
     }
 
     private OriginalObjectPageSnapshot CaptureSnapshot(OriginalObjectIdentity identity)

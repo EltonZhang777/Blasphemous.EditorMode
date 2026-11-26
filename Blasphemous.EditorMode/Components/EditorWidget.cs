@@ -653,7 +653,7 @@ internal class EditorWidget : MonoBehaviour
                     "Identity: {0}\nActive at baseline: {1}   Active now: {2}\nRuntime key: {3}\nEdit: {4}",
                     page.Selected.DisplayText,
                     page.Selected.IsActive ? "yes" : "no (targeted)",
-                    page.Selected.IsRuntimeActive ? "yes" : "no",
+                    page.SelectedIsRuntimeActive ? "yes" : "no",
                     page.Selected.ObjectKey,
                     FormatOriginalEditState(page));
         }
@@ -1364,37 +1364,43 @@ internal class EditorWidget : MonoBehaviour
         CreateButton(
             "Original Import",
             "Import",
-            new Vector2(-200f, -190f),
+            new Vector2(-228f, -190f),
             () => Main.EditorMode.ImportCurrentRoom(),
             _originalPageRoot);
         CreateButton(
             "Original Export",
             "Export",
-            new Vector2(-120f, -190f),
+            new Vector2(-152f, -190f),
             () => Main.EditorMode.ExportCurrentRoom(),
             _originalPageRoot);
         CreateButton(
             "Original Undo",
             "Undo",
-            new Vector2(-40f, -190f),
+            new Vector2(-76f, -190f),
             () => Main.EditorMode.TryUndo(),
             _originalPageRoot);
         CreateButton(
             "Original Redo",
             "Redo",
-            new Vector2(40f, -190f),
+            new Vector2(0f, -190f),
             () => Main.EditorMode.TryRedo(),
+            _originalPageRoot);
+        CreateButton(
+            "Original Delete",
+            "Delete",
+            new Vector2(76f, -190f),
+            () => Main.EditorMode.TryDeleteSelectedOriginal(),
             _originalPageRoot);
         CreateButton(
             "Original Reset",
             "Reset",
-            new Vector2(120f, -190f),
+            new Vector2(152f, -190f),
             () => Main.EditorMode.TryReset(),
             _originalPageRoot);
         CreateButton(
             "Original Exit",
             "Exit",
-            new Vector2(200f, -190f),
+            new Vector2(228f, -190f),
             () => Main.EditorMode.ExitFromUi(),
             _originalPageRoot);
     }

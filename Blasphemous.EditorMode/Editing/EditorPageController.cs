@@ -152,6 +152,12 @@ internal sealed class EditorPageController
             && _originalObjects.TryApplySelectedModification(transform, report);
     }
 
+    internal bool TryDeleteOriginal(ApplyReport report)
+    {
+        return ActivePage == EditorPage.OriginalObjects
+            && _originalObjects.TryDeleteSelected(report);
+    }
+
     internal bool TryRemoveOriginalEdit(ApplyReport report)
     {
         return ActivePage == EditorPage.OriginalObjects

@@ -8,6 +8,23 @@ namespace Blasphemous.EditorMode.Editing;
 internal static class OriginalObjectEditor
 {
     internal const string EmptyModificationType = "editor-mode-empty";
+
+    internal static FrameworkObjectData CreateDeletion(OriginalObjectIdentity identity)
+    {
+        if (identity == null)
+            throw new ArgumentNullException(nameof(identity));
+
+        return new FrameworkObjectData(
+            identity.Scene,
+            identity.Path,
+            null,
+            null,
+            FrameworkVector.Zero,
+            FrameworkVector.Zero,
+            FrameworkVector.One,
+            string.Empty,
+            []);
+    }
 }
 
 /// <summary>Recoverable runtime state captured for one Original Object.</summary>
@@ -43,6 +60,7 @@ internal interface IOriginalObjectLiveProjector
     bool TryApplyDeletion(
         string frameworkLevelKey,
         OriginalObjectIdentity identity,
+        OriginalObjectLiveState authoredState,
         ApplyReport report,
         out OriginalObjectLiveState appliedState);
 

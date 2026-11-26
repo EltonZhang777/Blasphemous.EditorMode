@@ -89,7 +89,8 @@ internal sealed class UnityOriginalObjectBaselineCapture
             gameObject.activeInHierarchy,
             provenance,
             addressable,
-            addressError));
+            addressError,
+            gameObject.activeSelf));
     }
 
     private static OriginalObjectProvenance ClassifyProvenance(Transform transform)

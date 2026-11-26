@@ -71,7 +71,7 @@ A game object already supplied by the packaged room, captured from the pre-mod b
 _Avoid_: Original, when referring to the internal PlacementOwnership member, vanilla object
 
 **Original Object Edit**:
-A Level Framework modification or deletion that targets one Original Object scene/path. Apply Modify owns at most one resolved operation for that identity, preserves imported fields when updating, and creates transform-only operations with `editor-mode-empty`, a deterministic session-unique id, and an empty condition. Its live preview becomes persistent content only through an explicit Level Export.
+A Level Framework modification or deletion that targets one Original Object scene/path. Apply Modify owns at most one resolved operation for that identity, preserves imported fields when updating, and creates transform-only operations with `editor-mode-empty`, a deterministic session-unique id, and an empty condition. Delete stores only scene and path, restores the imported transform and name before hiding the object, and replaces a modification for the same identity; Apply Modify restores the imported active state when it replaces a deletion. Its live preview becomes persistent content only through an explicit Level Export.
 _Avoid_: Original modification, deletion record
 
 **Original Save**:

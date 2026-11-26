@@ -441,6 +441,18 @@ internal class EditorMode : BlasMod
         return result;
     }
 
+    internal bool TryDeleteSelectedOriginal()
+    {
+        if (ActivePage != EditorPage.OriginalObjects)
+            return ReportPageCommandUnavailable("Delete Original Object");
+
+        EditorPageController pages = Pages;
+        ApplyReport report = new();
+        bool result = pages != null && pages.TryDeleteOriginal(report);
+        PublishReport("Delete Original Object", report, !result);
+        return result;
+    }
+
     internal bool TryToggleSelectedLock()
     {
         if (!RequireAdditionsPage("Lock"))

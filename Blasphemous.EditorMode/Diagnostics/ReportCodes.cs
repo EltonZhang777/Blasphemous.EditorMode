@@ -102,6 +102,7 @@ internal static class ReportCodes
     internal const string OriginalObjectOperationUnlocatable = "ORIGINAL_OBJECT_OPERATION_UNLOCATABLE";
     internal const string OriginalObjectIdentityInvalid = "ORIGINAL_OBJECT_IDENTITY_INVALID";
     internal const string OriginalObjectModificationInvalid = "ORIGINAL_OBJECT_MODIFICATION_INVALID";
+    internal const string OriginalObjectDeletionInvalid = "ORIGINAL_OBJECT_DELETION_INVALID";
     internal const string OriginalObjectEditConflict = "ORIGINAL_OBJECT_EDIT_CONFLICT";
     internal const string OriginalObjectEditNotFound = "ORIGINAL_OBJECT_EDIT_NOT_FOUND";
     internal const string OriginalObjectModifierUnavailable = "ORIGINAL_OBJECT_MODIFIER_UNAVAILABLE";
@@ -109,6 +110,7 @@ internal static class ReportCodes
     internal const string OriginalObjectLiveRestoreFailed = "ORIGINAL_OBJECT_LIVE_RESTORE_FAILED";
     internal const string OriginalObjectApplyFailed = "ORIGINAL_OBJECT_APPLY_FAILED";
     internal const string OriginalObjectModificationApplied = "ORIGINAL_OBJECT_MODIFICATION_APPLIED";
+    internal const string OriginalObjectDeletionApplied = "ORIGINAL_OBJECT_DELETION_APPLIED";
     internal const string OriginalObjectEditRemoved = "ORIGINAL_OBJECT_EDIT_REMOVED";
 
     internal const string SeamPassed = "SEAM_PASSED";

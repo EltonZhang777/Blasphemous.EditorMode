@@ -200,6 +200,681 @@ public sealed class OriginalObjectEditingTests
     }
 
     [Fact]
+    public void Delete_selected_original_deactivates_and_exports_only_scene_and_path()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete"));
+
+            Assert.Empty(result.Session.Modifications);
+            FrameworkObjectData deletion = Assert.Single(result.Session.Deletions);
+            Assert.Equal("decoration", deletion.Scene);
+            Assert.Equal("DECORATION/HERO", deletion.Path);
+            Assert.Null(deletion.Type);
+            Assert.Null(deletion.Id);
+            Assert.Equal(string.Empty, deletion.Condition);
+            Assert.Empty(deletion.Properties);
+            Assert.True(result.Pages.OriginalObjects.SelectedHasDeletion);
+            OriginalObjectIdentity deleted = Assert.Single(projector.AppliedDeletions);
+            Assert.Equal("decoration", deleted.Scene);
+            Assert.False(projector.LastAppliedState.IsActiveSelf);
+            Assert.Equal(1f, projector.LastAppliedState.Transform.PositionX);
+            Assert.Equal(source, File.ReadAllText(path));
+
+            LevelEditSessionExportResult export = result.Session.Export(path);
+            Assert.True(export.Succeeded, export.StatusMessage);
+            JObject root = JObject.Parse(File.ReadAllText(path));
+            JObject exportedDeletion = (JObject)root["deletions"][0];
+            Assert.Equal(2, exportedDeletion.Count);
+            Assert.Equal("decoration", exportedDeletion["scene"].Value<string>());
+            Assert.Equal("DECORATION/HERO", exportedDeletion["path"].Value<string>());
+
+            FrameworkFileResult reimported = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
+            Assert.True(reimported.IsValid);
+            LevelEditSessionImportResult imported = LevelEditSession.Import(
+                CreateRoom(),
+                reimported,
+                new[] { BaseCreatorCatalog.BellIron });
+            FrameworkObjectData roundTrip = Assert.Single(imported.Session.Deletions);
+            Assert.Equal("decoration", roundTrip.Scene);
+            Assert.Equal("DECORATION/HERO", roundTrip.Path);
+            Assert.Null(roundTrip.Type);
+            Assert.Null(roundTrip.Id);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Delete_and_modify_replace_each_other_and_restore_active_state_through_history()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+
+            ApplyReport modifyReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryApplySelectedModification(
+                    new PlacementTransform(7f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f),
+                    modifyReport),
+                modifyReport.ToSummary("initial modify"));
+            Assert.Single(result.Session.Modifications);
+
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete modification"));
+            Assert.Empty(result.Session.Modifications);
+            Assert.Single(result.Session.Deletions);
+            Assert.False(projector.LastAppliedState.IsActiveSelf);
+            Assert.Equal(1f, projector.LastAppliedState.Transform.PositionX);
+
+            ApplyReport undoDelete = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryUndo(undoDelete),
+                undoDelete.ToSummary("undo delete"));
+            Assert.Equal(7f, Assert.Single(result.Session.Modifications).Position.X);
+            Assert.Empty(result.Session.Deletions);
+            Assert.True(projector.LastAppliedState.IsActiveSelf);
+
+            ApplyReport secondDelete = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(secondDelete),
+                secondDelete.ToSummary("delete again"));
+            Assert.Single(result.Session.Deletions);
+            Assert.Empty(result.Session.Modifications);
+
+            ApplyReport modifyOverDeletion = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryApplySelectedModification(
+                    new PlacementTransform(11f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f),
+                    modifyOverDeletion),
+                modifyOverDeletion.ToSummary("modify over deletion"));
+            Assert.Equal(11f, Assert.Single(result.Session.Modifications).Position.X);
+            Assert.Empty(result.Session.Deletions);
+            Assert.True(projector.LastAppliedState.IsActiveSelf);
+            Assert.NotEmpty(projector.RestoredStates);
+
+            ApplyReport undoModify = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryUndo(undoModify),
+                undoModify.ToSummary("undo modify over deletion"));
+            Assert.Single(result.Session.Deletions);
+            Assert.Empty(result.Session.Modifications);
+            Assert.False(projector.LastAppliedState.IsActiveSelf);
+
+            ApplyReport undoSecondDelete = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryUndo(undoSecondDelete),
+                undoSecondDelete.ToSummary("undo second delete"));
+            Assert.Equal(7f, Assert.Single(result.Session.Modifications).Position.X);
+            Assert.Empty(result.Session.Deletions);
+            Assert.True(projector.LastAppliedState.IsActiveSelf);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Deletion_preview_survives_editor_close_and_reopen_and_reset_restores_active_state()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete"));
+
+            EditorRuntimeState runtime = CreateRuntimeState();
+            EditorModeGuard guard = new(
+                () => runtime,
+                value => runtime = value);
+            Assert.True(
+                guard.TryEnter(true, true, CreateRuntimeState(), out string error),
+                error);
+            Assert.True(guard.TryExit(out error), error);
+            Assert.True(
+                guard.TryEnter(true, true, CreateRuntimeState(), out error),
+                error);
+
+            Assert.Single(result.Session.Deletions);
+            Assert.True(result.Pages.OriginalObjects.SelectedHasDeletion);
+            Assert.Empty(projector.RestoredStates);
+            Assert.True(guard.TryExit(out error), error);
+
+            ApplyReport resetReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryReset(resetReport),
+                resetReport.ToSummary("reset"));
+
+            Assert.Empty(result.Session.Deletions);
+            Assert.Equal(LevelEditSessionState.Clean, result.Session.State);
+            Assert.False(result.Pages.OriginalObjects.History.CanUndo);
+            OriginalObjectLiveState restored = Assert.Single(projector.RestoredStates);
+            Assert.True(restored.IsActiveSelf);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Deletion_preview_survives_page_switch_and_export()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete"));
+
+            ApplyReport pageReport = new();
+            Assert.True(result.Pages.TrySwitchPage(pageReport));
+            Assert.True(result.Pages.TrySwitchPage(pageReport));
+            Assert.Single(result.Session.Deletions);
+            Assert.True(result.Pages.OriginalObjects.SelectedHasDeletion);
+            Assert.False(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+            Assert.Single(projector.AppliedDeletions);
+            Assert.Empty(projector.RestoredStates);
+
+            LevelEditSessionExportResult export = result.Session.Export(path);
+            Assert.True(export.Succeeded, export.StatusMessage);
+            Assert.Single(result.Session.Deletions);
+            Assert.True(result.Pages.OriginalObjects.SelectedHasDeletion);
+            Assert.False(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+            Assert.Single(projector.AppliedDeletions);
+            Assert.Empty(projector.RestoredStates);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Deletion_history_redo_deactivates_the_object_and_undo_reactivates_it()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            Assert.True(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete"));
+            Assert.False(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+
+            ApplyReport undoReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryUndo(undoReport),
+                undoReport.ToSummary("undo delete"));
+            Assert.Empty(result.Session.Deletions);
+            Assert.True(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+
+            ApplyReport redoReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryRedo(redoReport),
+                redoReport.ToSummary("redo delete"));
+            Assert.Single(result.Session.Deletions);
+            Assert.False(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+            Assert.Equal(2, projector.AppliedDeletions.Count);
+            Assert.Equal(1f, projector.LastAppliedState.Transform.PositionX);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Modify_delete_undo_redo_restores_the_imported_transform_and_active_state()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            ApplyReport modifyReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryApplySelectedModification(
+                    new PlacementTransform(7f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f),
+                    modifyReport),
+                modifyReport.ToSummary("modify"));
+
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete"));
+            Assert.False(projector.LastAppliedState.IsActiveSelf);
+            Assert.Equal(1f, projector.LastAppliedState.Transform.PositionX);
+
+            ApplyReport undoReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryUndo(undoReport),
+                undoReport.ToSummary("undo delete"));
+            Assert.Equal(7f, Assert.Single(result.Session.Modifications).Position.X);
+            Assert.Empty(result.Session.Deletions);
+            Assert.True(projector.LastAppliedState.IsActiveSelf);
+            Assert.Equal(7f, projector.LastAppliedState.Transform.PositionX);
+
+            ApplyReport redoReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryRedo(redoReport),
+                redoReport.ToSummary("redo delete"));
+            Assert.Empty(result.Session.Modifications);
+            Assert.Single(result.Session.Deletions);
+            Assert.False(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+            Assert.False(projector.LastAppliedState.IsActiveSelf);
+            Assert.Equal(1f, projector.LastAppliedState.Transform.PositionX);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Failed_deletion_application_keeps_session_and_source_uncommitted()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new()
+            {
+                FailDeletion = true
+            };
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            LevelEditSessionState stateBefore = result.Session.State;
+
+            ApplyReport report = new();
+            Assert.False(result.Pages.OriginalObjects.TryDeleteSelected(report));
+
+            Assert.Empty(result.Session.Deletions);
+            Assert.Equal(stateBefore, result.Session.State);
+            Assert.False(result.Pages.OriginalObjects.History.CanUndo);
+            Assert.Contains(
+                report.Entries,
+                entry => entry.Code == ReportCodes.OriginalObjectApplyFailed);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Failed_deletion_restore_is_itemized_and_keeps_the_deletion()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete"));
+            projector.FailRestore = true;
+
+            ApplyReport undoReport = new();
+            Assert.False(result.Pages.OriginalObjects.TryUndo(undoReport));
+
+            Assert.Single(result.Session.Deletions);
+            Assert.True(result.Pages.OriginalObjects.History.CanUndo);
+            Assert.Contains(
+                undoReport.Entries,
+                entry => entry.Code == ReportCodes.OriginalObjectLiveRestoreFailed);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Failed_modification_over_an_imported_deletion_restores_the_inactive_preview()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\"}]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new()
+            {
+                FailModification = true
+            };
+            FakeOriginalObjectPathResolver resolver = new();
+            resolver.Add(
+                "decoration",
+                "DECORATION/HERO",
+                "original",
+                active: false,
+                selfActive: false,
+                new PlacementTransform(1f, 2f, 3f, 4f, 5f, 6f, 1f, 1f, 1f),
+                "original");
+            RoomOverlayReconciler reconciler = new(
+                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                new FakeRuntimeFactory(),
+                projector);
+            RoomOverlayReconcileResult result = reconciler.Apply(
+                CreateRoom(),
+                FileResult(path, source),
+                new OriginalObjectBaseline(
+                    "D03Z02S06",
+                    [Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f)],
+                    new ApplyReport()),
+                resolver);
+            Assert.True(result.Succeeded, result.StatusMessage);
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+
+            ApplyReport report = new();
+            Assert.False(
+                result.Pages.OriginalObjects.TryApplySelectedModification(
+                    new PlacementTransform(9f, 8f, 7f, 0f, 0f, 0f, 1f, 1f, 1f),
+                    report));
+
+            Assert.Empty(result.Session.Modifications);
+            Assert.Single(result.Session.Deletions);
+            Assert.True(Assert.Single(projector.RestoredStates).IsActiveSelf);
+            Assert.Single(projector.AppliedDeletions);
+            Assert.False(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+            Assert.DoesNotContain(
+                report.Entries,
+                entry => entry.Code == ReportCodes.HistoryRollbackFailed);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Failed_modification_over_an_imported_deletion_reports_a_failed_live_rollback()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\"}]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new()
+            {
+                FailModification = true,
+                FailDeletion = true
+            };
+            FakeOriginalObjectPathResolver resolver = new();
+            resolver.Add(
+                "decoration",
+                "DECORATION/HERO",
+                "original",
+                active: false,
+                selfActive: false,
+                new PlacementTransform(1f, 2f, 3f, 4f, 5f, 6f, 1f, 1f, 1f),
+                "original");
+            RoomOverlayReconciler reconciler = new(
+                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                new FakeRuntimeFactory(),
+                projector);
+            RoomOverlayReconcileResult result = reconciler.Apply(
+                CreateRoom(),
+                FileResult(path, source),
+                new OriginalObjectBaseline(
+                    "D03Z02S06",
+                    [Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f)],
+                    new ApplyReport()),
+                resolver);
+            Assert.True(result.Succeeded, result.StatusMessage);
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+
+            ApplyReport report = new();
+            Assert.False(
+                result.Pages.OriginalObjects.TryApplySelectedModification(
+                    new PlacementTransform(9f, 8f, 7f, 0f, 0f, 0f, 1f, 1f, 1f),
+                    report));
+
+            Assert.Empty(result.Session.Modifications);
+            Assert.Single(result.Session.Deletions);
+            Assert.Contains(
+                report.Entries,
+                entry => entry.Code == ReportCodes.HistoryRollbackFailed);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Failed_history_restore_reports_a_failed_live_rollback()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            ApplyReport modifyReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryApplySelectedModification(
+                    new PlacementTransform(9f, 8f, 7f, 0f, 0f, 0f, 1f, 1f, 1f),
+                    modifyReport),
+                modifyReport.ToSummary("modify"));
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete"));
+            projector.FailModification = true;
+            projector.FailDeletion = true;
+
+            ApplyReport undoReport = new();
+            Assert.False(result.Pages.OriginalObjects.TryUndo(undoReport));
+
+            Assert.Empty(result.Session.Modifications);
+            Assert.Single(result.Session.Deletions);
+            Assert.True(result.Pages.OriginalObjects.History.CanUndo);
+            Assert.Contains(
+                undoReport.Entries,
+                entry => entry.Code == ReportCodes.HistoryRollbackFailed);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Removing_a_pending_deletion_restores_active_state_and_can_be_undone()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete"));
+
+            ApplyReport removeReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryRemoveSelectedEdit(removeReport),
+                removeReport.ToSummary("remove deletion"));
+            Assert.Empty(result.Session.Deletions);
+            Assert.Empty(result.Session.Modifications);
+            Assert.True(Assert.Single(projector.RestoredStates).IsActiveSelf);
+
+            ApplyReport undoReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryUndo(undoReport),
+                undoReport.ToSummary("undo removal"));
+            Assert.Single(result.Session.Deletions);
+            Assert.False(projector.LastAppliedState.IsActiveSelf);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Deletion_preview_ends_at_teardown_and_restores_active_state()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete"));
+
+            ApplyReport teardownReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryTeardown(teardownReport),
+                teardownReport.ToSummary("teardown"));
+
+            Assert.Null(result.Pages.OriginalObjects.Selected);
+            Assert.False(result.Pages.OriginalObjects.History.CanUndo);
+            Assert.True(Assert.Single(projector.RestoredStates).IsActiveSelf);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void Original_history_undo_and_redo_restore_session_and_live_state()
     {
         string directory = MakeDirectory();
@@ -382,6 +1057,43 @@ public sealed class OriginalObjectEditingTests
     }
 
     [Fact]
+    public void Delete_rejects_an_unresolved_imported_identity_conflict()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"first\",\"id\":\"first\"},{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"second\",\"id\":\"second\"}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            LevelEditSessionState stateBefore = result.Session.State;
+
+            ApplyReport report = new();
+            Assert.False(result.Pages.OriginalObjects.TryDeleteSelected(report));
+
+            Assert.Equal(2, result.Session.Modifications.Count);
+            Assert.Empty(result.Session.Deletions);
+            Assert.Equal(stateBefore, result.Session.State);
+            Assert.Empty(projector.AppliedDeletions);
+            Assert.Contains(
+                report.Entries,
+                entry => entry.Code == ReportCodes.OriginalObjectEditConflict);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void Apply_modify_replaces_an_imported_deletion_for_the_same_identity()
     {
         string directory = MakeDirectory();
@@ -410,6 +1122,309 @@ public sealed class OriginalObjectEditingTests
             Assert.Equal(OriginalObjectEditor.EmptyModificationType, modification.Type);
             Assert.Empty(result.Session.Deletions);
             Assert.Single(projector.AppliedModifications);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Apply_modify_replaces_imported_deletion_by_reactivating_the_authored_state()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\"}]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            FakeOriginalObjectPathResolver resolver = new();
+            resolver.Add(
+                "decoration",
+                "DECORATION/HERO",
+                "original",
+                active: false,
+                selfActive: false,
+                new PlacementTransform(1f, 2f, 3f, 4f, 5f, 6f, 1f, 1f, 1f),
+                "original");
+            RoomOverlayReconciler reconciler = new(
+                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                new FakeRuntimeFactory(),
+                projector);
+            RoomOverlayReconcileResult result = reconciler.Apply(
+                CreateRoom(),
+                FileResult(path, source),
+                new OriginalObjectBaseline(
+                    "D03Z02S06",
+                    [Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f)],
+                    new ApplyReport()),
+                resolver);
+            Assert.True(result.Succeeded, result.StatusMessage);
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+
+            ApplyReport report = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryApplySelectedModification(
+                    new PlacementTransform(9f, 8f, 7f, 0f, 0f, 0f, 1f, 1f, 1f),
+                    report),
+                report.ToSummary("replace imported deletion"));
+
+            OriginalObjectLiveState reactivated = Assert.Single(projector.RestoredStates);
+            Assert.True(reactivated.IsActiveSelf);
+            Assert.Equal(1f, reactivated.Transform.PositionX);
+            Assert.Equal(9f, Assert.Single(projector.AppliedModifications).Position.X);
+            Assert.Single(result.Session.Modifications);
+            Assert.Empty(result.Session.Deletions);
+            Assert.True(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Cancel_teardown_reactivates_authored_state_before_reapplying_a_modification()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\"}]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            FakeOriginalObjectPathResolver resolver = new();
+            resolver.Add(
+                "decoration",
+                "DECORATION/HERO",
+                "original",
+                active: false,
+                selfActive: false,
+                new PlacementTransform(1f, 2f, 3f, 4f, 5f, 6f, 1f, 1f, 1f),
+                "original");
+            RoomOverlayReconciler reconciler = new(
+                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                new FakeRuntimeFactory(),
+                projector);
+            RoomOverlayReconcileResult result = reconciler.Apply(
+                CreateRoom(),
+                FileResult(path, source),
+                new OriginalObjectBaseline(
+                    "D03Z02S06",
+                    [Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f)],
+                    new ApplyReport()),
+                resolver);
+            Assert.True(result.Succeeded, result.StatusMessage);
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            ApplyReport modifyReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryApplySelectedModification(
+                    new PlacementTransform(9f, 8f, 7f, 0f, 0f, 0f, 1f, 1f, 1f),
+                    modifyReport),
+                modifyReport.ToSummary("replace imported deletion"));
+
+            ApplyReport teardownReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryPrepareTeardown(teardownReport),
+                teardownReport.ToSummary("prepare teardown"));
+            Assert.False(projector.RestoredStates[projector.RestoredStates.Count - 1].IsActiveSelf);
+            Assert.False(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+
+            ApplyReport cancelReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryCancelTeardown(cancelReport),
+                cancelReport.ToSummary("cancel teardown"));
+
+            Assert.True(projector.RestoredStates[projector.RestoredStates.Count - 1].IsActiveSelf);
+            Assert.Equal(2, projector.AppliedModifications.Count);
+            Assert.Equal(9f, projector.AppliedModifications[1].Position.X);
+            Assert.Single(result.Session.Modifications);
+            Assert.Empty(result.Session.Deletions);
+            Assert.True(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Failed_cancel_teardown_restores_the_inactive_imported_preview()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\"}]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            FakeOriginalObjectPathResolver resolver = new();
+            resolver.Add(
+                "decoration",
+                "DECORATION/HERO",
+                "original",
+                active: false,
+                selfActive: false,
+                new PlacementTransform(1f, 2f, 3f, 4f, 5f, 6f, 1f, 1f, 1f),
+                "original");
+            RoomOverlayReconciler reconciler = new(
+                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                new FakeRuntimeFactory(),
+                projector);
+            RoomOverlayReconcileResult result = reconciler.Apply(
+                CreateRoom(),
+                FileResult(path, source),
+                new OriginalObjectBaseline(
+                    "D03Z02S06",
+                    [Entry("original", "decoration", "DECORATION/HERO", true, 1f, 2f, 3f)],
+                    new ApplyReport()),
+                resolver);
+            Assert.True(result.Succeeded, result.StatusMessage);
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+            ApplyReport modifyReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryApplySelectedModification(
+                    new PlacementTransform(9f, 8f, 7f, 0f, 0f, 0f, 1f, 1f, 1f),
+                    modifyReport),
+                modifyReport.ToSummary("replace imported deletion"));
+            ApplyReport teardownReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryPrepareTeardown(teardownReport),
+                teardownReport.ToSummary("prepare teardown"));
+            projector.FailModification = true;
+
+            ApplyReport cancelReport = new();
+            Assert.False(result.Pages.OriginalObjects.TryCancelTeardown(cancelReport));
+
+            Assert.Single(result.Session.Modifications);
+            Assert.Empty(result.Session.Deletions);
+            Assert.False(projector.RestoredStates[projector.RestoredStates.Count - 1].IsActiveSelf);
+            Assert.False(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+            Assert.DoesNotContain(
+                cancelReport.Entries,
+                entry => entry.Code == ReportCodes.HistoryRollbackFailed);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Failed_cancel_teardown_rolls_back_previews_reapplied_before_the_failure()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            FakeOriginalObjectPathResolver resolver = new();
+            resolver.Add(
+                "decoration",
+                "DECORATION/FIRST",
+                "first",
+                true,
+                new PlacementTransform(11f, 2f, 3f, 4f, 5f, 6f, 1f, 1f, 1f),
+                "first");
+            resolver.Add(
+                "logic",
+                "LOGIC/SECOND",
+                "second",
+                true,
+                new PlacementTransform(22f, 2f, 3f, 4f, 5f, 6f, 1f, 1f, 1f),
+                "second");
+            RoomOverlayReconciler reconciler = new(
+                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                new FakeRuntimeFactory(),
+                projector);
+            RoomOverlayReconcileResult result = reconciler.Apply(
+                CreateRoom(),
+                FileResult(path, source),
+                new OriginalObjectBaseline(
+                    "D03Z02S06",
+                    [
+                        Entry("first", "decoration", "DECORATION/FIRST", true, 11f, 2f, 3f),
+                        Entry("second", "logic", "LOGIC/SECOND", true, 22f, 2f, 3f)
+                    ],
+                    new ApplyReport()),
+                resolver);
+            Assert.True(result.Succeeded, result.StatusMessage);
+            ApplyOriginalModification(
+                result,
+                "decoration:DECORATION/FIRST",
+                10f);
+            ApplyOriginalModification(
+                result,
+                "logic:LOGIC/SECOND",
+                20f);
+            ApplyReport teardownReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryPrepareTeardown(teardownReport),
+                teardownReport.ToSummary("prepare teardown"));
+            projector.FailModificationPath = "LOGIC/SECOND";
+
+            ApplyReport cancelReport = new();
+            Assert.False(result.Pages.OriginalObjects.TryCancelTeardown(cancelReport));
+
+            Assert.Equal(2, result.Session.Modifications.Count);
+            Assert.Equal(4, projector.RestoredStates.Count);
+            Assert.Equal(22f, projector.RestoredStates[2].Transform.PositionX);
+            Assert.Equal(11f, projector.RestoredStates[3].Transform.PositionX);
+            Assert.True(result.Pages.OriginalObjects.SelectedIsRuntimeActive);
+            Assert.Contains(
+                cancelReport.Entries,
+                entry => entry.Code == ReportCodes.OriginalObjectModifierFailed);
+            Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Delete_replaces_an_imported_modification_for_the_same_identity()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[],\"modifications\":[{\"scene\":\"decoration\",\"path\":\"DECORATION/HERO\",\"type\":\"custom-modifier\",\"id\":\"imported-id\",\"position\":{\"x\":3,\"y\":4,\"z\":5},\"rotation\":{\"x\":0,\"y\":0,\"z\":0},\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"condition\":\"\",\"properties\":[]}],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FakeOriginalObjectProjector projector = new();
+            RoomOverlayReconcileResult result = Reconcile(
+                path,
+                source,
+                projector,
+                Entry("original", "decoration", "DECORATION/HERO", true, 3f, 4f, 5f));
+            SelectOriginal(result, "decoration:DECORATION/HERO");
+
+            ApplyReport deleteReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryDeleteSelected(deleteReport),
+                deleteReport.ToSummary("delete imported modification"));
+            Assert.Empty(result.Session.Modifications);
+            Assert.Single(result.Session.Deletions);
+            Assert.False(projector.LastAppliedState.IsActiveSelf);
+
+            ApplyReport undoReport = new();
+            Assert.True(
+                result.Pages.OriginalObjects.TryUndo(undoReport),
+                undoReport.ToSummary("undo imported deletion"));
+            FrameworkObjectData restored = Assert.Single(result.Session.Modifications);
+            Assert.Equal("imported-id", restored.Id);
+            Assert.Empty(result.Session.Deletions);
+            Assert.True(projector.LastAppliedState.IsActiveSelf);
+            Assert.Equal(source, File.ReadAllText(path));
         }
         finally
         {
@@ -459,6 +1474,7 @@ public sealed class OriginalObjectEditingTests
                 applyReport.ToSummary("modify"));
             Assert.Single(result.Session.Modifications);
             Assert.Empty(result.Session.Deletions);
+            Assert.True(Assert.Single(projector.RestoredStates).IsActiveSelf);
 
             ApplyReport removeReport = new();
             Assert.True(
@@ -467,7 +1483,8 @@ public sealed class OriginalObjectEditingTests
 
             Assert.Empty(result.Session.Modifications);
             Assert.Single(result.Session.Deletions);
-            OriginalObjectLiveState restored = Assert.Single(projector.RestoredStates);
+            Assert.Equal(2, projector.RestoredStates.Count);
+            OriginalObjectLiveState restored = projector.RestoredStates[1];
             Assert.False(restored.IsActiveSelf);
             Assert.Equal(source, File.ReadAllText(path));
         }
@@ -1409,13 +2426,17 @@ public sealed class OriginalObjectEditingTests
     private sealed class FakeOriginalObjectProjector : IOriginalObjectLiveProjector
     {
         internal List<FrameworkObjectData> AppliedModifications { get; } = [];
+        internal List<OriginalObjectIdentity> AppliedDeletions { get; } = [];
         internal List<OriginalObjectLiveState> RestoredStates { get; } = [];
         internal List<RestoreAttempt> RestoreAttempts { get; } = [];
         internal Func<FrameworkObjectData, OriginalObjectLiveState> AppliedStateFactory { get; set; }
         internal Func<OriginalObjectIdentity, OriginalObjectLiveState> DeletedStateFactory { get; set; }
         internal bool FailModification { get; set; }
+        internal string FailModificationPath { get; set; }
+        internal bool FailDeletion { get; set; }
         internal bool FailRestore { get; set; }
         internal int FailRestoreOnAttempt { get; set; }
+        internal OriginalObjectLiveState LastAppliedState { get; private set; }
         private int _restoreAttemptCount;
 
         public bool TryApplyModification(
@@ -1425,7 +2446,11 @@ public sealed class OriginalObjectEditingTests
             out OriginalObjectLiveState appliedState)
         {
             appliedState = null;
-            if (FailModification)
+            if (FailModification
+                || string.Equals(
+                    modification.Path,
+                    FailModificationPath,
+                    StringComparison.Ordinal))
             {
                 report.Error(
                     ReportCodes.OriginalObjectModifierFailed,
@@ -1441,21 +2466,35 @@ public sealed class OriginalObjectEditingTests
                     true,
                     PlacementTransform.FromFramework(modification),
                     string.Empty);
+            LastAppliedState = appliedState;
             return true;
         }
 
         public bool TryApplyDeletion(
             string frameworkLevelKey,
             OriginalObjectIdentity identity,
+            OriginalObjectLiveState authoredState,
             ApplyReport report,
             out OriginalObjectLiveState appliedState)
         {
+            appliedState = null;
+            if (FailDeletion)
+            {
+                report.Error(
+                    ReportCodes.OriginalObjectApplyFailed,
+                    identity.DisplayText,
+                    "Deletion projection failed during the test.");
+                return false;
+            }
+
+            AppliedDeletions.Add(identity);
             appliedState = DeletedStateFactory?.Invoke(identity)
                 ?? new OriginalObjectLiveState(
-                    string.Empty,
+                    authoredState.ObjectKey,
                     false,
-                    PlacementTransform.Default,
-                    string.Empty);
+                    authoredState.Transform,
+                    authoredState.Name);
+            LastAppliedState = appliedState;
             return true;
         }
 
