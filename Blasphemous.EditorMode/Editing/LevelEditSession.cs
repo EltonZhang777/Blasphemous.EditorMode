@@ -139,10 +139,10 @@ internal sealed class LevelEditSession
         }
 
         report.MergeFrameworkDiagnostics(file.Diagnostics);
-        Dictionary<string, CreatorMetadata> creators = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, CreatorMetadata> creators = new(StringComparer.Ordinal);
         foreach (CreatorMetadata creator in supportedCreators ?? [])
         {
-            if (creator != null && creator.IsSupported && !creators.ContainsKey(creator.Type))
+            if (creator != null && !creators.ContainsKey(creator.Type))
                 creators.Add(creator.Type, creator);
         }
 

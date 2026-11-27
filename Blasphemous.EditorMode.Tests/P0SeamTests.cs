@@ -24,7 +24,7 @@ public sealed class P0SeamTests
             File.WriteAllText(path, InitialDocument());
             RoomIdentity room = CreateRoom();
             FrameworkFileResult source = LevelFrameworkAdapter.ImportFile(path, room.ExportFileKey);
-            ContentCatalog catalog = ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron });
+            ContentCatalog catalog = ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron });
             FakeFactory factory = new FakeFactory();
             RoomOverlayReconciler reconciler = new RoomOverlayReconciler(catalog, factory);
             RoomOverlayReconcileResult first = reconciler.Apply(room, source);

@@ -14,7 +14,6 @@ internal enum TransformCapabilities
     Rotation = 2,
     Scale = 4
 }
-
 /// <summary>Identifies where a creator is supplied.</summary>
 internal enum CreatorOrigin
 {
@@ -150,7 +149,6 @@ internal sealed class CreatorMetadata
         string sourcePath,
         TransformCapabilities transformCapabilities,
         IEnumerable<string> propertyKeys,
-        bool isSupported = true,
         string source = null,
         bool hasLoader = true,
         bool hasModifier = true)
@@ -163,7 +161,6 @@ internal sealed class CreatorMetadata
             sourcePath,
             transformCapabilities,
             CreatePropertyDefinitions(propertyKeys),
-            isSupported,
             source,
             hasLoader,
             hasModifier)
@@ -179,7 +176,6 @@ internal sealed class CreatorMetadata
         string sourcePath,
         TransformCapabilities transformCapabilities,
         IEnumerable<CreatorPropertyDefinition> propertyDefinitions,
-        bool isSupported,
         string source = null,
         bool hasLoader = true,
         bool hasModifier = true)
@@ -207,7 +203,6 @@ internal sealed class CreatorMetadata
             [.. propertyDefinitions ?? []]);
         PropertyKeys = new ReadOnlyCollection<string>(
             GetPropertyKeys(PropertyDefinitions));
-        IsSupported = isSupported;
         HasLoader = hasLoader;
         HasModifier = hasModifier;
     }
@@ -222,7 +217,6 @@ internal sealed class CreatorMetadata
     internal TransformCapabilities TransformCapabilities { get; }
     internal ReadOnlyCollection<CreatorPropertyDefinition> PropertyDefinitions { get; }
     internal ReadOnlyCollection<string> PropertyKeys { get; }
-    internal bool IsSupported { get; }
     internal bool HasLoader { get; }
     internal bool HasModifier { get; }
     internal bool CanPreview { get { return HasLoader; } }
@@ -290,37 +284,5 @@ internal sealed class CreatorMetadata
             default:
                 return "Unknown";
         }
-    }
-}
-
-/// <summary>Default base Framework creator metadata used by the first catalog slice.</summary>
-internal static class BaseCreatorCatalog
-{
-    internal const string BellIronType = "bell-iron";
-
-#if DEBUG
-    private static readonly string[] SmokeFixtureBellIronPropertyKeys =
-        RawPropertiesSmokeFixture.ResolveBellIronPropertyKeys(
-            Environment.GetEnvironmentVariable(RawPropertiesSmokeFixture.ActivationVariable));
-#else
-    private static readonly string[] SmokeFixtureBellIronPropertyKeys = [];
-#endif
-
-    internal static readonly CreatorMetadata BellIron = new(
-        BellIronType,
-        "Iron Bell",
-        "Traps",
-        CreatorOrigin.BaseFramework,
-        "D03Z02S06_LOGIC",
-        "TRAPS/TRAP_SHOCK_CHAIN_REACTION",
-        TransformCapabilities.Position | TransformCapabilities.Rotation | TransformCapabilities.Scale,
-        SmokeFixtureBellIronPropertyKeys);
-
-    private static readonly ReadOnlyCollection<CreatorMetadata> All =
-        new([BellIron]);
-
-    internal static IEnumerable<CreatorMetadata> Entries
-    {
-        get { return All; }
     }
 }

@@ -84,7 +84,6 @@ internal static class ReportCodes
 
     internal const string RoomEffectsStoreMissing = "ROOM_EFFECTS_STORE_MISSING";
     internal const string PlaceNotReady = "PLACE_NOT_READY";
-    internal const string PlaceNoPreview = "PLACE_NO_PREVIEW";
     internal const string PickNotReady = "PICK_NOT_READY";
     internal const string PickNoSelection = "PICK_NO_SELECTION";
     internal const string PickNoTarget = "PICK_NO_TARGET";

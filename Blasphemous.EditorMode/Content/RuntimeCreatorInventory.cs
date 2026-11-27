@@ -128,7 +128,6 @@ internal sealed class RuntimeCreatorInventory
                     | TransformCapabilities.Rotation
                     | TransformCapabilities.Scale,
                 new CreatorPropertyDefinition[0],
-                true,
                 "Level Framework",
                 registryEntry.HasLoader,
                 registryEntry.HasModifier);

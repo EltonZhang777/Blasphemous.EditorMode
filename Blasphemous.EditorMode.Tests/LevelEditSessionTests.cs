@@ -27,7 +27,7 @@ public sealed class LevelEditSessionTests
             LevelEditSessionImportResult result = LevelEditSession.Import(
                 room,
                 file,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
 
             Assert.False(result.Succeeded);
             Assert.Null(result.Session);
@@ -56,7 +56,7 @@ public sealed class LevelEditSessionTests
             LevelEditSessionImportResult result = LevelEditSession.Import(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 file,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
 
             Assert.True(result.Succeeded, result.StatusMessage);
             Assert.Equal(LevelEditSessionState.Partial, result.State);
@@ -65,6 +65,43 @@ public sealed class LevelEditSessionTests
             Assert.Contains(result.Report.Entries, x => x.Code == "CREATOR_UNSUPPORTED");
             Assert.Contains(result.Report.Entries, x => x.Code == "PROPERTY_UNSUPPORTED");
             Assert.Equal(source, File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public void Import_accepts_case_variant_creators_from_the_complete_inventory()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[{\"type\":\"Uncurated\",\"id\":\"upper\"},{\"type\":\"uncurated\",\"id\":\"lower\"}],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
+            RuntimeCreatorInventory inventory = RuntimeCreatorInventory.FromRegistryEntries(
+                new[]
+                {
+                    new RuntimeCreatorRegistryEntry("Uncurated", true, true),
+                    new RuntimeCreatorRegistryEntry("uncurated", true, true)
+                });
+
+            LevelEditSessionImportResult result = LevelEditSession.Import(
+                CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
+                file,
+                inventory.Entries);
+
+            Assert.True(result.Succeeded, result.StatusMessage);
+            Assert.Equal(2, result.Session.Placements.Count);
+            Assert.Equal("Uncurated", result.Session.Placements[0].Type);
+            Assert.Equal("uncurated", result.Session.Placements[1].Type);
+            Assert.DoesNotContain(
+                result.Report.Entries,
+                entry => entry.Code == ReportCodes.CreatorUnsupported);
         }
         finally
         {
@@ -87,7 +124,7 @@ public sealed class LevelEditSessionTests
             LevelEditSessionImportResult result = LevelEditSession.Import(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 file,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
 
             Assert.True(result.Succeeded, result.StatusMessage);
             Assert.Single(result.Session.ImportedDocument.Modifications);
@@ -115,7 +152,7 @@ public sealed class LevelEditSessionTests
             LevelEditSessionImportResult result = LevelEditSession.Import(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 file,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
 
             Assert.False(result.Succeeded);
             Assert.Null(result.Session);
@@ -142,7 +179,7 @@ public sealed class LevelEditSessionTests
             LevelEditSessionImportResult imported = LevelEditSession.Import(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 file,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
 
             LevelEditSessionExportResult exported = imported.Session.Export(path);
 
@@ -171,7 +208,7 @@ public sealed class LevelEditSessionTests
             LevelEditSessionImportResult imported = LevelEditSession.Import(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 file,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
 
             Assert.True(imported.Succeeded, imported.StatusMessage);
             Assert.Equal(LevelEditSessionState.Partial, imported.State);
@@ -182,7 +219,7 @@ public sealed class LevelEditSessionTests
 
             RuntimePlacementManager manager = new RuntimePlacementManager(
                 imported.Session,
-                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
                 new TestFactory());
             ApplyReport report = new ApplyReport();
             PlacementRecord supported = imported.Session.Placements[0];
@@ -207,7 +244,7 @@ public sealed class LevelEditSessionTests
             LevelEditSessionImportResult reimported = LevelEditSession.Import(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 reimportedFile,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
 
             Assert.Equal(4, reimportedFile.Document.Additions.Count);
             Assert.Equal(8f, reimported.Session.Placements[0].Transform.PositionX);
@@ -234,15 +271,15 @@ public sealed class LevelEditSessionTests
             LevelEditSessionImportResult imported = LevelEditSession.Import(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 file,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
             TestFactory factory = new TestFactory();
             RuntimePlacementManager manager = new RuntimePlacementManager(
                 imported.Session,
-                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
                 factory);
             ApplyReport report = new ApplyReport();
             PlacementRecord placement;
-            Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out placement));
+            Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out placement));
             Assert.True(manager.TryDelete(placement.Id, report));
 
             LevelEditSessionExportResult exported = imported.Session.Export(path);
@@ -272,7 +309,7 @@ public sealed class LevelEditSessionTests
             LevelEditSessionImportResult imported = LevelEditSession.Import(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
                 file,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
 
             LevelEditSessionExportResult exported = imported.Session.Export(wrongPath);
 

@@ -74,7 +74,6 @@ public sealed class ReportCodesTests
             ["RoundTripMatch"] = "ROUND_TRIP_MATCH",
             ["RoomEffectsStoreMissing"] = "ROOM_EFFECTS_STORE_MISSING",
             ["PlaceNotReady"] = "PLACE_NOT_READY",
-            ["PlaceNoPreview"] = "PLACE_NO_PREVIEW",
             ["PickNotReady"] = "PICK_NOT_READY",
             ["PickNoSelection"] = "PICK_NO_SELECTION",
             ["PickNoTarget"] = "PICK_NO_TARGET",

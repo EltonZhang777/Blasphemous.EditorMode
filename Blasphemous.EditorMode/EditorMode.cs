@@ -31,11 +31,20 @@ internal class EditorMode : BlasMod
     internal static SpriteStorage SpriteStorage { get; private set; }
     internal ContentCatalog Catalog { get; private set; }
     internal RuntimeCreatorInventory CreatorInventory { get; private set; }
+    internal CreatorCatalogController CreatorCatalog { get; private set; }
     internal RoomIdentity CurrentRoom { get { return _lifecycleBridge?.CurrentRoom; } }
     internal LevelEditSession Session { get { return _overlayReconciler?.CurrentSession; } }
     internal RuntimePlacementManager PlacementManager { get { return _overlayReconciler?.Manager; } }
     internal ApplyReportSurface ReportSurface { get { return _reportPublisher.Surface; } }
-    internal string PreviewStatus { get { return _preview == null ? "none" : _preview.Metadata.DisplayName + " (follows cursor)"; } }
+    internal string PreviewStatus
+    {
+        get
+        {
+            return _catalogActions == null
+                ? "none"
+                : _catalogActions.PreviewStatus;
+        }
+    }
 
     internal string ClipboardStatus
     {
@@ -67,7 +76,7 @@ internal class EditorMode : BlasMod
     private Coroutine _roomPreparation;
     private Coroutine _creatorPreload;
     private bool _creatorPreloadStarted;
-    private PreviewInstance _preview;
+    private CreatorCatalogActionRouter _catalogActions;
 
     internal EditorMode() : base(ModInfo.MOD_ID, ModInfo.MOD_NAME, ModInfo.MOD_AUTHOR, ModInfo.MOD_VERSION) { }
 
@@ -188,19 +197,19 @@ internal class EditorMode : BlasMod
 
     protected override void OnAllInitialized()
     {
-        CreatorProbeResult result = RuntimeCreatorProbe.Inspect(BaseCreatorCatalog.Entries);
-        ModLog.Info(result.Message);
-        foreach (CreatorProbeDiagnostic diagnostic in result.Diagnostics)
-            ModLog.Warn(diagnostic.Message);
-
-        Catalog = ContentCatalog.FromProbe(
-            result,
+        CreatorInventory = RuntimeCreatorInventoryReader.Read();
+        CreatorCatalog = new CreatorCatalogController(CreatorInventory);
+        Catalog = ContentCatalog.FromInventory(
+            CreatorInventory,
             metadata => UnityPreviewFactory.Create(
                 metadata,
                 FindCurrentObjectHolder,
                 CursorWorldPosition,
                 _verboseDiagnostics));
-        CreatorInventory = RuntimeCreatorInventoryReader.Read();
+        _catalogActions = new CreatorCatalogActionRouter(
+            CreatorCatalog,
+            Catalog,
+            TryPlaceAtCursor);
         PublishCreatorInventoryDiagnostics(CreatorInventory);
         _runtimeFactory = new UnityRuntimePlacementFactory(FindCurrentObjectHolder, _verboseDiagnostics);
         _overlayReconciler = new RoomOverlayReconciler(Catalog, _runtimeFactory);
@@ -356,17 +365,6 @@ internal class EditorMode : BlasMod
         return result;
     }
 
-    internal bool TryPlacePreviewAtCursor()
-    {
-        if (_preview != null)
-            return TryPlaceAtCursor(_preview.Metadata.Type);
-
-        ApplyReport report = new();
-        report.Warning(ReportCodes.PlaceNoPreview, "preview", "Select a catalog entry and create a preview before placing it.");
-        PublishReport("Place", report);
-        return false;
-    }
-
     internal bool TryUndo()
     {
         return RunManagerCommand("Undo", (manager, report) => manager.TryUndo(report));
@@ -497,44 +495,81 @@ internal class EditorMode : BlasMod
         return result;
     }
 
-    internal bool TryPreviewAtCursor(string type)
+    internal bool TrySelectCatalogCreator(string type)
     {
-        if (Catalog == null)
+        CreatorCatalogActionRouter actions = _catalogActions;
+        if (actions == null)
             return false;
 
-        LogCursorPosition("CURSOR_PREVIEW", CursorWorldPosition());
-        DisposePreview();
-        if (!Catalog.TryCreatePreview(type, out _preview, out string error))
-        {
-            ApplyReport report = new();
-            report.Error(ReportCodes.PreviewFailed, type ?? "<null>", error);
+        bool selected = actions.TrySelect(type, out ApplyReport report);
+        if (report != null)
             PublishReport("Preview", report);
+        else if (selected)
+            EditorWidget?.RefreshAfterReport(true);
+        return selected;
+    }
+
+    internal bool TryPreviewSelectedCreator()
+    {
+        CreatorCatalogActionRouter actions = _catalogActions;
+        if (actions == null)
+        {
+            PublishCatalogActionUnavailable(
+                "Preview",
+                ReportCodes.PreviewFailed,
+                "The creator catalog is not ready.");
             return false;
         }
 
-        ApplyReport success = new();
-        success.Info(
-            ReportCodes.PreviewCreated,
-            type,
-            "Preview follows the pointer through the level view; Clear removes it. It is not part of the Room Overlay.");
-        PublishReport("Preview", success);
-        return true;
+        LogCursorPosition("CURSOR_PREVIEW", CursorWorldPosition());
+        bool result = actions.TryPreviewSelected(out ApplyReport report);
+        if (report != null)
+            PublishReport("Preview", report);
+        return result;
+    }
+
+    internal bool TryPlaceSelectedCreator()
+    {
+        CreatorCatalogActionRouter actions = _catalogActions;
+        if (actions == null)
+        {
+            PublishCatalogActionUnavailable(
+                "Place",
+                ReportCodes.PlaceNotReady,
+                "The creator catalog is not ready.");
+            return false;
+        }
+
+        bool result = actions.TryPlaceSelected(out ApplyReport report);
+        if (report != null)
+            PublishReport("Place", report);
+        return result;
     }
 
     internal void UpdatePreviewAtCursor()
     {
-        if (IsActive && _preview != null)
-            _preview.FollowCursor();
+        if (IsActive)
+            _catalogActions?.FollowPreview();
     }
 
     internal void ClearPreview()
     {
-        if (_preview == null)
+        if (_catalogActions == null || _catalogActions.Preview == null)
             return;
 
-        DisposePreview();
         ApplyReport report = new();
-        report.Info(ReportCodes.PreviewDisposed, "preview", "Isolated preview discarded.");
+        System.Exception error = _catalogActions.ClearPreview();
+        if (error == null)
+        {
+            report.Info(ReportCodes.PreviewDisposed, "preview", "Isolated preview discarded.");
+        }
+        else
+        {
+            report.Error(
+                ReportCodes.PreviewFailed,
+                "preview",
+                "The isolated preview could not be discarded: " + error.Message);
+        }
         PublishReport("Preview", report);
     }
 
@@ -688,6 +723,9 @@ internal class EditorMode : BlasMod
         ExitEditorMode();
         DisposePreview();
         ClearRoomOverlay();
+        CreatorCatalog?.SetPlacementReady(
+            false,
+            "No editable Room Overlay is loaded.");
         ModLog.Info("Room Overlay cleared: " + room.FrameworkLevelKey);
     }
 
@@ -726,13 +764,19 @@ internal class EditorMode : BlasMod
         string path = RoomExportPath(room);
         FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, room.ExportFileKey);
         RoomOverlayReconcileResult result = _overlayReconciler.Apply(room, file);
-        PublishReport("Room import", result.Report, false);
         if (!result.Succeeded)
         {
+            CreatorCatalog?.SetPlacementReady(
+                false,
+                "The editable Room Overlay is not ready.");
+            PublishReport("Room import", result.Report, false);
             ModLog.Warn("Room Overlay session was not created; see the Room import summary.");
             return false;
         }
 
+        CreatorCatalog?.SetPlacementReady(true);
+        PublishReport("Room import", result.Report, false);
+        EditorWidget?.RefreshAfterReport(true);
         return true;
     }
 
@@ -752,11 +796,24 @@ internal class EditorMode : BlasMod
 
     private void DisposePreview()
     {
-        if (_preview == null)
-            return;
+        System.Exception error = _catalogActions?.ClearPreview();
+        if (error != null)
+            ModLog.Error("Preview cleanup failed: " + error.Message);
+    }
 
-        _preview.Dispose();
-        _preview = null;
+    private void PublishCatalogActionUnavailable(
+        string operation,
+        string code,
+        string reason)
+    {
+        ApplyReport report = new();
+        report.Warning(
+            code,
+            operation.ToLowerInvariant(),
+            string.IsNullOrEmpty(reason)
+                ? "The selected creator is not available for " + operation.ToLowerInvariant() + "."
+                : reason);
+        PublishReport(operation, report);
     }
 
     private void StartCreatorPreload()
@@ -775,30 +832,94 @@ internal class EditorMode : BlasMod
 
     private IEnumerator PreloadCreatorSources()
     {
+        ApplyReport report = new();
         try
         {
             yield return null;
             foreach (CreatorMetadata metadata in Catalog.Entries)
             {
+                if (!metadata.HasLoader)
+                {
+                    report.Warning(
+                        ReportCodes.CreatorLoaderMissing,
+                        metadata.Type,
+                        "Creator has no loader; Preview and Place are unavailable.");
+                    UpdateCatalogSourceState(
+                        metadata.Type,
+                        CreatorCatalogSourceState.Unavailable,
+                        "Creator has no loader; Preview and Place are unavailable.");
+                    continue;
+                }
+
                 if (!RuntimeCreatorRegistry.TryGet(metadata.Type, out Blasphemous.Framework.Levels.ObjectCreator creator, out string error))
                 {
+                    report.Error(ReportCodes.CreatorUnsupported, metadata.Type, error);
+                    UpdateCatalogSourceState(
+                        metadata.Type,
+                        CreatorCatalogSourceState.Failed,
+                        error);
                     ModLog.Warn(error);
                     continue;
                 }
-                if (creator.Loader == null || creator.Loader.Result != null)
+                if (creator.Loader == null)
+                {
+                    report.Error(
+                        ReportCodes.RuntimeCreateFailed,
+                        metadata.Type,
+                        "Creator has no runtime loader.");
+                    UpdateCatalogSourceState(
+                        metadata.Type,
+                        CreatorCatalogSourceState.Failed,
+                        "Creator has no runtime loader.");
                     continue;
+                }
+                if (creator.Loader.Result != null)
+                {
+                    UpdateCatalogSourceState(
+                        metadata.Type,
+                        CreatorCatalogSourceState.Ready,
+                        null);
+                    continue;
+                }
 
                 IEnumerator load;
+                UpdateCatalogSourceState(
+                    metadata.Type,
+                    CreatorCatalogSourceState.Loading,
+                    "Source preload is running.");
                 try
                 {
                     load = creator.Loader.Apply();
                 }
                 catch (System.Exception exception)
                 {
+                    report.Error(
+                        ReportCodes.RuntimeCreateFailed,
+                        metadata.Type,
+                        "Creator source preload could not start: " + exception.Message);
+                    UpdateCatalogSourceState(
+                        metadata.Type,
+                        CreatorCatalogSourceState.Failed,
+                        "Creator source preload could not start: " + exception.Message);
                     ModLog.Error("Creator source preload could not start for " + metadata.Type + ": " + exception.Message);
                     continue;
                 }
+                if (load == null)
+                {
+                    report.Error(
+                        ReportCodes.RuntimeCreateFailed,
+                        metadata.Type,
+                        "Creator source preload returned no enumerator.");
+                    UpdateCatalogSourceState(
+                        metadata.Type,
+                        CreatorCatalogSourceState.Failed,
+                        "Creator source preload returned no enumerator.");
+                    ModLog.Error("Creator source preload returned no enumerator: " + metadata.Type);
+                    continue;
+                }
 
+                string failureReason = null;
+                bool failed = false;
                 while (true)
                 {
                     bool hasNext;
@@ -811,6 +932,12 @@ internal class EditorMode : BlasMod
                     }
                     catch (System.Exception exception)
                     {
+                        failed = true;
+                        failureReason = "Creator source preload failed: " + exception.Message;
+                        UpdateCatalogSourceState(
+                            metadata.Type,
+                            CreatorCatalogSourceState.Failed,
+                            failureReason);
                         ModLog.Error("Creator source preload failed for " + metadata.Type + ": " + exception.Message);
                         break;
                     }
@@ -820,14 +947,43 @@ internal class EditorMode : BlasMod
                     yield return current;
                 }
 
-                if (creator.Loader.Result == null)
-                    ModLog.Warn("Creator source preload returned no object: " + metadata.Type);
+                if (failed || creator.Loader.Result == null)
+                {
+                    string reason = failureReason ?? "Creator source preload returned no object.";
+                    report.Error(ReportCodes.RuntimeCreateFailed, metadata.Type, reason);
+                    UpdateCatalogSourceState(
+                        metadata.Type,
+                        CreatorCatalogSourceState.Failed,
+                        reason);
+                    if (!failed)
+                        ModLog.Warn(reason);
+                }
+                else
+                {
+                    UpdateCatalogSourceState(
+                        metadata.Type,
+                        CreatorCatalogSourceState.Ready,
+                        null);
+                }
             }
         }
         finally
         {
             _creatorPreload = null;
+            if (report.DiagnosticCount > 0)
+                PublishReport("Creator preload", report, false);
         }
+    }
+
+    private void UpdateCatalogSourceState(
+        string type,
+        CreatorCatalogSourceState state,
+        string reason)
+    {
+        if (CreatorCatalog == null || !CreatorCatalog.TrySetSourceState(type, state, reason))
+            return;
+
+        EditorWidget?.RefreshAfterReport(true);
     }
 
     private string RoomExportPath(RoomIdentity room)

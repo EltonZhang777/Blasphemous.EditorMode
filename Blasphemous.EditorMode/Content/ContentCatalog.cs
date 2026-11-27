@@ -41,7 +41,7 @@ internal sealed class PreviewInstance : IDisposable
     }
 }
 
-/// <summary>User-facing curated Content Catalog built from a verified creator probe.</summary>
+/// <summary>Content Catalog built from the complete runtime creator inventory.</summary>
 internal sealed class ContentCatalog
 {
     private readonly Dictionary<string, CreatorMetadata> _byType;
@@ -49,14 +49,13 @@ internal sealed class ContentCatalog
 
     private ContentCatalog(
         IEnumerable<CreatorMetadata> available,
-        IEnumerable<CreatorProbeDiagnostic> unavailable,
         Func<CreatorMetadata, PreviewInstance> previewFactory)
     {
-        _byType = new Dictionary<string, CreatorMetadata>(StringComparer.OrdinalIgnoreCase);
+        _byType = new Dictionary<string, CreatorMetadata>(StringComparer.Ordinal);
         List<CreatorMetadata> entries = [];
         foreach (CreatorMetadata metadata in available ?? [])
         {
-            if (metadata == null || !metadata.IsSupported || _byType.ContainsKey(metadata.Type))
+            if (metadata == null || _byType.ContainsKey(metadata.Type))
                 continue;
 
             _byType.Add(metadata.Type, metadata);
@@ -64,49 +63,32 @@ internal sealed class ContentCatalog
         }
 
         Entries = new ReadOnlyCollection<CreatorMetadata>(entries);
-        Unavailable = new ReadOnlyCollection<CreatorProbeDiagnostic>(
-            [.. unavailable ?? []]);
         _previewFactory = previewFactory ?? (metadata => new PreviewInstance(metadata, null));
     }
 
     internal ReadOnlyCollection<CreatorMetadata> Entries { get; }
-    internal ReadOnlyCollection<CreatorProbeDiagnostic> Unavailable { get; }
 
-    internal static ContentCatalog FromProbe(
-        CreatorProbeResult probe,
+    internal static ContentCatalog FromInventory(
+        RuntimeCreatorInventory inventory,
         Func<CreatorMetadata, PreviewInstance> previewFactory = null)
     {
-        if (probe == null)
-            throw new ArgumentNullException(nameof(probe));
+        if (inventory == null)
+            throw new ArgumentNullException(nameof(inventory));
 
-        return new ContentCatalog(probe.Available, probe.Diagnostics, previewFactory);
+        return new ContentCatalog(inventory.Entries, previewFactory);
     }
 
     internal static ContentCatalog FromEntries(
         IEnumerable<CreatorMetadata> available,
         Func<CreatorMetadata, PreviewInstance> previewFactory = null)
     {
-        return new ContentCatalog(available, [], previewFactory);
+        return new ContentCatalog(available, previewFactory);
     }
 
     internal bool TryGet(string type, out CreatorMetadata metadata)
     {
         metadata = null;
         return !string.IsNullOrEmpty(type) && _byType.TryGetValue(type, out metadata);
-    }
-
-    internal IEnumerable<CreatorMetadata> Search(string text, string category)
-    {
-        foreach (CreatorMetadata metadata in Entries)
-        {
-            bool categoryMatches = string.IsNullOrEmpty(category)
-                || string.Equals(metadata.Category, category, StringComparison.OrdinalIgnoreCase);
-            bool textMatches = string.IsNullOrEmpty(text)
-                || metadata.DisplayName.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0
-                || metadata.Type.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0;
-            if (categoryMatches && textMatches)
-                yield return metadata;
-        }
     }
 
     internal bool TryCreatePreview(
@@ -118,7 +100,9 @@ internal sealed class ContentCatalog
         error = null;
         if (!TryGet(type, out CreatorMetadata metadata))
         {
-            error = string.Format("Creator '{0}' is unavailable or unsupported.", type ?? "<null>");
+            error = string.Format(
+                "Creator '{0}' is not present in the runtime creator inventory.",
+                type ?? "<null>");
             return false;
         }
 

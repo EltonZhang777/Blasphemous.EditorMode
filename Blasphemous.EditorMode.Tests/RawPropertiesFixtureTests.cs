@@ -38,7 +38,7 @@ public sealed class RawPropertiesFixtureTests
         FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D01Z02S01");
         Assert.True(file.IsValid, Messages(file.Diagnostics));
         CreatorMetadata creator = new(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             "Iron Bell",
             "Traps",
             CreatorOrigin.BaseFramework,
@@ -71,23 +71,6 @@ public sealed class RawPropertiesFixtureTests
         Assert.Equal("note=first\r\nsecond", lineBreakProperties.Text);
         Assert.True(lineBreakProperties.ContainsLineBreak);
     }
-
-#if DEBUG
-    [Fact]
-    public void Debug_catalog_does_not_expose_smoke_fixture_keys_without_activation()
-    {
-        Assert.Empty(BaseCreatorCatalog.BellIron.PropertyKeys);
-    }
-
-    [Fact]
-    public void Raw_properties_smoke_activation_resolves_the_fixture_keys()
-    {
-        Assert.Equal(
-            FixturePropertyKeys,
-            RawPropertiesSmokeFixture.ResolveBellIronPropertyKeys(
-                RawPropertiesSmokeFixture.ActivationValue));
-    }
-#endif
 
     private static string Messages(System.Collections.Generic.IEnumerable<FrameworkDiagnostic> diagnostics)
     {

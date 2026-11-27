@@ -61,6 +61,27 @@ internal class EditorWidget : MonoBehaviour
     private InputField[] _scaleFields;
     private readonly PlacementInspectorRefreshState _inspectorRefresh = new();
     private bool _catalogBuilt;
+    private CreatorCatalogController _catalogController;
+    private CatalogRowView[] _catalogRows;
+    private Button _catalogPreviousButton;
+    private Button _catalogNextButton;
+    private Text _catalogPageText;
+    private Text _catalogDetailsText;
+    private Button _catalogPreviewButton;
+    private Button _catalogPlaceButton;
+
+    private sealed class CatalogRowView
+    {
+        internal CatalogRowView(Button button, Text label)
+        {
+            Button = button;
+            Label = label;
+        }
+
+        internal Button Button { get; }
+        internal Text Label { get; }
+        internal string Type { get; set; }
+    }
 
     private void Awake()
     {
@@ -189,7 +210,7 @@ internal class EditorWidget : MonoBehaviour
         if (editor.IsInputActionPressed("PlacePreview"))
         {
             if (!IsPointerOverEditorControl())
-                editor.TryPlacePreviewAtCursor();
+                editor.TryPlaceSelectedCreator();
             return;
         }
 
@@ -464,8 +485,11 @@ internal class EditorWidget : MonoBehaviour
         if (editor == null)
             return;
 
-        if (!_catalogBuilt && editor.Catalog != null)
-            BuildCatalog(editor.Catalog);
+        if (editor.CreatorCatalog != null
+            && (!_catalogBuilt || !ReferenceEquals(_catalogController, editor.CreatorCatalog)))
+            BuildCatalog(editor.CreatorCatalog);
+        if (_catalogBuilt)
+            RefreshCatalog();
 
         if (_statusText == null)
             return;
@@ -818,50 +842,160 @@ internal class EditorWidget : MonoBehaviour
         return input;
     }
 
-    private void BuildCatalog(ContentCatalog catalog)
+    private void BuildCatalog(CreatorCatalogController controller)
     {
-        _catalogBuilt = true;
-        int index = 0;
-        foreach (CreatorMetadata metadata in catalog.Search(null, null))
+        if (_catalogController != null)
         {
-            CreatorMetadata entry = metadata;
-            float y = 74f - (index++ * 36f);
-            CreateText(
-                "Catalog Info " + entry.Type,
-                new Vector2(-70f, y),
-                new Vector2(120f, 34f),
-                8,
-                TextAnchor.MiddleLeft,
-                _catalogRoot).text = string.Format(
-                    "{0}\n{1} | {2}\n{3}/{4}",
-                    entry.DisplayName,
-                    entry.Category,
-                    entry.TransformCapabilities,
-                    entry.SourceScene,
-                    entry.SourcePath);
-            CreateButton(
-                "Preview " + entry.Type,
-                "Preview",
-                new Vector2(-240f, y),
-                () => Main.EditorMode.TryPreviewAtCursor(entry.Type),
-                _catalogRoot);
-            CreateButton(
-                "Place " + entry.Type,
-                "Place",
-                new Vector2(-160f, y),
-                () => Main.EditorMode.TryPlaceAtCursor(entry.Type),
-                _catalogRoot);
+            for (int index = _catalogRoot.childCount - 1; index >= 0; index--)
+                Destroy(_catalogRoot.GetChild(index).gameObject);
         }
 
-        if (index == 0)
+        _catalogController = controller;
+        _catalogBuilt = true;
+        _catalogRows = new CatalogRowView[CreatorCatalogController.PageSize];
+
+        for (int index = 0; index < CreatorCatalogController.PageSize; index++)
         {
-            CreateText(
-                "No Content",
-                new Vector2(-195f, 70f),
-                new Vector2(230f, 32f),
-                14,
-                TextAnchor.MiddleLeft).text = "No verified creator";
+            int rowIndex = index;
+            Button row = CreateButton(
+                "Catalog Row " + index,
+                string.Empty,
+                new Vector2(-165f, 82f - (index * 24f)),
+                () => OnCatalogRowClicked(rowIndex),
+                _catalogRoot);
+            RectTransform rowRect = row.transform as RectTransform;
+            rowRect.sizeDelta = new Vector2(300f, 20f);
+            Text label = row.GetComponentInChildren<Text>();
+            label.fontSize = 8;
+            label.alignment = TextAnchor.MiddleLeft;
+            label.rectTransform.offsetMin = new Vector2(6f, 0f);
+            _catalogRows[index] = new CatalogRowView(row, label);
         }
+
+        _catalogPreviousButton = CreateButton(
+            "Catalog Previous",
+            "Previous",
+            new Vector2(-275f, -36f),
+            OnCatalogPrevious,
+            _catalogRoot);
+        (_catalogPreviousButton.transform as RectTransform).sizeDelta = new Vector2(56f, 18f);
+        _catalogPreviousButton.GetComponentInChildren<Text>().fontSize = 9;
+
+        _catalogPageText = CreateText(
+            "Catalog Page",
+            new Vector2(-170f, -36f),
+            new Vector2(130f, 18f),
+            9,
+            TextAnchor.MiddleCenter,
+            _catalogRoot);
+
+        _catalogNextButton = CreateButton(
+            "Catalog Next",
+            "Next",
+            new Vector2(-65f, -36f),
+            OnCatalogNext,
+            _catalogRoot);
+        (_catalogNextButton.transform as RectTransform).sizeDelta = new Vector2(56f, 18f);
+        _catalogNextButton.GetComponentInChildren<Text>().fontSize = 9;
+
+        CreateText(
+            "Catalog Details Header",
+            new Vector2(-165f, -50f),
+            new Vector2(300f, 12f),
+            9,
+            TextAnchor.MiddleLeft,
+            _catalogRoot).text = "Selected Creator";
+        _catalogDetailsText = CreateText(
+            "Catalog Details",
+            new Vector2(-165f, -91f),
+            new Vector2(300f, 70f),
+            8,
+            TextAnchor.UpperLeft,
+            _catalogRoot);
+        _catalogDetailsText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        _catalogDetailsText.verticalOverflow = VerticalWrapMode.Truncate;
+        _catalogDetailsText.lineSpacing = 0.9f;
+
+        _catalogPreviewButton = CreateButton(
+            "Catalog Preview",
+            "Preview",
+            new Vector2(-235f, -136f),
+            () => Main.EditorMode?.TryPreviewSelectedCreator(),
+            _catalogRoot);
+        (_catalogPreviewButton.transform as RectTransform).sizeDelta = new Vector2(90f, 18f);
+        _catalogPreviewButton.GetComponentInChildren<Text>().fontSize = 10;
+        _catalogPlaceButton = CreateButton(
+            "Catalog Place",
+            "Place",
+            new Vector2(-140f, -136f),
+            () => Main.EditorMode?.TryPlaceSelectedCreator(),
+            _catalogRoot);
+        (_catalogPlaceButton.transform as RectTransform).sizeDelta = new Vector2(90f, 18f);
+        _catalogPlaceButton.GetComponentInChildren<Text>().fontSize = 10;
+    }
+
+    private void RefreshCatalog()
+    {
+        if (_catalogController == null)
+            return;
+
+        CreatorCatalogSnapshot snapshot = _catalogController.CreateSnapshot();
+        for (int index = 0; index < _catalogRows.Length; index++)
+        {
+            bool visible = index < snapshot.Rows.Count;
+            CatalogRowView view = _catalogRows[index];
+            view.Button.gameObject.SetActive(visible);
+            if (!visible)
+            {
+                view.Type = null;
+                continue;
+            }
+
+            CreatorCatalogRowSnapshot row = snapshot.Rows[index];
+            view.Type = row.Metadata.Type;
+            view.Label.text = string.Format(
+                "{0}  [{1}]  {2}",
+                row.Metadata.DisplayName,
+                row.Metadata.Type,
+                row.Status);
+            view.Button.GetComponent<Image>().color = row.IsSelected
+                ? new Color(1f, 0.78f, 0.2f, 0.95f)
+                : new Color(1f, 1f, 1f, 0.75f);
+        }
+
+        _catalogPreviousButton.interactable = snapshot.HasPreviousPage;
+        _catalogNextButton.interactable = snapshot.HasNextPage;
+        _catalogPageText.text = string.Format(
+            "Page {0} / {1} | {2} entries",
+            snapshot.PageCount == 0 ? 0 : snapshot.PageIndex + 1,
+            snapshot.PageCount,
+            snapshot.EntryCount);
+        _catalogDetailsText.text = snapshot.DetailsText;
+        _catalogPreviewButton.interactable = snapshot.Preview.Available;
+        _catalogPlaceButton.interactable = snapshot.Place.Available;
+    }
+
+    private void OnCatalogRowClicked(int index)
+    {
+        if (_catalogRows == null
+            || index < 0
+            || index >= _catalogRows.Length
+            || string.IsNullOrEmpty(_catalogRows[index].Type))
+            return;
+
+        Main.EditorMode?.TrySelectCatalogCreator(_catalogRows[index].Type);
+    }
+
+    private void OnCatalogPrevious()
+    {
+        if (_catalogController != null && _catalogController.PreviousPage())
+            RefreshCatalog();
+    }
+
+    private void OnCatalogNext()
+    {
+        if (_catalogController != null && _catalogController.NextPage())
+            RefreshCatalog();
     }
 
     private void EnsureUiInput()

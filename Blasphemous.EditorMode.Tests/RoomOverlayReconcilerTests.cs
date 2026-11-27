@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using Xunit;
 
+
 namespace Blasphemous.EditorMode.Tests;
 
 public sealed class RoomOverlayReconcilerTests
@@ -24,7 +25,7 @@ public sealed class RoomOverlayReconcilerTests
             FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
             FakeFactory factory = new FakeFactory();
             RoomOverlayReconciler reconciler = new RoomOverlayReconciler(
-                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
                 factory);
             RoomIdentity room = CreateRoom("D03Z02S06", "D03Z02S06_LOGIC");
 
@@ -64,7 +65,7 @@ public sealed class RoomOverlayReconcilerTests
         FakeAdoptingFactory factory = new FakeAdoptingFactory(
             new[] { first, second, wrongRoom, wrongSource, wrongType });
         RoomOverlayReconciler reconciler = new RoomOverlayReconciler(
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         RoomOverlayReconcileResult result = reconciler.Apply(
             CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
@@ -92,7 +93,7 @@ public sealed class RoomOverlayReconcilerTests
         FrameworkFileResult file = new FrameworkFileResult(path, source, parsed.Document, parsed.Diagnostics);
         FakeFactory factory = new FakeFactory();
         RoomOverlayReconciler reconciler = new RoomOverlayReconciler(
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         RoomIdentity room = CreateRoom("D03Z02S06", "D03Z02S06_LOGIC");
 
@@ -132,11 +133,11 @@ public sealed class RoomOverlayReconcilerTests
             LevelEditSessionImportResult expected = LevelEditSession.Import(
                 room,
                 file,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
             LevelEditSessionImportResult actual = LevelEditSession.Import(
                 room,
                 file,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
             ApplyReport report = new ApplyReport();
 
             Assert.True(RoomOverlayComparer.Matches(expected.Session, actual.Session, report), report.ToSummary("compare"));
@@ -148,7 +149,7 @@ public sealed class RoomOverlayReconcilerTests
             LevelEditSessionImportResult wrongScope = LevelEditSession.Import(
                 otherRoom,
                 otherFile,
-                new[] { BaseCreatorCatalog.BellIron });
+                new[] { CreatorFixtures.BellIron });
             Assert.False(RoomOverlayComparer.Matches(expected.Session, wrongScope.Session, report));
             Assert.Contains(report.Entries, x => x.Code == "ROUND_TRIP_SCOPE");
         }
@@ -170,7 +171,7 @@ public sealed class RoomOverlayReconcilerTests
             FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
             FakeFactory factory = new FakeFactory();
             RoomOverlayReconciler reconciler = new RoomOverlayReconciler(
-                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
                 factory);
             RoomOverlayReconcileResult result = reconciler.Apply(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
@@ -200,7 +201,7 @@ public sealed class RoomOverlayReconcilerTests
             FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
             FakeFactory factory = new FakeFactory();
             RoomOverlayReconciler reconciler = new RoomOverlayReconciler(
-                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
                 factory);
             RoomOverlayReconcileResult result = reconciler.Apply(
                 CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
@@ -210,7 +211,7 @@ public sealed class RoomOverlayReconcilerTests
             Assert.True(result.Succeeded, result.StatusMessage);
             PlacementRecord placement;
             Assert.True(result.Manager.TryPlace(
-                BaseCreatorCatalog.BellIronType,
+                CreatorFixtures.BellIronType,
                 PlacementTransform.Default,
                 null,
                 report,

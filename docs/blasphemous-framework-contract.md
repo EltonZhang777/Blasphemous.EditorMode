@@ -1,6 +1,6 @@
 # Blasphemous Level Framework Contract
 
-Status: static contract and creator metadata verified against the target profile. Runtime scene loading remains pending because this goal skips in-game tests.
+Status: static contract and runtime creator inventory verified against the target profile. Runtime scene loading and editor interactions are covered by separate Editor Mode smoke evidence.
 
 ## Evidence
 
@@ -30,7 +30,7 @@ The base Framework reads three top-level arrays. Field names are lowercase becau
 
 The Framework defaults `position` and `rotation` to `(0, 0, 0)`, `scale` to `(1, 1, 1)`, `condition` to an empty string, and `properties` to an empty array. Editor-only metadata is not part of this document.
 
-## Verified base creator metadata
+## Verified base creator metadata reference
 
 | Type | Display name | Category | Source scene | Source path | Transform | Properties |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -38,8 +38,10 @@ The Framework defaults `position` and `rotation` to `(0, 0, 0)`, `scale` to `(1,
 
 The creator is registered by the base Framework `OnRegisterServices` implementation with `SceneLoader` and `NoModifier("Iron bell")`. `BaseModifier` applies the position, rotation, scale, and active state.
 
-## Probe boundary
+The table is a verified reference used by existing tests. It is not catalog membership data: the Content Catalog now uses the runtime registry key as its identity and display fallback, with `Registered`, `Level Framework`, and `Not declared` filling missing metadata. Loader and modifier availability is recorded from the runtime registration.
 
-`RuntimeCreatorProbe` reads the Framework's internal creator registry only for the curated metadata check. It catches reflection and registry failures, then returns a diagnostic. It does not make `LevelFrameworkExtended` a dependency.
+## Runtime creator inventory boundary
 
-The current goal intentionally does not claim that `bell-iron` loaded a scene or produced an isolated runtime object. That requires an in-game test in the configured profile.
+`RuntimeCreatorInventoryReader` reads the Framework's internal creator registry through guarded reflection and builds the complete runtime inventory. Registry, enumeration, and value-access failures become diagnostics; exact registry keys are preserved; and the inventory does not require `LevelFrameworkExtended`.
+
+`RuntimeCreatorRegistry.TryGet` resolves Preview and Place targets with the same exact key. A read or lookup failure leaves the rest of the editor usable and is surfaced through the existing report and log surfaces.

@@ -507,7 +507,7 @@ internal static class RuntimeCreatorRegistry
                 PropertyInfo key = entryType.GetProperty("Key");
                 PropertyInfo value = entryType.GetProperty("Value");
                 if (key == null || value == null
-                    || !string.Equals(key.GetValue(entry, null) as string, type, StringComparison.OrdinalIgnoreCase))
+                    || !string.Equals(key.GetValue(entry, null) as string, type, StringComparison.Ordinal))
                     continue;
 
                 creator = value.GetValue(entry, null) as ObjectCreator;

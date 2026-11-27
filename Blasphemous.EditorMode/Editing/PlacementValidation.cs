@@ -23,7 +23,7 @@ internal static class PlacementValidation
         CreatorMetadata creator,
         ApplyReport report)
     {
-        if (placement == null || creator == null || !creator.IsSupported)
+        if (placement == null || creator == null)
         {
             report.Error(ReportCodes.PlacementInvalid, placement == null ? "$" : placement.Id, "Placement or creator is invalid.");
             return false;

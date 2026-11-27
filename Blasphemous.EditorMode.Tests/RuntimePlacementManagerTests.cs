@@ -18,20 +18,50 @@ public sealed class RuntimePlacementManagerTests
     public void Place_creates_unique_owned_records_and_projection_handles()
     {
         LevelEditSession session = CreateSession();
-        ContentCatalog catalog = ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron });
+        ContentCatalog catalog = ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron });
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(session, catalog, factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord first;
         PlacementRecord second;
 
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out first));
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out second));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out first));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out second));
         Assert.NotEqual(first.Id, second.Id);
         Assert.Equal(PlacementOwnership.ArchitectOwned, first.Ownership);
         Assert.Equal(2, manager.OwnedPlacementIds.Count);
         Assert.Equal(2, session.Placements.Count);
         Assert.Equal(2, factory.Created.Count);
+    }
+
+    [Fact]
+    public void Place_routes_to_the_exact_case_variant_selected_in_the_catalog()
+    {
+        RuntimeCreatorInventory inventory = RuntimeCreatorInventory.FromRegistryEntries(
+            new[]
+            {
+                new RuntimeCreatorRegistryEntry("Uncurated", true, true),
+                new RuntimeCreatorRegistryEntry("uncurated", true, true)
+            });
+        ContentCatalog catalog = ContentCatalog.FromInventory(inventory);
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new();
+        RuntimePlacementManager manager = new(session, catalog, factory);
+        ApplyReport report = new();
+
+        Assert.True(manager.TryPlace(
+            "uncurated",
+            PlacementTransform.Default,
+            null,
+            report,
+            out PlacementRecord placement));
+
+        Assert.Equal("uncurated", placement.Type);
+        Assert.Equal("uncurated", session.Placements.Single().Type);
+        Assert.Equal("uncurated", factory.Created.Single().AppliedPlacement.Type);
+        Assert.DoesNotContain(
+            report.Entries,
+            entry => entry.Code == ReportCodes.CreatorUnsupported);
     }
 
     [Fact]
@@ -41,11 +71,11 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out placement));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out placement));
 
         PlacementRecord selected;
         Assert.True(manager.TrySelect(placement.Id, report, out selected));
@@ -69,12 +99,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory { ReturnOriginal = true };
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
 
-        Assert.False(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out placement));
+        Assert.False(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out placement));
         Assert.Empty(session.Placements);
 
         PlacementRecord selected;
@@ -111,8 +141,7 @@ public sealed class RuntimePlacementManagerTests
             {
                 new CreatorPropertyDefinition("count", CreatorPropertyType.Integer),
                 new CreatorPropertyDefinition("mode", CreatorPropertyType.Enum, new[] { "safe", "fast" })
-            },
-            true);
+            });
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
@@ -151,8 +180,7 @@ public sealed class RuntimePlacementManagerTests
             "scene",
             "path",
             TransformCapabilities.Position,
-            new[] { new CreatorPropertyDefinition("count", CreatorPropertyType.Integer) },
-            true);
+            new[] { new CreatorPropertyDefinition("count", CreatorPropertyType.Integer) });
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
@@ -194,8 +222,7 @@ public sealed class RuntimePlacementManagerTests
             "scene",
             "path",
             TransformCapabilities.Position,
-            new[] { new CreatorPropertyDefinition("count", CreatorPropertyType.Integer) },
-            true);
+            new[] { new CreatorPropertyDefinition("count", CreatorPropertyType.Integer) });
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
@@ -241,8 +268,7 @@ public sealed class RuntimePlacementManagerTests
             "scene",
             "path",
             TransformCapabilities.Position,
-            new[] { new CreatorPropertyDefinition("count", CreatorPropertyType.Integer) },
-            true);
+            new[] { new CreatorPropertyDefinition("count", CreatorPropertyType.Integer) });
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
@@ -283,12 +309,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
         Assert.True(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             null,
             report,
@@ -312,12 +338,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
         Assert.True(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             null,
             report,
@@ -348,12 +374,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
         Assert.True(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             null,
             report,
@@ -386,12 +412,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
         Assert.True(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             null,
             report,
@@ -424,12 +450,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
         Assert.True(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             null,
             report,
@@ -465,12 +491,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
         Assert.True(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             null,
             report,
@@ -516,8 +542,7 @@ public sealed class RuntimePlacementManagerTests
                 new CreatorPropertyDefinition("safe", CreatorPropertyType.String),
                 new CreatorPropertyDefinition("note", CreatorPropertyType.String),
                 new CreatorPropertyDefinition("middle", CreatorPropertyType.String)
-            },
-            true);
+            });
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
@@ -570,12 +595,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
         Assert.True(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             null,
             report,
@@ -636,12 +661,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord source;
         PlacementTransform transform = new PlacementTransform(2f, 3f, 4f, 0f, 0f, 20f, 1f, 1f, 1f);
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, transform, null, "flag:opened", report, out source));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, transform, null, "flag:opened", report, out source));
 
         PlacementRecord cursor;
         Assert.True(manager.TryPick(source.Id, report, out cursor));
@@ -663,12 +688,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord source;
         Assert.True(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             null,
             report,
@@ -691,7 +716,7 @@ public sealed class RuntimePlacementManagerTests
         ApplyReport invalidReport = new ApplyReport();
         PlacementRecord rejected;
         Assert.False(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             new[] { "OneWayDown" },
             null,
@@ -707,11 +732,11 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out placement));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out placement));
         Assert.True(manager.TrySetLocked(placement.Id, true, report));
         Assert.True(session.TryGetPlacement(placement.Id, out placement));
         Assert.True(placement.IsLocked);
@@ -729,13 +754,13 @@ public sealed class RuntimePlacementManagerTests
         InactiveConditionFactory factory = new InactiveConditionFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
 
         Assert.False(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             null,
             "flag:not-opened",
@@ -754,13 +779,13 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
 
         Assert.Equal(LevelEditSessionState.Clean, session.State);
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out placement));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out placement));
         Assert.Equal(LevelEditSessionState.Dirty, session.State);
         Assert.True(manager.History.CanUndo);
         Assert.True(manager.TryUndo(report));
@@ -782,12 +807,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
         Assert.True(manager.TryPlace(
-            BaseCreatorCatalog.BellIronType,
+            CreatorFixtures.BellIronType,
             PlacementTransform.Default,
             null,
             report,
@@ -817,12 +842,12 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
 
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out placement));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out placement));
         Assert.True(manager.TryReset(report));
         Assert.Empty(session.Placements);
         Assert.Empty(manager.OwnedPlacementIds);
@@ -841,14 +866,14 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord first;
         PlacementRecord second;
 
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out first));
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out second));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out first));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out second));
         factory.FailDestroyCall = 2;
 
         Assert.False(manager.TryReset(report));
@@ -872,14 +897,14 @@ public sealed class RuntimePlacementManagerTests
         FakeFactory factory = new FakeFactory();
         RuntimePlacementManager manager = new RuntimePlacementManager(
             session,
-            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
             factory);
         ApplyReport report = new ApplyReport();
         PlacementRecord first;
         PlacementRecord second;
 
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out first));
-        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out second));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out first));
+        Assert.True(manager.TryPlace(CreatorFixtures.BellIronType, PlacementTransform.Default, null, report, out second));
         factory.FailDestroyCall = 2;
         factory.FailCreateCall = 3;
 
@@ -902,7 +927,7 @@ public sealed class RuntimePlacementManagerTests
         LevelEditSessionImportResult result = LevelEditSession.Import(
             room,
             file,
-            new[] { BaseCreatorCatalog.BellIron });
+            new[] { CreatorFixtures.BellIron });
         Assert.True(result.Succeeded, result.StatusMessage);
         return result.Session;
     }

@@ -7,45 +7,36 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class ContentCatalogTests
 {
     [Fact]
-    public void Probe_builds_a_curated_catalog_with_creator_metadata()
+    public void Runtime_inventory_drives_membership_and_preserves_case_variants()
     {
-        ContentCatalog catalog = ContentCatalog.FromProbe(
-            CreatorProbe.Evaluate(
-                new[] { BaseCreatorCatalog.BellIron },
-                new[] { BaseCreatorCatalog.BellIronType }));
+        RuntimeCreatorInventory inventory = RuntimeCreatorInventory.FromRegistryEntries(
+            new[]
+            {
+                new RuntimeCreatorRegistryEntry("bell-iron", true, true),
+                new RuntimeCreatorRegistryEntry("Uncurated", true, true),
+                new RuntimeCreatorRegistryEntry("uncurated", false, true)
+            });
+        ContentCatalog catalog = ContentCatalog.FromInventory(inventory);
 
-        CreatorMetadata entry = Assert.Single(catalog.Entries);
-        Assert.Equal("Iron Bell", entry.DisplayName);
-        Assert.Equal("Traps", entry.Category);
-        Assert.Equal(CreatorOrigin.BaseFramework, entry.Origin);
-        Assert.Equal("D03Z02S06_LOGIC", entry.SourceScene);
-        Assert.NotEqual(TransformCapabilities.None, entry.TransformCapabilities);
+        Assert.Equal(
+            new[] { "bell-iron", "Uncurated", "uncurated" },
+            Array.ConvertAll([.. catalog.Entries], entry => entry.Type));
+        Assert.True(catalog.TryGet("Uncurated", out CreatorMetadata upper));
+        Assert.True(catalog.TryGet("uncurated", out CreatorMetadata lower));
+        Assert.NotSame(upper, lower);
+        Assert.False(catalog.TryGet("UNCURATED", out _));
     }
 
     [Fact]
-    public void Missing_or_optional_entries_are_not_placeable_and_remain_diagnosed()
+    public void Missing_exact_key_reports_the_runtime_inventory_boundary()
     {
-        CreatorMetadata optional = new CreatorMetadata(
-            "optional-object",
-            "Optional object",
-            "Optional",
-            CreatorOrigin.OptionalExtension,
-            "scene",
-            "path",
-            TransformCapabilities.Position,
-            new string[0],
-            false);
-        ContentCatalog catalog = ContentCatalog.FromProbe(
-            CreatorProbe.Evaluate(
-                new[] { BaseCreatorCatalog.BellIron, optional },
-                new[] { BaseCreatorCatalog.BellIronType }));
-
-        Assert.Single(catalog.Entries);
-        Assert.Single(catalog.Unavailable);
+        ContentCatalog catalog = ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron });
         PreviewInstance preview;
         string error;
-        Assert.False(catalog.TryCreatePreview(optional.Type, out preview, out error));
-        Assert.Contains("unavailable", error);
+
+        Assert.False(catalog.TryCreatePreview("BELL-IRON", out preview, out error));
+        Assert.Null(preview);
+        Assert.Contains("runtime creator inventory", error);
     }
 
     [Fact]
@@ -53,12 +44,14 @@ public sealed class ContentCatalogTests
     {
         int disposed = 0;
         ContentCatalog catalog = ContentCatalog.FromEntries(
-            new[] { BaseCreatorCatalog.BellIron },
+            new[] { CreatorFixtures.BellIron },
             metadata => new PreviewInstance(metadata, () => disposed++));
 
         PreviewInstance preview;
         string error;
-        Assert.True(catalog.TryCreatePreview(BaseCreatorCatalog.BellIronType, out preview, out error), error);
+        Assert.True(
+            catalog.TryCreatePreview(CreatorFixtures.BellIronType, out preview, out error),
+            error);
         Assert.True(preview.IsGameplayIsolated);
         Assert.False(preview.AffectsRoomOverlay);
         preview.Dispose();
@@ -71,7 +64,10 @@ public sealed class ContentCatalogTests
     public void Preview_follows_cursor_until_disposed()
     {
         int updates = 0;
-        PreviewInstance preview = new PreviewInstance(BaseCreatorCatalog.BellIron, null, () => updates++);
+        PreviewInstance preview = new(
+            CreatorFixtures.BellIron,
+            null,
+            () => updates++);
 
         preview.FollowCursor();
         Assert.Equal(1, updates);
@@ -81,13 +77,4 @@ public sealed class ContentCatalogTests
         Assert.Equal(1, updates);
     }
 
-    [Fact]
-    public void Search_filters_by_display_text_and_category()
-    {
-        ContentCatalog catalog = ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron });
-
-        Assert.Single(catalog.Search("iron", "Traps"));
-        Assert.Empty(catalog.Search("iron", "Platforms"));
-        Assert.Empty(catalog.Search("missing", null));
-    }
 }
