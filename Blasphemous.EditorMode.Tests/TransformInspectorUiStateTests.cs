@@ -12,37 +12,43 @@ public sealed class TransformInspectorUiStateTests
         PlacementTransform displayed = CreateTransform();
         PlacementTransform selected = CreateTransform();
 
-        bool refresh = TransformInspectorRefreshPolicy.ShouldRefresh(
+        TransformInspectorRefreshDecision decision =
+            TransformInspectorRefreshPolicy.Evaluate(
             "placement-1",
             displayed,
             "PLACEMENT-1",
             selected);
 
-        Assert.False(refresh);
+        Assert.False(decision.SelectionChanged);
+        Assert.False(decision.FieldsChanged);
     }
 
     [Fact]
     public void SameIdWithChangedTransformRequiresRefresh()
     {
-        bool refresh = TransformInspectorRefreshPolicy.ShouldRefresh(
+        TransformInspectorRefreshDecision decision =
+            TransformInspectorRefreshPolicy.Evaluate(
             "placement-1",
             CreateTransform(),
             "placement-1",
             CreateTransform(45f));
 
-        Assert.True(refresh);
+        Assert.False(decision.SelectionChanged);
+        Assert.True(decision.FieldsChanged);
     }
 
     [Fact]
     public void ChangedIdRequiresRefreshEvenWhenTransformMatches()
     {
-        bool refresh = TransformInspectorRefreshPolicy.ShouldRefresh(
+        TransformInspectorRefreshDecision decision =
+            TransformInspectorRefreshPolicy.Evaluate(
             "placement-1",
             CreateTransform(),
             "placement-2",
             CreateTransform());
 
-        Assert.True(refresh);
+        Assert.True(decision.SelectionChanged);
+        Assert.True(decision.FieldsChanged);
     }
 
     [Fact]

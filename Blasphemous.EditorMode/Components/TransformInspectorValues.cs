@@ -160,17 +160,31 @@ internal static class TransformInspectorFieldMapping
 
 internal static class TransformInspectorRefreshPolicy
 {
-    internal static bool ShouldRefresh(
+    internal static TransformInspectorRefreshDecision Evaluate(
         string currentId,
         PlacementTransform currentTransform,
         string selectedId,
         PlacementTransform selectedTransform)
     {
-        if (!string.Equals(currentId, selectedId, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
+        bool selectionChanged =
+            !string.Equals(currentId, selectedId, StringComparison.OrdinalIgnoreCase);
+        bool transformChanged = !object.Equals(currentTransform, selectedTransform);
 
-        return !object.Equals(currentTransform, selectedTransform);
+        return new TransformInspectorRefreshDecision(
+            selectionChanged,
+            selectionChanged || transformChanged);
     }
+}
+
+internal readonly struct TransformInspectorRefreshDecision
+{
+    internal TransformInspectorRefreshDecision(bool selectionChanged, bool fieldsChanged)
+    {
+        SelectionChanged = selectionChanged;
+        FieldsChanged = fieldsChanged;
+    }
+
+    internal bool SelectionChanged { get; }
+
+    internal bool FieldsChanged { get; }
 }
