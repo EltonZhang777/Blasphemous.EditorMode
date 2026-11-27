@@ -1,3 +1,4 @@
+using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
 using System;
 using System.Globalization;
@@ -182,6 +183,38 @@ internal static class TransformInspectorFieldMapping
         Write(values.Position, writePosition);
         Write(values.Rotation, writeRotation);
         Write(values.Scale, writeScale);
+    }
+}
+
+internal static class TransformInspectorApplyPolicy
+{
+    internal static bool TryApplySelected(
+        RuntimePlacementManager manager,
+        Func<int, string> readPosition,
+        Func<int, string> readRotation,
+        Func<int, string> readScale,
+        ApplyReport report)
+    {
+        if (manager == null || manager.Selected == null)
+        {
+            return false;
+        }
+        if (report == null)
+        {
+            throw new ArgumentNullException(nameof(report));
+        }
+
+        TransformInspectorValues values = TransformInspectorFieldMapping.ReadValues(
+            readPosition,
+            readRotation,
+            readScale);
+        if (!values.TryCreateTransform(out PlacementTransform transform, out string error))
+        {
+            report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, error);
+            return false;
+        }
+
+        return manager.TryMove(manager.Selected.Id, transform, report);
     }
 }
 

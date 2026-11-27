@@ -1,3 +1,4 @@
+using Blasphemous.EditorMode.Components;
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
@@ -59,6 +60,49 @@ public sealed class RuntimePlacementManagerTests
         Assert.Empty(session.Placements);
         Assert.Equal(1, factory.Created[0].DestroyCount);
         Assert.False(manager.TryRemove(placement.Id, report));
+    }
+
+    [Fact]
+    public void InspectorFieldGroupsRoundTripThroughSelectedPlacement()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        string[] position = ["4.25", "-5.5", "6.75"];
+        string[] rotation = ["7.125", "-8.25", "9.5"];
+        string[] scale = ["1.5", "2.5", "3.5"];
+
+        Assert.True(TransformInspectorApplyPolicy.TryApplySelected(
+            manager,
+            index => position[index],
+            index => rotation[index],
+            index => scale[index],
+            report));
+
+        PlacementTransform expected = new(
+            4.25f,
+            -5.5f,
+            6.75f,
+            7.125f,
+            -8.25f,
+            9.5f,
+            1.5f,
+            2.5f,
+            3.5f);
+        Assert.True(session.TryGetPlacement(placement.Id, out PlacementRecord stored));
+        Assert.Equal(expected, manager.Selected.Transform);
+        Assert.Equal(expected, stored.Transform);
     }
 
     [Fact]

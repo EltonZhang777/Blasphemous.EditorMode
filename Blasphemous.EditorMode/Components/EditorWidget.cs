@@ -659,11 +659,10 @@ internal class EditorWidget : MonoBehaviour
             return;
         }
 
-        TransformInspectorValues values = TransformInspectorFieldMapping.ReadValues(
+        Main.EditorMode.TryApplySelectedTransform(
             index => ReadFieldValue(_positionFields, index),
             index => ReadFieldValue(_rotationFields, index),
             index => ReadFieldValue(_scaleFields, index));
-        Main.EditorMode.TryApplySelectedTransform(values);
     }
 
     private static string ReadFieldValue(InputField[] fields, int index)

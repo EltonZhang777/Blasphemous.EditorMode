@@ -570,7 +570,10 @@ internal class EditorMode : BlasMod
         PublishReport("Preview", report);
     }
 
-    internal bool TryApplySelectedTransform(TransformInspectorValues values)
+    internal bool TryApplySelectedTransform(
+        System.Func<int, string> readPosition,
+        System.Func<int, string> readRotation,
+        System.Func<int, string> readScale)
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
@@ -579,23 +582,11 @@ internal class EditorMode : BlasMod
         }
 
         ApplyReport report = new();
-        if (values == null)
-        {
-            report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, "Position, rotation, and scale values are required.");
-            PublishReport("Transform", report);
-            return false;
-        }
-
-        if (!values.TryCreateTransform(out PlacementTransform transform, out string error))
-        {
-            report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, error);
-            PublishReport("Transform", report);
-            return false;
-        }
-
-        bool result = manager.TryMove(
-            manager.Selected.Id,
-            transform,
+        bool result = TransformInspectorApplyPolicy.TryApplySelected(
+            manager,
+            readPosition,
+            readRotation,
+            readScale,
             report);
         PublishReport("Transform", report);
         return result;
