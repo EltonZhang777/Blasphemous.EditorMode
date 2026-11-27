@@ -113,11 +113,11 @@ internal sealed class ApplyReport
     {
         foreach (FrameworkDiagnostic diagnostic in diagnostics ?? [])
         {
-            Warning(
-                ClassifyFrameworkDiagnostic(diagnostic.Message),
-                diagnostic.Location,
-                diagnostic.Message,
-                skipped: true);
+            string code = ClassifyFrameworkDiagnostic(diagnostic.Message);
+            if (diagnostic.Severity == FrameworkDiagnosticSeverity.Error)
+                Warning(code, diagnostic.Location, diagnostic.Message, skipped: true);
+            else
+                Info(code, diagnostic.Location, diagnostic.Message);
         }
     }
 

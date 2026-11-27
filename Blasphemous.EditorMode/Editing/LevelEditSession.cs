@@ -150,7 +150,10 @@ internal sealed class LevelEditSession
 
         if (file.Document == null || HasFatalFrameworkDiagnostic(file.Diagnostics))
         {
-            MergeImportDiagnostics(report, file);
+            MergePreservedAdditionAwareDiagnostics(
+                report,
+                file.Diagnostics,
+                file.Document?.Additions);
             report.Error(
                 ReportCodes.ImportInvalid,
                 file.Path,
@@ -158,7 +161,6 @@ internal sealed class LevelEditSession
             return Failed(report, file.OriginalText);
         }
 
-        MergeImportDiagnostics(report, file);
         Dictionary<string, CreatorMetadata> creators = new(StringComparer.OrdinalIgnoreCase);
         foreach (CreatorMetadata creator in supportedCreators ?? [])
         {
@@ -177,21 +179,6 @@ internal sealed class LevelEditSession
             {
                 string location = "additions[" + (string.IsNullOrEmpty(data.Id) ? "unknown" : data.Id) + "]";
                 importedAdditions.Add(data);
-                CreatorMetadata originalCreator = null;
-                if (!string.IsNullOrEmpty(data.Type)
-                    && !creators.TryGetValue(data.Type, out originalCreator))
-                {
-                    report.Warning(
-                        ReportCodes.CreatorUnsupported,
-                        location,
-                        "Creator '" + data.Type + "' is unavailable in the current profile.",
-                        true);
-                }
-                else
-                {
-                    if (originalCreator != null)
-                        ReportValidationWarnings(data, originalCreator, report);
-                }
                 ReportPreservedAddition(report, location);
                 continue;
             }
@@ -199,11 +186,6 @@ internal sealed class LevelEditSession
             if (!creators.TryGetValue(data.Type, out CreatorMetadata creator))
             {
                 string location = "additions[" + data.Id + "]";
-                report.Warning(
-                    ReportCodes.CreatorUnsupported,
-                    location,
-                    "Creator '" + data.Type + "' is unavailable in the current profile.",
-                    true);
                 importedAdditions.Add(data.WithPreservedOriginalAddition());
                 ReportPreservedAddition(report, location);
                 continue;
@@ -213,7 +195,6 @@ internal sealed class LevelEditSession
             if (!PlacementValidation.Validate(data, creator, validation))
             {
                 string location = "additions[" + data.Id + "]";
-                MergeValidationWarnings(report, validation);
                 importedAdditions.Add(data.WithPreservedOriginalAddition());
                 ReportPreservedAddition(report, location);
                 continue;
@@ -236,6 +217,10 @@ internal sealed class LevelEditSession
             placements.Add(PlacementRecord.FromFramework(data));
             report.Applied();
         }
+        MergePreservedAdditionAwareDiagnostics(
+            report,
+            file.Diagnostics,
+            importedAdditions);
 
         FrameworkLevelEdit importedDocument = new(
             importedAdditions,
@@ -256,15 +241,16 @@ internal sealed class LevelEditSession
         return new LevelEditSessionImportResult(session, state, report, file.OriginalText);
     }
 
-    private static void MergeImportDiagnostics(
+    private static void MergePreservedAdditionAwareDiagnostics(
         ApplyReport report,
-        FrameworkFileResult file)
+        IEnumerable<FrameworkDiagnostic> diagnostics,
+        IList<FrameworkObjectData> additions)
     {
         List<FrameworkDiagnostic> retained = [];
         List<FrameworkDiagnostic> other = [];
-        foreach (FrameworkDiagnostic diagnostic in file.Diagnostics)
+        foreach (FrameworkDiagnostic diagnostic in diagnostics ?? [])
         {
-            if (IsRetainedAdditionDiagnostic(diagnostic, file.Document?.Additions))
+            if (IsRetainedAdditionDiagnostic(diagnostic, additions))
                 retained.Add(diagnostic);
             else
                 other.Add(diagnostic);
@@ -304,33 +290,10 @@ internal sealed class LevelEditSession
 
     private static void ReportPreservedAddition(ApplyReport report, string location)
     {
-        report.Warning(
+        report.Info(
             ReportCodes.AdditionUneditablePreserved,
             location,
-            "The source addition cannot be represented by this editor profile and was retained unchanged.",
-            true);
-    }
-
-    private static void ReportValidationWarnings(
-        FrameworkObjectData data,
-        CreatorMetadata creator,
-        ApplyReport report)
-    {
-        ApplyReport validation = new();
-        PlacementValidation.Validate(data, creator, validation);
-        MergeValidationWarnings(report, validation);
-    }
-
-    private static void MergeValidationWarnings(ApplyReport report, ApplyReport validation)
-    {
-        foreach (ApplyReportEntry entry in validation.Entries)
-        {
-            report.Warning(
-                entry.Code,
-                entry.Location,
-                entry.Message,
-                entry.Skipped);
-        }
+            "The source addition cannot be represented by this editor profile and was retained unchanged.");
     }
 
     internal bool TryGetPlacement(string id, out PlacementRecord placement)
@@ -664,7 +627,10 @@ internal sealed class LevelEditSession
             path,
             Room.ExportFileKey,
             document);
-        report.MergeFrameworkDiagnostics(frameworkResult.Diagnostics);
+        MergePreservedAdditionAwareDiagnostics(
+            report,
+            frameworkResult.Diagnostics,
+            document.Additions);
         if (!frameworkResult.Succeeded)
         {
             report.Error(
@@ -679,11 +645,10 @@ internal sealed class LevelEditSession
         {
             if (addition.PreserveOriginalAddition)
             {
-                report.Warning(
+                report.Info(
                     ReportCodes.UneditableAdditionPreserved,
                     addition.Id,
-                    "An uneditable source addition was retained unchanged.",
-                    true);
+                    "A Preserved Addition was retained unchanged.");
             }
         }
 

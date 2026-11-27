@@ -250,7 +250,7 @@ internal class EditorMode : BlasMod
         _originalObjectBaseline = null;
         ExitEditorMode();
         DisposePreview();
-        ClearRoomOverlay();
+        ClearRoomOverlay(roomUnloading: true);
     }
 
     protected override void OnUpdate()

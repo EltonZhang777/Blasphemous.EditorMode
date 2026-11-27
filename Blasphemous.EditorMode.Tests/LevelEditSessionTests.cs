@@ -43,7 +43,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void Import_keeps_valid_owned_entries_and_reports_unsupported_entries()
+    public void Import_treats_preserved_additions_as_successful_round_trip_metadata()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -60,25 +60,25 @@ public sealed class LevelEditSessionTests
                 new[] { BaseCreatorCatalog.BellIron });
 
             Assert.True(result.Succeeded, result.StatusMessage);
-            Assert.Equal(LevelEditSessionState.Partial, result.State);
+            Assert.Equal(LevelEditSessionState.Clean, result.State);
             Assert.Single(result.Session.Placements);
             Assert.Equal("valid", result.Session.Placements[0].Id);
-            Assert.Contains(result.Report.Entries, x => x.Code == "CREATOR_UNSUPPORTED");
-            Assert.Contains(result.Report.Entries, x => x.Code == "PROPERTY_UNSUPPORTED");
+            Assert.DoesNotContain(result.Report.Entries, x => x.Code == "CREATOR_UNSUPPORTED");
+            Assert.DoesNotContain(result.Report.Entries, x => x.Code == "PROPERTY_UNSUPPORTED");
             Assert.Equal(
                 2,
                 result.Report.Entries.Count(x => x.Code == "ADDITION_UNEDITABLE_PRESERVED"));
+            Assert.Equal(1, result.Report.AppliedCount);
             Assert.False(result.Report.HasErrors, result.StatusMessage);
-            Assert.Contains(
-                result.Report.Entries,
-                x => x.Code == "CREATOR_UNSUPPORTED"
-                    && x.Severity == ApplySeverity.Warning
-                    && x.Skipped);
-            Assert.Contains(
-                result.Report.Entries,
-                x => x.Code == "PROPERTY_UNSUPPORTED"
-                    && x.Severity == ApplySeverity.Warning
-                    && x.Skipped);
+            Assert.False(result.Report.IsPartial, result.StatusMessage);
+            Assert.Equal(0, result.Report.SkippedCount);
+            Assert.All(
+                result.Report.Entries.Where(x => x.Code == "ADDITION_UNEDITABLE_PRESERVED"),
+                x =>
+                {
+                    Assert.Equal(ApplySeverity.Info, x.Severity);
+                    Assert.False(x.Skipped);
+                });
             Assert.Equal(source, File.ReadAllText(path));
         }
         finally
@@ -117,7 +117,8 @@ public sealed class LevelEditSessionTests
             Assert.Contains(
                 result.Report.Entries,
                 x => x.Code == "ADDITION_UNEDITABLE_PRESERVED"
-                    && x.Location == "additions[malformed]");
+                    && x.Location == "additions[malformed]"
+                    && x.Severity == ApplySeverity.Info);
             Assert.Equal(source, File.ReadAllText(path));
 
             LevelEditSessionExportResult exported = result.Session.Export(path);
@@ -416,11 +417,23 @@ public sealed class LevelEditSessionTests
                 new[] { BaseCreatorCatalog.BellIron });
 
             Assert.True(imported.Succeeded, imported.StatusMessage);
-            Assert.Equal(LevelEditSessionState.Partial, imported.State);
+            Assert.True(
+                imported.State == LevelEditSessionState.Clean,
+                string.Join(
+                    " | ",
+                    imported.Report.Entries.Select(entry =>
+                        entry.Severity + ":" + entry.Code + ":" + entry.Location + ":" + entry.Skipped)));
             Assert.False(imported.Report.HasErrors, imported.StatusMessage);
-            Assert.Contains(imported.Report.Entries, entry => entry.Code == "CREATOR_UNSUPPORTED");
-            Assert.Contains(imported.Report.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
-            Assert.Contains(imported.Report.Entries, entry => entry.Code == "ADDITION_UNEDITABLE_PRESERVED");
+            Assert.False(imported.Report.IsPartial, imported.StatusMessage);
+            Assert.DoesNotContain(imported.Report.Entries, entry => entry.Code == "CREATOR_UNSUPPORTED");
+            Assert.DoesNotContain(imported.Report.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
+            Assert.Equal(
+                3,
+                imported.Report.Entries.Count(entry =>
+                    entry.Code == "ADDITION_UNEDITABLE_PRESERVED"
+                    && entry.Severity == ApplySeverity.Info
+                    && !entry.Skipped));
+            Assert.Equal(1, imported.Report.AppliedCount);
             Assert.Single(imported.Session.Placements);
 
             RuntimePlacementManager manager = new RuntimePlacementManager(
@@ -438,8 +451,21 @@ public sealed class LevelEditSessionTests
             LevelEditSessionExportResult exported = imported.Session.Export(path);
 
             Assert.True(exported.Succeeded, exported.StatusMessage);
-            Assert.Equal(LevelEditSessionState.Partial, imported.Session.State);
-            Assert.Contains(exported.Report.Entries, entry => entry.Code == "UNEDITABLE_ADDITION_PRESERVED");
+            Assert.True(
+                imported.Session.State == LevelEditSessionState.Clean,
+                string.Join(
+                    " | ",
+                    exported.Report.Entries.Select(entry =>
+                        entry.Severity + ":" + entry.Code + ":" + entry.Location + ":" + entry.Skipped)));
+            Assert.False(exported.Report.IsPartial, exported.StatusMessage);
+            Assert.Equal(
+                3,
+                exported.Report.Entries.Count(entry =>
+                    entry.Code == "UNEDITABLE_ADDITION_PRESERVED"
+                    && entry.Severity == ApplySeverity.Info
+                    && !entry.Skipped));
+            Assert.Equal(0, exported.Report.SkippedCount);
+            Assert.Equal(1, exported.Report.AppliedCount);
             JObject originalJson = JObject.Parse(source);
             JObject exportedJson = JObject.Parse(File.ReadAllText(path));
             Assert.True(JToken.DeepEquals(originalJson["additions"][0], exportedJson["additions"][0]));
@@ -454,9 +480,14 @@ public sealed class LevelEditSessionTests
 
             Assert.Equal(4, reimportedFile.Document.Additions.Count);
             Assert.Equal(8f, reimported.Session.Placements[0].Transform.PositionX);
-            Assert.Contains(reimported.Report.Entries, entry => entry.Code == "CREATOR_UNSUPPORTED");
-            Assert.Contains(reimported.Report.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
-            Assert.Contains(reimported.Report.Entries, entry => entry.Code == "ADDITION_UNEDITABLE_PRESERVED");
+            Assert.DoesNotContain(reimported.Report.Entries, entry => entry.Code == "CREATOR_UNSUPPORTED");
+            Assert.DoesNotContain(reimported.Report.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
+            Assert.Equal(
+                3,
+                reimported.Report.Entries.Count(entry =>
+                    entry.Code == "ADDITION_UNEDITABLE_PRESERVED"
+                    && entry.Severity == ApplySeverity.Info
+                    && !entry.Skipped));
         }
         finally
         {
