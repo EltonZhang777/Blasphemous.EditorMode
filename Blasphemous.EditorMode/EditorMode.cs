@@ -341,8 +341,12 @@ internal class EditorMode : BlasMod
             return null;
         }
 
-        LevelEditSessionExportResult result = Session.Export(RoomExportPath(_lifecycleBridge.CurrentRoom));
+        LevelEditSessionExportResult result = LevelExportWorkflow
+            .CreateRuntime(Session)
+            .Export(RoomExportPath(_lifecycleBridge.CurrentRoom));
         PublishReport("Level export", result.Report);
+        if (result.FrameworkReload != null)
+            PublishReport("Framework reload", result.FrameworkReload.Report, false);
         return result;
     }
 

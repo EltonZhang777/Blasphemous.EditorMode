@@ -45,6 +45,13 @@ internal static class ReportCodes
     internal const string ExportFailed = "EXPORT_FAILED";
     internal const string UneditableAdditionPreserved = "UNEDITABLE_ADDITION_PRESERVED";
     internal const string ExportSucceeded = "EXPORT_SUCCEEDED";
+    internal const string FrameworkReloadSucceeded = "FRAMEWORK_RELOAD_SUCCEEDED";
+    internal const string FrameworkReloadUnsupported = "FRAMEWORK_RELOAD_UNSUPPORTED";
+    internal const string FrameworkReloadCaptureFailed = "FRAMEWORK_RELOAD_CAPTURE_FAILED";
+    internal const string FrameworkReloadFailed = "FRAMEWORK_RELOAD_FAILED";
+    internal const string FrameworkReloadValidationFailed = "FRAMEWORK_RELOAD_VALIDATION_FAILED";
+    internal const string FrameworkReloadRolledBack = "FRAMEWORK_RELOAD_ROLLED_BACK";
+    internal const string FrameworkRestartRequired = "FRAMEWORK_RESTART_REQUIRED";
 
     internal const string PlacementInvalid = "PLACEMENT_INVALID";
     internal const string TransformUnsupported = "TRANSFORM_UNSUPPORTED";

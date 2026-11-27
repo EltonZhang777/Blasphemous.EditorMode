@@ -57,8 +57,14 @@ internal sealed class LevelEditSessionExportResult
     internal FrameworkExportResult FrameworkResult { get; }
     internal ApplyReport Report { get; }
     internal FrameworkLevelEdit Document { get; }
+    internal LevelFrameworkReloadResult FrameworkReload { get; private set; }
     internal bool Succeeded { get { return FrameworkResult != null && FrameworkResult.Succeeded; } }
     internal string StatusMessage { get { return Report.ToSummary("Level export"); } }
+
+    internal void AttachFrameworkReload(LevelFrameworkReloadResult result)
+    {
+        FrameworkReload = result;
+    }
 }
 
 /// <summary>Domain seam for importing and editing one current Room Overlay.</summary>
