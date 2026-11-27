@@ -40,6 +40,28 @@ public sealed class ContentCatalogTests
     }
 
     [Fact]
+    public void Unavailable_registry_supports_exact_type_edit_fallbacks_without_new_actions()
+    {
+        ContentCatalog catalog = ContentCatalog.FromInventory(
+            RuntimeCreatorInventory.RegistryUnavailable("registry denied"));
+
+        Assert.True(catalog.RegistryUnavailable);
+        Assert.Empty(catalog.Entries);
+
+        ContentCatalog withFallback = catalog.WithFallbackCreators(
+            new[] { "bell-iron", "bell-iron", " ", "chest-gold" });
+
+        Assert.Equal(
+            new[] { "bell-iron", "chest-gold" },
+            Array.ConvertAll([.. withFallback.Entries], entry => entry.Type));
+        Assert.True(withFallback.TryGet("bell-iron", out CreatorMetadata fallback));
+        Assert.False(fallback.CanPreview);
+        Assert.False(fallback.CanPlace);
+        Assert.Empty(fallback.PropertyDefinitions);
+        Assert.True(withFallback.RegistryUnavailable);
+    }
+
+    [Fact]
     public void Preview_is_isolated_and_discard_is_idempotent()
     {
         int disposed = 0;

@@ -99,8 +99,7 @@ internal sealed class UnityRuntimePlacementFactory :
             return false;
         }
 
-        if (!RuntimeCreatorRegistry.TryGet(placement.Type, out ObjectCreator creator, out error))
-            return false;
+        RuntimeCreatorRegistry.TryGet(placement.Type, out ObjectCreator creator, out _);
 
         Transform holder = _adoptionPassActive ? _adoptionPassHolder : _holderProvider();
         if (holder == null)
@@ -292,14 +291,14 @@ internal sealed class UnityRuntimePlacementFactory :
         if (marker == null)
             return false;
 
-        if (!RuntimeCreatorRegistry.TryGet(marker.Type, out ObjectCreator creator, out error))
-            return false;
+        RuntimeCreatorRegistry.TryGet(marker.Type, out ObjectCreator creator, out _);
 
         handle = new UnityRuntimePlacementHandle(
             marker.PlacementId,
             marker.Type,
             marker.gameObject,
             creator);
+        error = null;
         return true;
     }
 

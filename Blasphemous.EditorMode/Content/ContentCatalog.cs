@@ -46,10 +46,12 @@ internal sealed class ContentCatalog
 {
     private readonly Dictionary<string, CreatorMetadata> _byType;
     private readonly Func<CreatorMetadata, PreviewInstance> _previewFactory;
+    private readonly bool _registryUnavailable;
 
     private ContentCatalog(
         IEnumerable<CreatorMetadata> available,
-        Func<CreatorMetadata, PreviewInstance> previewFactory)
+        Func<CreatorMetadata, PreviewInstance> previewFactory,
+        bool registryUnavailable = false)
     {
         _byType = new Dictionary<string, CreatorMetadata>(StringComparer.Ordinal);
         List<CreatorMetadata> entries = [];
@@ -64,9 +66,11 @@ internal sealed class ContentCatalog
 
         Entries = new ReadOnlyCollection<CreatorMetadata>(entries);
         _previewFactory = previewFactory ?? (metadata => new PreviewInstance(metadata, null));
+        _registryUnavailable = registryUnavailable;
     }
 
     internal ReadOnlyCollection<CreatorMetadata> Entries { get; }
+    internal bool RegistryUnavailable { get { return _registryUnavailable; } }
 
     internal static ContentCatalog FromInventory(
         RuntimeCreatorInventory inventory,
@@ -75,7 +79,10 @@ internal sealed class ContentCatalog
         if (inventory == null)
             throw new ArgumentNullException(nameof(inventory));
 
-        return new ContentCatalog(inventory.Entries, previewFactory);
+        return new ContentCatalog(
+            inventory.Entries,
+            previewFactory,
+            !inventory.IsRegistryAvailable);
     }
 
     internal static ContentCatalog FromEntries(
@@ -83,6 +90,37 @@ internal sealed class ContentCatalog
         Func<CreatorMetadata, PreviewInstance> previewFactory = null)
     {
         return new ContentCatalog(available, previewFactory);
+    }
+
+    internal ContentCatalog WithFallbackCreators(IEnumerable<string> types)
+    {
+        List<CreatorMetadata> available = [.. Entries];
+        HashSet<string> known = new(StringComparer.Ordinal);
+        foreach (CreatorMetadata entry in Entries)
+            known.Add(entry.Type);
+
+        foreach (string type in types ?? [])
+        {
+            if (string.IsNullOrEmpty(type) || type.Trim().Length == 0 || !known.Add(type))
+                continue;
+
+            available.Add(new CreatorMetadata(
+                type,
+                type,
+                "Registered",
+                CreatorOrigin.BaseFramework,
+                "Not declared",
+                "Not declared",
+                TransformCapabilities.Position
+                    | TransformCapabilities.Rotation
+                    | TransformCapabilities.Scale,
+                new CreatorPropertyDefinition[0],
+                "Level Framework",
+                false,
+                false));
+        }
+
+        return new ContentCatalog(available, _previewFactory, _registryUnavailable);
     }
 
     internal bool TryGet(string type, out CreatorMetadata metadata)
