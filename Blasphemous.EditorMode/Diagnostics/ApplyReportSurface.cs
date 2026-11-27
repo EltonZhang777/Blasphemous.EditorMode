@@ -6,13 +6,29 @@ namespace Blasphemous.EditorMode.Diagnostics;
 internal sealed class ApplyReportSurface
 {
     internal ApplyReport LastReport { get; private set; }
+    internal string LastOperation { get; private set; }
     internal string UiText { get; private set; }
     internal string ActionableMessage { get; private set; }
     internal bool HasActionableMessage { get { return !string.IsNullOrEmpty(ActionableMessage); } }
 
+    internal bool ClearOperation(string operation)
+    {
+        if (!string.Equals(LastOperation, operation, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        LastReport = null;
+        LastOperation = null;
+        UiText = string.Empty;
+        ActionableMessage = null;
+        return true;
+    }
+
     internal void Publish(string operation, ApplyReport report)
     {
         LastReport = report ?? throw new ArgumentNullException(nameof(report));
+        LastOperation = operation;
         UiText = report.ToSummary(operation);
         ActionableMessage = null;
         string warningMessage = null;
@@ -40,16 +56,13 @@ internal sealed class ApplyReportPublisher
 {
     private readonly ApplyReportSurface _surface;
     private readonly Action<ApplySeverity, string> _log;
-    private readonly bool _verboseDiagnostics;
 
     internal ApplyReportPublisher(
         ApplyReportSurface surface,
-        Action<ApplySeverity, string> log,
-        bool verboseDiagnostics)
+        Action<ApplySeverity, string> log)
     {
         _surface = surface ?? throw new ArgumentNullException(nameof(surface));
         _log = log;
-        _verboseDiagnostics = verboseDiagnostics;
     }
 
     internal ApplyReportSurface Surface { get { return _surface; } }
@@ -63,8 +76,6 @@ internal sealed class ApplyReportPublisher
         _log(
             report.HasErrors ? ApplySeverity.Error : report.IsPartial ? ApplySeverity.Warning : ApplySeverity.Info,
             _surface.UiText);
-        if (!_verboseDiagnostics)
-            return;
 
         foreach (ApplyReportEntry entry in report.Entries)
         {
