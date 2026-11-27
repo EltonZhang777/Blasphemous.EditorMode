@@ -14,7 +14,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class RuntimePlacementManagerTests
 {
     [Fact]
-    public void PlaceCreatesUniqueOwnedRecordsAndProjectionHandles()
+    public void PlaceCreatesUniqueEditableOverlayPlacementsAndProjectionHandles()
     {
         LevelEditSession session = CreateSession();
         ContentCatalog catalog = ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron });

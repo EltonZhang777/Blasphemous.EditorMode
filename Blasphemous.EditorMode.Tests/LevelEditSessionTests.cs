@@ -42,7 +42,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void ImportKeepsValidOwnedEntriesAndReportsUnsupportedEntries()
+    public void ImportKeepsValidEditableOverlayPlacementsAndReportsUnsupportedEntries()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -129,7 +129,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void ExportEmitsActiveOwnedAdditionsAndPreservesConditionData()
+    public void ExportEmitsActiveEditableOverlayPlacementsAndPreservesConditionData()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -222,7 +222,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void ExportDoesNotReemitADeletedOwnedPlacement()
+    public void ExportDoesNotReemitADeletedEditableOverlayPlacement()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
