@@ -1,8 +1,9 @@
 # Blasphemous Editor Mode state guard
 
-`EditorMode` enters only from a debug build while `BlasphemousLifecycleBridge`
-is in `RoomLoaded`. The bridge changes to `Editing` for the session and keeps
-that state across duplicate load callbacks.
+`EditorMode` enters from the packaged build while `BlasphemousLifecycleBridge`
+is in `RoomLoaded`. The activation surface is not restricted to debug builds;
+the bridge changes to `Editing` for the session and keeps that state across
+duplicate load callbacks.
 
 `EditorModeGuard` captures the touched runtime state before applying the editor
 target. The snapshot covers:

@@ -355,7 +355,7 @@ public sealed class CreatorCatalogControllerTests
                     new RuntimeCreatorRegistryEntry("loaded", true, true),
                     new RuntimeCreatorRegistryEntry("pending", true, true)
                 }),
-            type => string.Equals(type, "loaded", StringComparison.Ordinal));
+            type => Probe(string.Equals(type, "loaded", StringComparison.Ordinal)));
 
         Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("loaded"));
         Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("pending"));
@@ -368,6 +368,100 @@ public sealed class CreatorCatalogControllerTests
         Assert.True(controller.TrySelect("pending"));
         Assert.True(controller.TryBeginNextSourceLoad(out string type, out _));
         Assert.Equal("pending", type);
+    }
+
+    [Fact]
+    public void ExistingSourceProbeExceptionIsIsolatedAndVisible()
+    {
+        CreatorCatalogController controller = new(
+            RuntimeCreatorInventory.FromRegistryEntries(
+                new[]
+                {
+                    new RuntimeCreatorRegistryEntry("broken", true, true)
+                }),
+            _ => throw new InvalidOperationException("Result getter failed"));
+
+        Assert.True(controller.TrySelect("broken"));
+        CreatorCatalogSnapshot snapshot = controller.CreateSnapshot();
+
+        Assert.Equal(CreatorCatalogSourceState.Failed, snapshot.SelectedSourceState);
+        Assert.Contains("Result getter failed", controller.GetSourceReason("broken"));
+        Assert.Contains("Result getter failed", snapshot.DetailsText);
+        Assert.False(snapshot.Preview.Available);
+        Assert.False(snapshot.Place.Available);
+
+        CreatorSourceProbeFailure[] failures = controller.DrainProbeFailures();
+        CreatorSourceProbeFailure failure = Assert.Single(failures);
+        Assert.Equal("broken", failure.Type);
+        Assert.Contains("Result getter failed", failure.Reason);
+    }
+
+    [Fact]
+    public void PostLoadResultExceptionIsIsolatedAndVisible()
+    {
+        CreatorCatalogController controller = CreateController(1);
+        Assert.True(controller.TrySelect("creator-00"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+
+        bool succeeded = CreatorSourceProbe.TryConfirmLoadedSource(
+            () => throw new InvalidOperationException("Result getter failed"),
+            out string failureReason);
+
+        Assert.False(succeeded);
+        Assert.Contains("Result getter failed", failureReason);
+        Assert.True(controller.CompleteSourceLoad(
+            type,
+            generation,
+            false,
+            failureReason));
+
+        CreatorCatalogSnapshot snapshot = controller.CreateSnapshot();
+        Assert.Equal(CreatorCatalogSourceState.Failed, snapshot.SelectedSourceState);
+        Assert.Contains("Result getter failed", snapshot.DetailsText);
+        Assert.False(snapshot.Preview.Available);
+        Assert.False(snapshot.Place.Available);
+    }
+
+    [Fact]
+    public void SelectionTimeProbeExceptionIsRecordedForReporting()
+    {
+        int probes = 0;
+        CreatorCatalogController controller = new(
+            RuntimeCreatorInventory.FromRegistryEntries(
+                new[] { new RuntimeCreatorRegistryEntry("creator", true, true) }),
+            _ =>
+            {
+                probes++;
+                return probes == 1
+                    ? CreatorSourceProbeResult.NotLoaded()
+                    : throw new InvalidOperationException("late Result getter failed");
+            });
+
+        Assert.Equal(
+            CreatorCatalogSourceState.NotRequested,
+            controller.GetSourceState("creator"));
+        Assert.True(controller.TrySelect("creator"));
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+        Assert.Equal(CreatorCatalogSourceState.Failed, controller.GetSourceState("creator"));
+
+        CreatorSourceProbeFailure failure = Assert.Single(controller.DrainProbeFailures());
+        Assert.Equal("creator", failure.Type);
+        Assert.Contains("late Result getter failed", failure.Reason);
+    }
+
+    [Fact]
+    public void RegistryProbeFailureKeepsItsClassification()
+    {
+        CreatorCatalogController controller = new(
+            RuntimeCreatorInventory.FromRegistryEntries(
+                new[] { new RuntimeCreatorRegistryEntry("missing", true, true) }),
+            _ => CreatorSourceProbeResult.Failed("Registry lookup failed.", true));
+
+        CreatorSourceProbeFailure failure = Assert.Single(controller.DrainProbeFailures());
+        Assert.Equal("missing", failure.Type);
+        Assert.Equal("Registry lookup failed.", failure.Reason);
+        Assert.True(failure.RegistryFailure);
+        Assert.Equal(CreatorCatalogSourceState.Failed, controller.GetSourceState("missing"));
     }
 
     [Fact]
@@ -437,7 +531,7 @@ public sealed class CreatorCatalogControllerTests
         CreatorCatalogController controller = new(
             RuntimeCreatorInventory.FromRegistryEntries(
                 new[] { new RuntimeCreatorRegistryEntry("creator", true, true) }),
-            type => resultAvailable);
+            type => Probe(resultAvailable));
 
         Assert.True(controller.TrySelect("creator"));
         Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
@@ -462,7 +556,7 @@ public sealed class CreatorCatalogControllerTests
         CreatorCatalogController controller = new(
             RuntimeCreatorInventory.FromRegistryEntries(
                 new[] { new RuntimeCreatorRegistryEntry("creator", true, true) }),
-            type => resultAvailable);
+            type => Probe(resultAvailable));
 
         controller.RequireSourceLoad("creator");
         Assert.True(controller.TrySelect("creator"));
@@ -487,7 +581,7 @@ public sealed class CreatorCatalogControllerTests
         bool resultAvailable = false;
         RuntimeCreatorInventory inventory = RuntimeCreatorInventory.FromRegistryEntries(
             new[] { new RuntimeCreatorRegistryEntry("creator", true, true) });
-        CreatorCatalogController original = new(inventory, type => resultAvailable);
+        CreatorCatalogController original = new(inventory, type => Probe(resultAvailable));
 
         Assert.True(original.TrySelect("creator"));
         Assert.True(original.TryBeginNextSourceLoad(out string type, out int generation));
@@ -497,7 +591,7 @@ public sealed class CreatorCatalogControllerTests
 
         CreatorCatalogController reinitialized = new(
             inventory,
-            reinitializedType => resultAvailable,
+            reinitializedType => Probe(resultAvailable),
             original.GetInvalidatedLoadedSourceTypes());
 
         Assert.Equal(
@@ -544,7 +638,7 @@ public sealed class CreatorCatalogControllerTests
                     new RuntimeCreatorRegistryEntry("loaded", true, true),
                     new RuntimeCreatorRegistryEntry("pending", true, true)
                 }),
-            type => string.Equals(type, "loaded", StringComparison.Ordinal));
+            type => Probe(string.Equals(type, "loaded", StringComparison.Ordinal)));
 
         Assert.True(controller.TrySelect("pending"));
         Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
@@ -607,5 +701,12 @@ public sealed class CreatorCatalogControllerTests
             .ToArray();
         return new CreatorCatalogController(
             RuntimeCreatorInventory.FromRegistryEntries(entries));
+    }
+
+    private static CreatorSourceProbeResult Probe(bool loaded)
+    {
+        return loaded
+            ? CreatorSourceProbeResult.Ready()
+            : CreatorSourceProbeResult.NotLoaded();
     }
 }

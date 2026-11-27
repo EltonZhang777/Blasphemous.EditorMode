@@ -210,7 +210,7 @@ internal class EditorMode : BlasMod
         }
         CreatorCatalog = new CreatorCatalogController(
             CreatorInventory,
-            HasUsableRuntimeSource,
+            TryInspectRuntimeSource,
             invalidatedLoadedSourceTypes);
         Catalog = ContentCatalog.FromInventory(
             CreatorInventory,
@@ -224,6 +224,7 @@ internal class EditorMode : BlasMod
             Catalog,
             TryPlaceAtCursor);
         PublishCreatorInventoryDiagnostics(CreatorInventory);
+        PublishCreatorSourceProbeFailures(CreatorCatalog);
         _runtimeFactory = new UnityRuntimePlacementFactory(FindCurrentObjectHolder, _verboseDiagnostics);
         _overlayReconciler = new RoomOverlayReconciler(Catalog, _runtimeFactory);
         if (_lifecycleBridge.CurrentRoom != null)
@@ -287,7 +288,7 @@ internal class EditorMode : BlasMod
             return;
         }
 
-        if (!_editorGuard.TryEnter(true, true, CreateEditorState(), out string error))
+        if (!_editorGuard.TryEnter(true, CreateEditorState(), out string error))
         {
             _lifecycleBridge.EndEditing();
             ModLog.Warn(error);
@@ -750,6 +751,7 @@ internal class EditorMode : BlasMod
         CreatorCatalog?.SetPlacementReady(
             false,
             "No editable Room Overlay is loaded.");
+        PublishCreatorSourceProbeFailures(CreatorCatalog);
         ModLog.Info("Room Overlay cleared: " + room.FrameworkLevelKey);
     }
 
@@ -1057,13 +1059,14 @@ internal class EditorMode : BlasMod
                         {
                             reason ??= "Creator source load failed.";
                         }
-                        else if (creator.Loader.Result == null)
-                        {
-                            reason = "Creator source load returned no object.";
-                        }
                         else
                         {
-                            succeeded = true;
+                            if (CreatorSourceProbe.TryConfirmLoadedSource(
+                                () => creator.Loader.Result,
+                                out string sourceFailure))
+                                succeeded = true;
+                            else
+                                reason = sourceFailure;
                         }
                     }
                 }
@@ -1118,6 +1121,8 @@ internal class EditorMode : BlasMod
             {
                 try
                 {
+                    if (ReferenceEquals(CreatorCatalog, catalog))
+                        PublishCreatorSourceProbeFailures(catalog);
                     RefreshEditorAfterCreatorSourceLoad();
                     if (interrupted
                         || loadIterationInProgress
@@ -1135,14 +1140,33 @@ internal class EditorMode : BlasMod
         }
     }
 
-    private static bool HasUsableRuntimeSource(string type)
+    private static CreatorSourceProbeResult TryInspectRuntimeSource(string type)
     {
-        return RuntimeCreatorRegistry.TryGet(
+        if (!RuntimeCreatorRegistry.TryGet(
                 type,
                 out Blasphemous.Framework.Levels.ObjectCreator creator,
-                out _)
-            && creator.Loader != null
-            && creator.Loader.Result != null;
+                out string error))
+        {
+            return CreatorSourceProbeResult.Failed(error, true);
+        }
+        if (creator.Loader == null)
+            return CreatorSourceProbeResult.Failed("Creator has no runtime loader.");
+
+        return CreatorSourceProbe.Inspect(() => creator.Loader.Result);
+    }
+
+    private void PublishCreatorSourceProbeFailures(CreatorCatalogController catalog)
+    {
+        if (catalog == null)
+            return;
+
+        foreach (CreatorSourceProbeFailure failure in catalog.DrainProbeFailures())
+        {
+            PublishCreatorSourceFailure(
+                failure.Type,
+                failure.Reason,
+                failure.RegistryFailure);
+        }
     }
 
     private string RoomExportPath(RoomIdentity room)

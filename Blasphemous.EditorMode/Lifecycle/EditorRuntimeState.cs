@@ -108,7 +108,6 @@ internal sealed class EditorModeGuard
     internal bool IsActive { get; private set; }
 
     internal bool TryEnter(
-        bool debugGatePassed,
         bool compatibleRoom,
         EditorRuntimeState editorState,
         out string error)
@@ -117,12 +116,6 @@ internal sealed class EditorModeGuard
         if (IsActive)
         {
             error = "Editor Mode is already active.";
-            return false;
-        }
-
-        if (!debugGatePassed)
-        {
-            error = "Editor Mode requires a debug build.";
             return false;
         }
 

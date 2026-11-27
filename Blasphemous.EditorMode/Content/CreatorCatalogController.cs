@@ -110,6 +110,24 @@ internal sealed class CreatorCatalogSnapshot
     internal string DetailsText { get; }
 }
 
+/// <summary>A creator source probe failure waiting for the report boundary.</summary>
+internal readonly struct CreatorSourceProbeFailure
+{
+    internal CreatorSourceProbeFailure(
+        string type,
+        string reason,
+        bool registryFailure)
+    {
+        Type = type;
+        Reason = reason;
+        RegistryFailure = registryFailure;
+    }
+
+    internal string Type { get; }
+    internal string Reason { get; }
+    internal bool RegistryFailure { get; }
+}
+
 /// <summary>Unity-independent state boundary for browsing and selecting creators.</summary>
 internal sealed class CreatorCatalogController
 {
@@ -130,7 +148,8 @@ internal sealed class CreatorCatalogController
     private readonly RuntimeCreatorInventory _inventory;
     private readonly Dictionary<string, SourceState> _sourceStates =
         new(StringComparer.Ordinal);
-    private readonly Func<string, bool> _hasLoadedSource;
+    private readonly List<CreatorSourceProbeFailure> _probeFailures = new();
+    private readonly Func<string, CreatorSourceProbeResult> _probeLoadedSource;
     private readonly Queue<string> _requiredSourceLoads = new();
     private readonly HashSet<string> _requiredSourceLoadSet =
         new(StringComparer.Ordinal);
@@ -146,11 +165,11 @@ internal sealed class CreatorCatalogController
 
     internal CreatorCatalogController(
         RuntimeCreatorInventory inventory,
-        Func<string, bool> hasLoadedSource = null,
+        Func<string, CreatorSourceProbeResult> probeLoadedSource = null,
         IEnumerable<string> invalidatedLoadedSourceTypes = null)
     {
         _inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
-        _hasLoadedSource = hasLoadedSource;
+        _probeLoadedSource = probeLoadedSource;
         if (invalidatedLoadedSourceTypes != null)
         {
             foreach (string type in invalidatedLoadedSourceTypes)
@@ -254,12 +273,22 @@ internal sealed class CreatorCatalogController
                 TrySetSourceState(metadata.Type, CreatorCatalogSourceState.Unavailable, null);
                 continue;
             }
-            if (!_invalidatedLoadedSourceTypes.Contains(metadata.Type)
-                && _hasLoadedSource != null
-                && _hasLoadedSource(metadata.Type))
+            if (!_invalidatedLoadedSourceTypes.Contains(metadata.Type))
             {
-                TrySetSourceState(metadata.Type, CreatorCatalogSourceState.Ready, null);
-                continue;
+                CreatorSourceProbeResult probe = ProbeLoadedSource(metadata.Type);
+                if (probe.State == CreatorSourceProbeState.Failed)
+                {
+                    TrySetSourceState(
+                        metadata.Type,
+                        CreatorCatalogSourceState.Failed,
+                        probe.FailureReason);
+                    continue;
+                }
+                if (probe.State == CreatorSourceProbeState.Ready)
+                {
+                    TrySetSourceState(metadata.Type, CreatorCatalogSourceState.Ready, null);
+                    continue;
+                }
             }
 
             if (!TrySetSourceState(
@@ -391,6 +420,16 @@ internal sealed class CreatorCatalogController
         return _sourceStates.TryGetValue(type ?? string.Empty, out sourceState)
             ? sourceState.Reason
             : "Creator is not available in the runtime inventory.";
+    }
+
+    internal CreatorSourceProbeFailure[] DrainProbeFailures()
+    {
+        if (_probeFailures.Count == 0)
+            return new CreatorSourceProbeFailure[0];
+
+        CreatorSourceProbeFailure[] failures = _probeFailures.ToArray();
+        _probeFailures.Clear();
+        return failures;
     }
 
     internal bool PreviewAvailable
@@ -612,9 +651,21 @@ internal sealed class CreatorCatalogController
                 "Creator has no loader; Preview and Place are unavailable.");
         }
 
-        if (!_invalidatedLoadedSourceTypes.Contains(metadata.Type)
-            && _hasLoadedSource != null
-            && _hasLoadedSource(metadata.Type))
+        if (_invalidatedLoadedSourceTypes.Contains(metadata.Type))
+        {
+            return new SourceState(
+                CreatorCatalogSourceState.NotRequested,
+                "Source has not been loaded yet.");
+        }
+
+        CreatorSourceProbeResult probe = ProbeLoadedSource(metadata.Type);
+        if (probe.State == CreatorSourceProbeState.Failed)
+        {
+            return new SourceState(
+                CreatorCatalogSourceState.Failed,
+                probe.FailureReason);
+        }
+        if (probe.State == CreatorSourceProbeState.Ready)
         {
             return new SourceState(
                 CreatorCatalogSourceState.Ready,
@@ -624,6 +675,32 @@ internal sealed class CreatorCatalogController
         return new SourceState(
             CreatorCatalogSourceState.NotRequested,
             "Source has not been loaded yet.");
+    }
+
+    private CreatorSourceProbeResult ProbeLoadedSource(string type)
+    {
+        if (_probeLoadedSource == null)
+            return CreatorSourceProbeResult.NotLoaded();
+
+        CreatorSourceProbeResult result;
+        try
+        {
+            result = _probeLoadedSource(type);
+        }
+        catch (Exception exception)
+        {
+            result = CreatorSourceProbeResult.Failed(
+                "Creator source result could not be read: " + exception.Message);
+        }
+
+        if (result.State == CreatorSourceProbeState.Failed)
+        {
+            _probeFailures.Add(new CreatorSourceProbeFailure(
+                type,
+                result.FailureReason,
+                result.RegistryFailure));
+        }
+        return result;
     }
 
     private static string NormalizeReason(
