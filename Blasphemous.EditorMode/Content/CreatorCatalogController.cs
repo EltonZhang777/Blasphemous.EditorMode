@@ -304,6 +304,14 @@ internal sealed class CreatorCatalogController
         }
     }
 
+    internal bool TryFailNextSourceLoad(string reason, out string type)
+    {
+        if (!TryBeginNextSourceLoad(out type, out int generation))
+            return false;
+
+        return CompleteSourceLoad(type, generation, false, reason);
+    }
+
     internal bool CompleteSourceLoad(
         string type,
         int generation,

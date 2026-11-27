@@ -918,6 +918,40 @@ public sealed class RuntimePlacementManagerTests
         Assert.Equal(2, session.Placements.Count);
     }
 
+    [Fact]
+    public void Adoption_reports_creator_lookup_failure_while_keeping_transform_projection()
+    {
+        LevelEditSession session = CreateSession();
+        PlacementRecord placement = new(
+            "authored",
+            CreatorFixtures.BellIronType,
+            PlacementTransform.Default,
+            null,
+            PlacementOwnership.ArchitectOwned);
+        ApplyReport setup = new();
+        Assert.True(session.TryAddPlacement(placement, setup), setup.ToSummary("setup"));
+
+        const string reason =
+            "Creator 'bell-iron' could not be resolved; transform-only fallback is active "
+            + "and its creator-specific modifier is unavailable.";
+        FallbackAdoptingFactory factory = new(reason);
+        RuntimePlacementManager manager = new(
+            session,
+            ContentCatalog.FromEntries(new[] { CreatorFixtures.BellIron }),
+            factory);
+        ApplyReport projection = new();
+
+        Assert.True(manager.TryProjectExisting(placement, projection), projection.ToSummary("project"));
+        Assert.Contains(
+            projection.Entries,
+            entry => entry.Severity == ApplySeverity.Warning
+                && entry.Code == ReportCodes.CreatorUnsupported
+                && entry.Location == placement.Id
+                && entry.Message == reason);
+        Assert.Equal(1, factory.AdoptionCount);
+        Assert.Single(manager.OwnedPlacementIds);
+    }
+
     private static LevelEditSession CreateSession()
     {
         FrameworkFileResult file = CreateEmptyFile();
@@ -952,6 +986,64 @@ public sealed class RuntimePlacementManagerTests
             document["additions"].Children<JObject>(),
             item => string.Equals((string)item["id"], placementId, StringComparison.Ordinal));
         return addition["properties"].ToObject<string[]>();
+    }
+
+    private sealed class FallbackAdoptingFactory :
+        IRuntimePlacementFactory,
+        IRuntimePlacementAdopter
+    {
+        private readonly string _reason;
+
+        internal FallbackAdoptingFactory(string reason)
+        {
+            _reason = reason;
+        }
+
+        internal int AdoptionCount { get; private set; }
+
+        public IRuntimePlacementHandle Create(PlacementRecord placement)
+        {
+            throw new InvalidOperationException("creation should not replace framework adoption");
+        }
+
+        public bool TryAdopt(
+            PlacementRecord placement,
+            out IRuntimePlacementHandle handle,
+            out string error)
+        {
+            AdoptionCount++;
+            error = null;
+            handle = new FallbackHandle(placement.Id, _reason);
+            return true;
+        }
+    }
+
+    private sealed class FallbackHandle :
+        IRuntimePlacementHandle,
+        IRuntimePlacementCreatorFallback
+    {
+        internal FallbackHandle(string placementId, string creatorLookupFailure)
+        {
+            PlacementId = placementId;
+            CreatorLookupFailure = creatorLookupFailure;
+        }
+
+        public string PlacementId { get; }
+        public string CreatorLookupFailure { get; }
+        public bool IsOriginal { get { return false; } }
+        public bool IsAlive { get { return true; } }
+
+        public bool TryApply(PlacementRecord placement, out string error)
+        {
+            error = null;
+            return true;
+        }
+
+        public bool TryDestroy(out string error)
+        {
+            error = null;
+            return true;
+        }
     }
 
     private sealed class FakeFactory : IRuntimePlacementFactory

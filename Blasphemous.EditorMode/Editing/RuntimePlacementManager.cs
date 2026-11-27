@@ -37,6 +37,11 @@ internal interface IRuntimePlacementAdopter
         out string error);
 }
 
+internal interface IRuntimePlacementCreatorFallback
+{
+    string CreatorLookupFailure { get; }
+}
+
 internal interface IRuntimePlacementAdoptionPass
 {
     void BeginAdoptionPass();
@@ -349,6 +354,7 @@ internal sealed class RuntimePlacementManager
                     return false;
                 }
 
+                ReportCreatorLookupFallback(handle, report);
                 _projections.Add(placement.Id, handle);
                 report.Applied();
                 return true;
@@ -385,6 +391,21 @@ internal sealed class RuntimePlacementManager
         _projections.Add(placement.Id, handle);
         report.Applied();
         return true;
+    }
+
+    internal static void ReportCreatorLookupFallback(
+        IRuntimePlacementHandle handle,
+        ApplyReport report)
+    {
+        if (report == null
+            || handle is not IRuntimePlacementCreatorFallback fallback
+            || string.IsNullOrEmpty(fallback.CreatorLookupFailure))
+            return;
+
+        report.Warning(
+            ReportCodes.CreatorUnsupported,
+            handle.PlacementId,
+            fallback.CreatorLookupFailure);
     }
 
     internal bool TryCopy(string id, ApplyReport report, out PlacementRecord copied)

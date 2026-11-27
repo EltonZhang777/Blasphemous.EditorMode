@@ -225,7 +225,10 @@ internal class EditorMode : BlasMod
             TryPlaceAtCursor);
         PublishCreatorInventoryDiagnostics(CreatorInventory);
         PublishCreatorSourceProbeFailures(CreatorCatalog);
-        _runtimeFactory = new UnityRuntimePlacementFactory(FindCurrentObjectHolder, _verboseDiagnostics);
+        _runtimeFactory = new UnityRuntimePlacementFactory(
+            FindCurrentObjectHolder,
+            _verboseDiagnostics,
+            MarkCreatorRuntimeLookupFailed);
         _overlayReconciler = new RoomOverlayReconciler(Catalog, _runtimeFactory);
         if (_lifecycleBridge.CurrentRoom != null)
         {
@@ -459,20 +462,22 @@ internal class EditorMode : BlasMod
     {
         if (!TryFindAtCursor(out IRuntimePlacementHandle handle, out string error))
         {
-            ApplyReport report = new();
+            ApplyReport failure = new();
             if (error == null)
             {
-                report.Warning(ReportCodes.PickNoTarget, "cursor", "Point to an Architect-owned placement before pressing P.");
+                failure.Warning(ReportCodes.PickNoTarget, "cursor", "Point to an Architect-owned placement before pressing P.");
             }
             else
             {
-                report.Error(ReportCodes.PickFailed, "cursor", error);
+                failure.Error(ReportCodes.PickFailed, "cursor", error);
             }
-            PublishReport("Pick at cursor", report);
+            PublishReport("Pick at cursor", failure);
             return false;
         }
 
-        return TryPickPlacement(handle.PlacementId, "Pick at cursor");
+        ApplyReport report = new();
+        RuntimePlacementManager.ReportCreatorLookupFallback(handle, report);
+        return TryPickPlacement(handle.PlacementId, "Pick at cursor", report);
     }
 
     internal void ReportPickBlockedByEditorControl()
@@ -675,6 +680,7 @@ internal class EditorMode : BlasMod
         }
 
         ApplyReport report = new();
+        RuntimePlacementManager.ReportCreatorLookupFallback(handle, report);
         bool result = PlacementManager.TrySelectRuntimeObject(handle, report, out _);
         PublishReport("Select", report, !result);
         return result;
@@ -933,6 +939,17 @@ internal class EditorMode : BlasMod
         }
     }
 
+    private void MarkCreatorRuntimeLookupFailed(string type, string reason)
+    {
+        if (string.IsNullOrEmpty(type))
+            return;
+
+        CreatorCatalog?.TrySetSourceState(
+            type,
+            CreatorCatalogSourceState.Failed,
+            reason);
+    }
+
     private void RefreshEditorAfterCreatorSourceLoad()
     {
         try
@@ -962,7 +979,23 @@ internal class EditorMode : BlasMod
         catch (System.Exception exception)
         {
             _creatorSourceLoadRunning = false;
-            ModLog.Error("Creator source load could not start: " + exception.Message);
+            string reason = "Creator source load could not start: " + exception.Message;
+            ModLog.Error(reason);
+            try
+            {
+                if (CreatorCatalog != null
+                    && CreatorCatalog.TryFailNextSourceLoad(reason, out string failedType))
+                {
+                    PublishCreatorSourceFailure(failedType, reason, false);
+                }
+
+                PublishCreatorSourceProbeFailures(CreatorCatalog);
+                RefreshEditorAfterCreatorSourceLoad();
+            }
+            catch (System.Exception reportingError)
+            {
+                ModLog.Error("Creator source scheduling failure could not be reported: " + reportingError.Message);
+            }
         }
     }
 
@@ -1217,10 +1250,13 @@ internal class EditorMode : BlasMod
             + " pixelRect=" + (camera == null ? "<none>" : camera.pixelRect.ToString()));
     }
 
-    private bool TryPickPlacement(string id, string action)
+    private bool TryPickPlacement(
+        string id,
+        string action,
+        ApplyReport report = null)
     {
         RuntimePlacementManager manager = PlacementManager;
-        ApplyReport report = new();
+        report ??= new();
         if (manager == null)
         {
             report.Error(ReportCodes.PickNotReady, "clipboard", "Placement editing is not ready.");

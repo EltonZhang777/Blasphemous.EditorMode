@@ -322,6 +322,31 @@ public sealed class CreatorCatalogControllerTests
     }
 
     [Fact]
+    public void Source_load_scheduling_failure_marks_creator_failed_and_reselect_retries()
+    {
+        CreatorCatalogController controller = CreateController(2);
+        const string reason = "Creator source load could not start: host unavailable.";
+
+        Assert.True(controller.TrySelect("creator-01"));
+        Assert.True(controller.TryFailNextSourceLoad(reason, out string type));
+        Assert.Equal("creator-01", type);
+        Assert.Equal(CreatorCatalogSourceState.Failed, controller.GetSourceState(type));
+
+        CreatorCatalogSnapshot failed = controller.CreateSnapshot();
+        Assert.Contains(reason, failed.DetailsText);
+        Assert.Contains("select again to retry", failed.DetailsText);
+        Assert.False(failed.Preview.Available);
+        Assert.False(failed.Place.Available);
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+
+        Assert.True(controller.TrySelect(type));
+        Assert.True(controller.TryBeginNextSourceLoad(out string retryType, out int generation));
+        Assert.Equal(type, retryType);
+        Assert.True(controller.CompleteSourceLoad(retryType, generation, true, null));
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState(type));
+    }
+
+    [Fact]
     public void LatestSelectionLoadsAfterAFailureAndCachesSurviveOtherFailures()
     {
         CreatorCatalogController controller = CreateController(4);

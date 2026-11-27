@@ -23,14 +23,19 @@ internal sealed class UnityRuntimePlacementFactory :
 {
     private readonly Func<Transform> _holderProvider;
     private readonly bool _verboseDiagnostics;
+    private readonly Action<string, string> _creatorLookupFailed;
     private bool _adoptionPassActive;
     private Transform _adoptionPassHolder;
     private Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> _adoptionMarkers;
 
-    internal UnityRuntimePlacementFactory(Func<Transform> holderProvider, bool verboseDiagnostics)
+    internal UnityRuntimePlacementFactory(
+        Func<Transform> holderProvider,
+        bool verboseDiagnostics,
+        Action<string, string> creatorLookupFailed = null)
     {
         _holderProvider = holderProvider ?? FindCurrentObjectHolder;
         _verboseDiagnostics = verboseDiagnostics;
+        _creatorLookupFailed = creatorLookupFailed;
     }
 
     public void BeginAdoptionPass()
@@ -99,7 +104,10 @@ internal sealed class UnityRuntimePlacementFactory :
             return false;
         }
 
-        RuntimeCreatorRegistry.TryGet(placement.Type, out ObjectCreator creator, out _);
+        ResolveCreatorForFallback(
+            placement.Type,
+            out ObjectCreator creator,
+            out string creatorLookupFailure);
 
         Transform holder = _adoptionPassActive ? _adoptionPassHolder : _holderProvider();
         if (holder == null)
@@ -117,7 +125,8 @@ internal sealed class UnityRuntimePlacementFactory :
             placement.Id,
             placement.Type,
             marker.gameObject,
-            creator);
+            creator,
+            creatorLookupFailure);
         if (!adopted.TryApply(placement, out string applyError))
         {
             error = applyError ?? "Framework projection rejected adoption.";
@@ -291,15 +300,44 @@ internal sealed class UnityRuntimePlacementFactory :
         if (marker == null)
             return false;
 
-        RuntimeCreatorRegistry.TryGet(marker.Type, out ObjectCreator creator, out _);
+        ResolveCreatorForFallback(
+            marker.Type,
+            out ObjectCreator creator,
+            out string creatorLookupFailure);
 
         handle = new UnityRuntimePlacementHandle(
             marker.PlacementId,
             marker.Type,
             marker.gameObject,
-            creator);
+            creator,
+            creatorLookupFailure);
         error = null;
         return true;
+    }
+
+    private void ResolveCreatorForFallback(
+        string type,
+        out ObjectCreator creator,
+        out string creatorLookupFailure)
+    {
+        if (RuntimeCreatorRegistry.TryGet(type, out creator, out string error))
+        {
+            creatorLookupFailure = null;
+            return;
+        }
+
+        creator = null;
+        creatorLookupFailure =
+            "Creator '" + type + "' could not be resolved; transform-only fallback is active "
+            + "and its creator-specific modifier is unavailable. " + error;
+        try
+        {
+            _creatorLookupFailed?.Invoke(type, creatorLookupFailure);
+        }
+        catch (Exception callbackError)
+        {
+            ModLog.Warn("Creator lookup failure could not update the content catalog: " + callbackError.Message);
+        }
     }
 
     private static void MarkEditorProjection(GameObject obj, PlacementRecord placement)
@@ -364,7 +402,9 @@ internal sealed class UnityRuntimePlacementFactory :
 }
 
 /// <summary>Unity projection for one Architect-owned Placement.</summary>
-internal sealed class UnityRuntimePlacementHandle : IRuntimePlacementHandle
+internal sealed class UnityRuntimePlacementHandle :
+    IRuntimePlacementHandle,
+    IRuntimePlacementCreatorFallback
 {
     private readonly string _type;
     private readonly ObjectCreator _creator;
@@ -375,15 +415,18 @@ internal sealed class UnityRuntimePlacementHandle : IRuntimePlacementHandle
         string placementId,
         string type,
         GameObject obj,
-        ObjectCreator creator)
+        ObjectCreator creator,
+        string creatorLookupFailure = null)
     {
         PlacementId = placementId;
         _type = type;
         _object = obj;
         _creator = creator;
+        CreatorLookupFailure = creatorLookupFailure;
     }
 
     public string PlacementId { get; }
+    public string CreatorLookupFailure { get; }
     public bool IsOriginal { get { return false; } }
     public bool IsAlive { get { return _object != null; } }
 
