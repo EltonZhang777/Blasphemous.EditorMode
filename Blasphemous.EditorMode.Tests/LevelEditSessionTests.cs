@@ -158,7 +158,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void ExportPreservesUneditableAdditionsAndRoundTripsSupportedEdits()
+    public void ExportRetainsPreservedAdditionsAndRoundTripsSupportedEdits()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
