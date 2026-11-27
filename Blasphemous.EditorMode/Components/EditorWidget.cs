@@ -7,7 +7,6 @@ using Framework.Managers;
 using Gameplay.UI;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -60,6 +59,7 @@ internal class EditorWidget : MonoBehaviour
     private InputField[] _rotationFields;
     private InputField[] _scaleFields;
     private string _selectedId;
+    private PlacementTransform _selectedTransform;
     private bool _catalogBuilt;
 
     private void Awake()
@@ -465,10 +465,14 @@ internal class EditorWidget : MonoBehaviour
             return;
 
         if (!_catalogBuilt && editor.Catalog != null)
+        {
             BuildCatalog(editor.Catalog);
+        }
 
         if (_statusText == null)
+        {
             return;
+        }
 
         string room = editor.CurrentRoom == null
             ? "<none>"
@@ -480,10 +484,19 @@ internal class EditorWidget : MonoBehaviour
         PlacementRecord selectedPlacement = editor.PlacementManager?.Selected;
         string selectedPlacementId = selectedPlacement?.Id;
         bool selectionChanged = !string.Equals(_selectedId, selectedPlacementId, StringComparison.OrdinalIgnoreCase);
+        bool transformFieldsChanged = TransformInspectorRefreshPolicy.ShouldRefresh(
+            _selectedId,
+            _selectedTransform,
+            selectedPlacementId,
+            selectedPlacement?.Transform);
         if (selectionChanged)
         {
             _selectedId = selectedPlacementId;
             editor.ClearRawPropertiesDiagnostics();
+        }
+        if (transformFieldsChanged)
+        {
+            _selectedTransform = selectedPlacement?.Transform;
             SetTransformFields(selectedPlacement);
         }
         SetPropertiesEditor(selectedPlacement, preservePropertiesDraft);
@@ -564,60 +577,61 @@ internal class EditorWidget : MonoBehaviour
     {
         if (placement == null)
         {
-            SetFieldValues(_positionFields, new string[3]);
-            SetFieldValues(_rotationFields, new string[3]);
-            SetFieldValues(_scaleFields, new string[3]);
+            SetFieldValues(_positionFields, TransformInspectorGroup.Empty);
+            SetFieldValues(_rotationFields, TransformInspectorGroup.Empty);
+            SetFieldValues(_scaleFields, TransformInspectorGroup.Empty);
             return;
         }
 
-        SetFieldValues(
-            _positionFields,
-            [
-                placement.Transform.PositionX.ToString("R", CultureInfo.InvariantCulture),
-                placement.Transform.PositionY.ToString("R", CultureInfo.InvariantCulture),
-                placement.Transform.PositionZ.ToString("R", CultureInfo.InvariantCulture)
-            ]);
-        SetFieldValues(
-            _rotationFields,
-            [
-                placement.Transform.RotationX.ToString("R", CultureInfo.InvariantCulture),
-                placement.Transform.RotationY.ToString("R", CultureInfo.InvariantCulture),
-                placement.Transform.RotationZ.ToString("R", CultureInfo.InvariantCulture)
-            ]);
-        SetFieldValues(
-            _scaleFields,
-            [
-                placement.Transform.ScaleX.ToString("R", CultureInfo.InvariantCulture),
-                placement.Transform.ScaleY.ToString("R", CultureInfo.InvariantCulture),
-                placement.Transform.ScaleZ.ToString("R", CultureInfo.InvariantCulture)
-            ]);
+        TransformInspectorValues values = TransformInspectorValues.FromTransform(placement.Transform);
+        SetFieldValues(_positionFields, values.Position);
+        SetFieldValues(_rotationFields, values.Rotation);
+        SetFieldValues(_scaleFields, values.Scale);
     }
 
-    private static void SetFieldValues(InputField[] fields, string[] values)
+    private static void SetFieldValues(InputField[] fields, TransformInspectorGroup values)
     {
         if (fields == null)
+        {
             return;
+        }
 
-        for (int index = 0; index < fields.Length; index++)
-            fields[index].text = values == null || index >= values.Length ? string.Empty : values[index] ?? string.Empty;
+        TransformInspectorFieldMapping.Write(values, (index, text) =>
+        {
+            if (index >= fields.Length || fields[index] == null)
+            {
+                return;
+            }
+
+            fields[index].text = text;
+        });
     }
 
     private void ApplyTransform()
     {
         if (Main.EditorMode == null)
+        {
             return;
+        }
 
-        string[] values = new string[9];
-        CopyFieldValues(_positionFields, values, 0);
-        CopyFieldValues(_rotationFields, values, 3);
-        CopyFieldValues(_scaleFields, values, 6);
+        TransformInspectorValues values = new(
+            ReadTransformGroup(_positionFields),
+            ReadTransformGroup(_rotationFields),
+            ReadTransformGroup(_scaleFields));
         Main.EditorMode.TryApplySelectedTransform(values);
     }
 
-    private static void CopyFieldValues(InputField[] fields, string[] target, int offset)
+    private static TransformInspectorGroup ReadTransformGroup(InputField[] fields)
     {
-        for (int index = 0; index < fields.Length; index++)
-            target[offset + index] = fields[index] == null ? string.Empty : fields[index].text;
+        return TransformInspectorFieldMapping.Read(
+            index => ReadFieldValue(fields, index));
+    }
+
+    private static string ReadFieldValue(InputField[] fields, int index)
+    {
+        return fields == null || index >= fields.Length || fields[index] == null
+            ? string.Empty
+            : fields[index].text;
     }
 
     private void CreatePropertiesEditor()

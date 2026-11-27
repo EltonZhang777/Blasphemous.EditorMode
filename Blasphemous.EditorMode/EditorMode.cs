@@ -12,7 +12,6 @@ using Gameplay.GameControllers.Environment;
 using Gameplay.UI;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using Tools.Level.Layout;
 using UnityEngine;
@@ -378,7 +377,9 @@ internal class EditorMode : BlasMod
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
+        {
             return false;
+        }
 
         ApplyReport report = new();
         bool result = manager.TryDelete(manager.Selected.Id, report);
@@ -535,39 +536,30 @@ internal class EditorMode : BlasMod
         PublishReport("Preview", report);
     }
 
-    internal bool TryApplySelectedTransform(string[] values)
+    internal bool TryApplySelectedTransform(TransformInspectorValues values)
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
             return false;
 
         ApplyReport report = new();
-        if (values == null || values.Length != 9)
+        if (values == null)
         {
-            report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, "Exactly nine transform values are required.");
+            report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, "Position, rotation, and scale values are required.");
             PublishReport("Transform", report);
             return false;
         }
 
-        float[] parsed = new float[values.Length];
-        for (int index = 0; index < values.Length; index++)
+        if (!values.TryCreateTransform(out PlacementTransform transform, out string error))
         {
-            if (!float.TryParse(values[index], NumberStyles.Float, CultureInfo.InvariantCulture, out parsed[index])
-                || float.IsNaN(parsed[index])
-                || float.IsInfinity(parsed[index]))
-            {
-                report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, "Transform values must be finite numbers.");
-                PublishReport("Transform", report);
-                return false;
-            }
+            report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, error);
+            PublishReport("Transform", report);
+            return false;
         }
 
         bool result = manager.TryMove(
             manager.Selected.Id,
-            new PlacementTransform(
-                parsed[0], parsed[1], parsed[2],
-                parsed[3], parsed[4], parsed[5],
-                parsed[6], parsed[7], parsed[8]),
+            transform,
             report);
         PublishReport("Transform", report);
         return result;
