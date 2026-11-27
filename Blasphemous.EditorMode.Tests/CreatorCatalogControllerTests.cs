@@ -248,6 +248,355 @@ public sealed class CreatorCatalogControllerTests
         Assert.Equal(CreatorCatalogSourceState.Unavailable, controller.GetSourceState("creator"));
     }
 
+    [Fact]
+    public void SelectingACreatorStartsAtMostOneSourceLoad()
+    {
+        CreatorCatalogController controller = CreateController(3);
+
+        Assert.True(controller.TrySelect("creator-01"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+        Assert.Equal("creator-01", type);
+        Assert.Equal(CreatorCatalogSourceState.Loading, controller.GetSourceState("creator-01"));
+
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("creator-00"));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("creator-02"));
+
+        Assert.True(controller.CompleteSourceLoad("creator-01", generation, true, null));
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("creator-01"));
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+    }
+
+    [Fact]
+    public void LatestSelectionWinsAndSupersededSelectionsAreSkipped()
+    {
+        CreatorCatalogController controller = CreateController(4);
+
+        Assert.True(controller.TrySelect("creator-01"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string first, out int generation));
+        Assert.Equal("creator-01", first);
+
+        Assert.True(controller.TrySelect("creator-02"));
+        Assert.True(controller.TrySelect("creator-03"));
+        Assert.Equal("creator-03", controller.SelectedType);
+
+        Assert.True(controller.CompleteSourceLoad(first, generation, true, null));
+        Assert.True(controller.TryBeginNextSourceLoad(out string next, out generation));
+        Assert.Equal("creator-03", next);
+        Assert.True(controller.CompleteSourceLoad(next, generation, true, null));
+
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("creator-02"));
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("creator-03"));
+        Assert.Equal("creator-03", controller.SelectedType);
+    }
+
+    [Fact]
+    public void ReselectingAFailedCreatorRetriesButPagesAndRefreshesDoNot()
+    {
+        CreatorCatalogController controller = CreateController(6);
+
+        Assert.True(controller.TrySelect("creator-01"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+        Assert.True(controller.CompleteSourceLoad(
+            type,
+            generation,
+            false,
+            "Scene source was unavailable."));
+        Assert.Equal(CreatorCatalogSourceState.Failed, controller.GetSourceState("creator-01"));
+
+        Assert.True(controller.NextPage());
+        Assert.True(controller.PreviousPage());
+        CreatorCatalogSnapshot failed = controller.CreateSnapshot();
+        Assert.Contains("Scene source was unavailable", failed.DetailsText);
+        Assert.Contains("select again to retry", failed.DetailsText);
+        Assert.Contains("Category:", failed.DetailsText);
+        Assert.Contains("Source:", failed.DetailsText);
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+
+        Assert.True(controller.TrySelect("creator-01"));
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+        Assert.Equal("creator-01", type);
+        Assert.True(controller.CompleteSourceLoad(type, generation, true, null));
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("creator-01"));
+    }
+
+    [Fact]
+    public void LatestSelectionLoadsAfterAFailureAndCachesSurviveOtherFailures()
+    {
+        CreatorCatalogController controller = CreateController(4);
+
+        Assert.True(controller.TrySelect("creator-00"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+        Assert.True(controller.CompleteSourceLoad(type, generation, true, null));
+
+        Assert.True(controller.TrySelect("creator-01"));
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+        Assert.True(controller.CompleteSourceLoad(type, generation, false, "Loader failed."));
+
+        Assert.True(controller.TrySelect("creator-02"));
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+        Assert.Equal("creator-02", type);
+        Assert.True(controller.CompleteSourceLoad(type, generation, true, null));
+
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("creator-00"));
+        Assert.Equal(CreatorCatalogSourceState.Failed, controller.GetSourceState("creator-01"));
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("creator-02"));
+        Assert.Equal("creator-02", controller.SelectedType);
+    }
+
+    [Fact]
+    public void ExistingLoadedSourceEntersReadyWithoutStartingALoad()
+    {
+        CreatorCatalogController controller = new(
+            RuntimeCreatorInventory.FromRegistryEntries(
+                new[]
+                {
+                    new RuntimeCreatorRegistryEntry("loaded", true, true),
+                    new RuntimeCreatorRegistryEntry("pending", true, true)
+                }),
+            type => string.Equals(type, "loaded", StringComparison.Ordinal));
+
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("loaded"));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("pending"));
+
+        Assert.True(controller.TrySelect("loaded"));
+
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("loaded"));
+
+        Assert.True(controller.TrySelect("pending"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out _));
+        Assert.Equal("pending", type);
+    }
+
+    [Fact]
+    public void CreatorWithoutALoaderStaysUnavailableAndNeverLoads()
+    {
+        CreatorCatalogController controller = new(
+            RuntimeCreatorInventory.FromRegistryEntries(
+                new[]
+                {
+                    new RuntimeCreatorRegistryEntry("no-loader", false, true)
+                }));
+
+        Assert.True(controller.TrySelect("no-loader"));
+
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+        Assert.Equal(CreatorCatalogSourceState.Unavailable, controller.GetSourceState("no-loader"));
+        Assert.False(controller.PreviewAvailable);
+        Assert.False(controller.PlaceAvailable);
+    }
+
+    [Fact]
+    public void LoadingStateIsVisibleAndKeepsActionsDisabled()
+    {
+        CreatorCatalogController controller = CreateController(2);
+
+        Assert.True(controller.TrySelect("creator-00"));
+        Assert.True(controller.TryBeginNextSourceLoad(out _, out _));
+        CreatorCatalogSnapshot snapshot = controller.CreateSnapshot();
+
+        Assert.Equal(CreatorCatalogSourceState.Loading, snapshot.SelectedSourceState);
+        Assert.Contains(snapshot.Rows, row => row.IsSelected && row.Status == "Loading");
+        Assert.Contains("Source is loading", snapshot.DetailsText);
+        Assert.False(snapshot.Preview.Available);
+        Assert.False(snapshot.Place.Available);
+        Assert.Contains("loading", snapshot.Preview.UnavailableReason.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void InvalidationDiscardsStaleCompletionWithoutChangingSelectionOrPage()
+    {
+        CreatorCatalogController controller = CreateController(12);
+        Assert.True(controller.NextPage());
+        Assert.True(controller.TrySelect("creator-06"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+
+        controller.InvalidateActiveSourceLoad();
+
+        Assert.Equal("creator-06", controller.SelectedType);
+        Assert.Equal(1, controller.PageIndex);
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState(type));
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+        Assert.False(controller.CompleteSourceLoad(type, generation, true, null));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState(type));
+        Assert.False(controller.PreviewAvailable);
+        Assert.False(controller.PlaceAvailable);
+        Assert.True(controller.TrySelect("creator-07"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string next, out int nextGeneration));
+        Assert.Equal("creator-07", next);
+        Assert.True(controller.CompleteSourceLoad(next, nextGeneration, true, null));
+        Assert.False(controller.PlaceAvailable);
+    }
+
+    [Fact]
+    public void InvalidatedSourceLoadRequiresAFreshLoadEvenWhenAResultAppears()
+    {
+        bool resultAvailable = false;
+        CreatorCatalogController controller = new(
+            RuntimeCreatorInventory.FromRegistryEntries(
+                new[] { new RuntimeCreatorRegistryEntry("creator", true, true) }),
+            type => resultAvailable);
+
+        Assert.True(controller.TrySelect("creator"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+        resultAvailable = true;
+
+        controller.InvalidateActiveSourceLoad();
+        Assert.False(controller.CompleteSourceLoad(type, generation, true, null));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("creator"));
+
+        Assert.True(controller.TrySelect("creator"));
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+        Assert.Equal("creator", type);
+        Assert.Equal(CreatorCatalogSourceState.Loading, controller.GetSourceState("creator"));
+        Assert.True(controller.CompleteSourceLoad(type, generation, true, null));
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("creator"));
+    }
+
+    [Fact]
+    public void InvalidationDiscardsAnActiveRequiredLoadBeforeItCanSeedSelection()
+    {
+        bool resultAvailable = false;
+        CreatorCatalogController controller = new(
+            RuntimeCreatorInventory.FromRegistryEntries(
+                new[] { new RuntimeCreatorRegistryEntry("creator", true, true) }),
+            type => resultAvailable);
+
+        controller.RequireSourceLoad("creator");
+        Assert.True(controller.TrySelect("creator"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+        resultAvailable = true;
+
+        controller.InvalidateActiveSourceLoad();
+
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState(type));
+        Assert.False(controller.CompleteSourceLoad(type, generation, true, null));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState(type));
+
+        Assert.True(controller.TrySelect("creator"));
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+        Assert.Equal("creator", type);
+        Assert.Equal(CreatorCatalogSourceState.Loading, controller.GetSourceState(type));
+    }
+
+    [Fact]
+    public void ReinitializedControllerDoesNotTrustAnInvalidatedRuntimeResult()
+    {
+        bool resultAvailable = false;
+        RuntimeCreatorInventory inventory = RuntimeCreatorInventory.FromRegistryEntries(
+            new[] { new RuntimeCreatorRegistryEntry("creator", true, true) });
+        CreatorCatalogController original = new(inventory, type => resultAvailable);
+
+        Assert.True(original.TrySelect("creator"));
+        Assert.True(original.TryBeginNextSourceLoad(out string type, out int generation));
+        resultAvailable = true;
+        original.InvalidateActiveSourceLoad();
+        Assert.False(original.CompleteSourceLoad(type, generation, true, null));
+
+        CreatorCatalogController reinitialized = new(
+            inventory,
+            reinitializedType => resultAvailable,
+            original.GetInvalidatedLoadedSourceTypes());
+
+        Assert.Equal(
+            CreatorCatalogSourceState.NotRequested,
+            reinitialized.GetSourceState("creator"));
+        Assert.True(reinitialized.TrySelect("creator"));
+        Assert.True(reinitialized.TryBeginNextSourceLoad(out type, out generation));
+        Assert.Equal(CreatorCatalogSourceState.Loading, reinitialized.GetSourceState(type));
+    }
+
+    [Fact]
+    public void ResetInvalidatesActiveLoadsAndClearsCachedStates()
+    {
+        CreatorCatalogController controller = CreateController(3);
+        Assert.True(controller.TrySelect("creator-00"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+        Assert.True(controller.CompleteSourceLoad(type, generation, true, null));
+        Assert.True(controller.TrySelect("creator-01"));
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+        Assert.True(controller.CompleteSourceLoad(type, generation, false, "Loader failed."));
+        Assert.True(controller.TrySelect("creator-02"));
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+
+        controller.ResetSourceStates();
+
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("creator-00"));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("creator-01"));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("creator-02"));
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+        Assert.False(controller.CompleteSourceLoad(type, generation, true, null));
+        Assert.True(controller.TrySelect("creator-00"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string next, out int nextGeneration));
+        Assert.Equal("creator-00", next);
+        Assert.True(controller.CompleteSourceLoad(next, nextGeneration, true, null));
+    }
+
+    [Fact]
+    public void ResetReusesSourcesReportedByTheRuntimeProbe()
+    {
+        CreatorCatalogController controller = new(
+            RuntimeCreatorInventory.FromRegistryEntries(
+                new[]
+                {
+                    new RuntimeCreatorRegistryEntry("loaded", true, true),
+                    new RuntimeCreatorRegistryEntry("pending", true, true)
+                }),
+            type => string.Equals(type, "loaded", StringComparison.Ordinal));
+
+        Assert.True(controller.TrySelect("pending"));
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+        Assert.True(controller.CompleteSourceLoad(type, generation, false, "Loader failed."));
+
+        controller.ResetSourceStates();
+
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("loaded"));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("pending"));
+    }
+
+    [Fact]
+    public void RequiredRoomSourcesLoadSeriallyBeforeTheLatestSelection()
+    {
+        CreatorCatalogController controller = CreateController(4);
+        controller.RequireSourceLoad("creator-01");
+        controller.RequireSourceLoad("creator-02");
+        controller.RequireSourceLoad("creator-01");
+        Assert.True(controller.TrySelect("creator-00"));
+
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+        Assert.Equal("creator-01", type);
+        Assert.True(controller.CompleteSourceLoad(type, generation, true, null));
+
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+        Assert.Equal("creator-02", type);
+        Assert.True(controller.CompleteSourceLoad(type, generation, true, null));
+
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+        Assert.Equal("creator-00", type);
+        Assert.True(controller.CompleteSourceLoad(type, generation, true, null));
+
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+    }
+
+    [Fact]
+    public void FailedRequiredLoadForTheSelectionDoesNotRetryUntilReselected()
+    {
+        CreatorCatalogController controller = CreateController(2);
+        controller.RequireSourceLoad("creator-00");
+        Assert.True(controller.TrySelect("creator-00"));
+
+        Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
+        Assert.Equal("creator-00", type);
+        Assert.True(controller.CompleteSourceLoad(type, generation, false, "Loader failed."));
+
+        Assert.False(controller.TryBeginNextSourceLoad(out _, out _));
+        Assert.True(controller.TrySelect("creator-00"));
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+        Assert.Equal("creator-00", type);
+    }
+
     private static CreatorCatalogController CreateController(int count)
     {
         RuntimeCreatorRegistryEntry[] entries = Enumerable.Range(0, count)

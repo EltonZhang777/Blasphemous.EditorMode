@@ -59,7 +59,7 @@ internal sealed class UnityRuntimePlacementFactory :
         {
             throw new InvalidOperationException(
                 "Creator '" + placement.Type + "' has no loaded source object. "
-                + "The Framework creator preload has not completed.");
+                + "Select the creator in the Content Catalog to load its source.");
         }
 
         Transform holder = _holderProvider() ?? throw new InvalidOperationException("Current LevelInitializer object holder is unavailable.");

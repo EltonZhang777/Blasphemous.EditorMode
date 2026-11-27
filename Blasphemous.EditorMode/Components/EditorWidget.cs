@@ -128,7 +128,7 @@ internal class EditorWidget : MonoBehaviour
         CreateButton("Apply Transform", "Apply", new Vector2(190f, -38f), ApplyTransform);
         CreatePropertiesEditor();
 
-        CreateButton("Import", "Import", new Vector2(-235f, -192f), () => Main.EditorMode.ImportCurrentRoom());
+        CreateButton("Import", "Import", new Vector2(-235f, -192f), () => Main.EditorMode.TryBeginImportCurrentRoom());
         CreateButton("Export", "Export", new Vector2(-155f, -192f), () => Main.EditorMode.ExportCurrentRoom());
         CreateButton("Undo", "Undo", new Vector2(-75f, -192f), () => Main.EditorMode.TryUndo());
         CreateButton("Redo", "Redo", new Vector2(5f, -192f), () => Main.EditorMode.TryRedo());

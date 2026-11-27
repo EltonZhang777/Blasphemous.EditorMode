@@ -130,24 +130,37 @@ internal sealed class CreatorCatalogController
     private readonly RuntimeCreatorInventory _inventory;
     private readonly Dictionary<string, SourceState> _sourceStates =
         new(StringComparer.Ordinal);
+    private readonly Func<string, bool> _hasLoadedSource;
+    private readonly Queue<string> _requiredSourceLoads = new();
+    private readonly HashSet<string> _requiredSourceLoadSet =
+        new(StringComparer.Ordinal);
+    private readonly HashSet<string> _invalidatedLoadedSourceTypes =
+        new(StringComparer.Ordinal);
     private int _pageIndex;
     private string _selectedType;
+    private string _requestedSourceLoad;
+    private string _activeSourceLoadType;
+    private int _sourceLoadGeneration;
     private bool _placementReady;
     private string _placementUnavailableReason = "Placement editing is not ready.";
 
-    internal CreatorCatalogController(RuntimeCreatorInventory inventory)
+    internal CreatorCatalogController(
+        RuntimeCreatorInventory inventory,
+        Func<string, bool> hasLoadedSource = null,
+        IEnumerable<string> invalidatedLoadedSourceTypes = null)
     {
         _inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
-        foreach (CreatorMetadata metadata in inventory.Entries)
+        _hasLoadedSource = hasLoadedSource;
+        if (invalidatedLoadedSourceTypes != null)
         {
-            _sourceStates[metadata.Type] = metadata.HasLoader
-                ? new SourceState(
-                    CreatorCatalogSourceState.NotRequested,
-                    "Source has not been loaded yet.")
-                : new SourceState(
-                    CreatorCatalogSourceState.Unavailable,
-                    "Creator has no loader; Preview and Place are unavailable.");
+            foreach (string type in invalidatedLoadedSourceTypes)
+            {
+                if (!string.IsNullOrEmpty(type))
+                    _invalidatedLoadedSourceTypes.Add(type);
+            }
         }
+        foreach (CreatorMetadata metadata in inventory.Entries)
+            _sourceStates[metadata.Type] = CreateInitialSourceState(metadata);
     }
 
     internal CreatorMetadata SelectedEntry
@@ -182,7 +195,138 @@ internal sealed class CreatorCatalogController
             return false;
 
         _selectedType = metadata.Type;
+        RequestSelectedSourceLoad(metadata);
         return true;
+    }
+
+    internal void RequireSourceLoad(string type)
+    {
+        CreatorMetadata metadata;
+        if (!_inventory.TryGetExact(type, out metadata) || !metadata.HasLoader)
+            return;
+
+        CreatorCatalogSourceState state = GetSourceState(metadata.Type);
+        if (!NeedsSourceLoad(state))
+            return;
+        if (!_requiredSourceLoadSet.Add(metadata.Type))
+            return;
+
+        _requiredSourceLoads.Enqueue(metadata.Type);
+    }
+
+    internal bool TryBeginNextSourceLoad(out string type, out int generation)
+    {
+        type = null;
+        generation = _sourceLoadGeneration;
+        if (_activeSourceLoadType != null)
+            return false;
+
+        while (true)
+        {
+            string candidate;
+            if (_requiredSourceLoads.Count > 0)
+            {
+                candidate = _requiredSourceLoads.Dequeue();
+                _requiredSourceLoadSet.Remove(candidate);
+            }
+            else if (_requestedSourceLoad != null)
+            {
+                candidate = _requestedSourceLoad;
+                _requestedSourceLoad = null;
+            }
+            else
+            {
+                return false;
+            }
+
+            if (string.Equals(candidate, _requestedSourceLoad, StringComparison.Ordinal))
+                _requestedSourceLoad = null;
+
+            CreatorMetadata metadata;
+            if (!_inventory.TryGetExact(candidate, out metadata))
+                continue;
+
+            CreatorCatalogSourceState state = GetSourceState(metadata.Type);
+            if (!NeedsSourceLoad(state))
+                continue;
+            if (!metadata.HasLoader)
+            {
+                TrySetSourceState(metadata.Type, CreatorCatalogSourceState.Unavailable, null);
+                continue;
+            }
+            if (!_invalidatedLoadedSourceTypes.Contains(metadata.Type)
+                && _hasLoadedSource != null
+                && _hasLoadedSource(metadata.Type))
+            {
+                TrySetSourceState(metadata.Type, CreatorCatalogSourceState.Ready, null);
+                continue;
+            }
+
+            if (!TrySetSourceState(
+                metadata.Type,
+                CreatorCatalogSourceState.Loading,
+                "Source is loading."))
+                continue;
+
+            _activeSourceLoadType = metadata.Type;
+            type = metadata.Type;
+            generation = _sourceLoadGeneration;
+            return true;
+        }
+    }
+
+    internal bool CompleteSourceLoad(
+        string type,
+        int generation,
+        bool succeeded,
+        string reason)
+    {
+        if (!string.Equals(_activeSourceLoadType, type, StringComparison.Ordinal))
+            return false;
+
+        bool currentGeneration = generation == _sourceLoadGeneration;
+        _activeSourceLoadType = null;
+        if (!currentGeneration)
+            return false;
+
+        return TrySetSourceState(
+            type,
+            succeeded
+                ? CreatorCatalogSourceState.Ready
+                : CreatorCatalogSourceState.Failed,
+            reason);
+    }
+
+    internal void InvalidateActiveSourceLoad()
+    {
+        _requestedSourceLoad = null;
+        if (_activeSourceLoadType == null)
+            return;
+
+        string active = _activeSourceLoadType;
+        _sourceLoadGeneration++;
+        _invalidatedLoadedSourceTypes.Add(active);
+        _sourceStates[active] = new SourceState(
+            CreatorCatalogSourceState.NotRequested,
+            "Source load was cancelled; select the creator to retry.");
+    }
+
+    internal ReadOnlyCollection<string> GetInvalidatedLoadedSourceTypes()
+    {
+        return new ReadOnlyCollection<string>([.. _invalidatedLoadedSourceTypes]);
+    }
+
+    internal void ResetSourceStates()
+    {
+        _sourceLoadGeneration++;
+        _requestedSourceLoad = null;
+        _requiredSourceLoads.Clear();
+        _requiredSourceLoadSet.Clear();
+        if (_activeSourceLoadType != null)
+            _invalidatedLoadedSourceTypes.Add(_activeSourceLoadType);
+
+        foreach (CreatorMetadata metadata in _inventory.Entries)
+            _sourceStates[metadata.Type] = CreateInitialSourceState(metadata);
     }
 
     internal bool PreviousPage()
@@ -213,6 +357,11 @@ internal sealed class CreatorCatalogController
             return false;
         if (state == CreatorCatalogSourceState.Ready && !metadata.HasLoader)
             return false;
+
+        if (state == CreatorCatalogSourceState.Ready)
+            _invalidatedLoadedSourceTypes.Remove(metadata.Type);
+        else if (state == CreatorCatalogSourceState.Failed)
+            _invalidatedLoadedSourceTypes.Add(metadata.Type);
 
         _sourceStates[metadata.Type] = new SourceState(
             state,
@@ -373,16 +522,20 @@ internal sealed class CreatorCatalogController
 
         CreatorCatalogActionAvailability preview = PreviewAvailability;
         CreatorCatalogActionAvailability place = PlaceAvailability;
+        CreatorCatalogSourceState selectedState = GetSourceState(selected.Type);
         string detailsText = string.Format(
-            "{0} [{1}] - {2}\n"
-                + "Category: {3} | Source: {4}\n"
-                + "Scene: {5} | Path: {6}\n"
-                + "Transform: {7}\n"
-                + "Preview: {8}\n"
-                + "Place: {9}",
+            "{0} [{1}] - {2}{3}\n"
+                + "Category: {4} | Source: {5}\n"
+                + "Scene: {6} | Path: {7}\n"
+                + "Transform: {8}\n"
+                + "Preview: {9}\n"
+                + "Place: {10}",
             selected.DisplayName,
             selected.Type,
-            GetSourceState(selected.Type),
+            selectedState,
+            selectedState == CreatorCatalogSourceState.Failed
+                ? " (select again to retry)"
+                : string.Empty,
             selected.Category,
             selected.Source,
             selected.SourceScene,
@@ -433,6 +586,44 @@ internal sealed class CreatorCatalogController
         return availability.Available
             ? "available"
             : "disabled - " + availability.UnavailableReason;
+    }
+
+    private void RequestSelectedSourceLoad(CreatorMetadata metadata)
+    {
+        CreatorCatalogSourceState state = GetSourceState(metadata.Type);
+        _requestedSourceLoad =
+            NeedsSourceLoad(state)
+                ? metadata.Type
+                : null;
+    }
+
+    private static bool NeedsSourceLoad(CreatorCatalogSourceState state)
+    {
+        return state == CreatorCatalogSourceState.NotRequested
+            || state == CreatorCatalogSourceState.Failed;
+    }
+
+    private SourceState CreateInitialSourceState(CreatorMetadata metadata)
+    {
+        if (!metadata.HasLoader)
+        {
+            return new SourceState(
+                CreatorCatalogSourceState.Unavailable,
+                "Creator has no loader; Preview and Place are unavailable.");
+        }
+
+        if (!_invalidatedLoadedSourceTypes.Contains(metadata.Type)
+            && _hasLoadedSource != null
+            && _hasLoadedSource(metadata.Type))
+        {
+            return new SourceState(
+                CreatorCatalogSourceState.Ready,
+                string.Empty);
+        }
+
+        return new SourceState(
+            CreatorCatalogSourceState.NotRequested,
+            "Source has not been loaded yet.");
     }
 
     private static string NormalizeReason(

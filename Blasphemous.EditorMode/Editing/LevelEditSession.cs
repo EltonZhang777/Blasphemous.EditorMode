@@ -230,6 +230,35 @@ internal sealed class LevelEditSession
         return new LevelEditSessionImportResult(session, state, report, file.OriginalText);
     }
 
+    internal static ReadOnlyCollection<string> GetReferencedCreatorTypes(
+        FrameworkFileResult file,
+        IEnumerable<CreatorMetadata> supportedCreators)
+    {
+        List<string> types = [];
+        if (file == null || file.Document == null)
+            return new ReadOnlyCollection<string>(types);
+
+        HashSet<string> supported = new(StringComparer.Ordinal);
+        foreach (CreatorMetadata creator in supportedCreators ?? [])
+        {
+            if (creator != null)
+                supported.Add(creator.Type);
+        }
+
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        foreach (FrameworkObjectData data in file.Document.Additions)
+        {
+            if (data == null || data.PreserveOriginalAddition)
+                continue;
+            if (string.IsNullOrEmpty(data.Type) || !supported.Contains(data.Type))
+                continue;
+            if (seen.Add(data.Type))
+                types.Add(data.Type);
+        }
+
+        return new ReadOnlyCollection<string>(types);
+    }
+
     internal bool TryGetPlacement(string id, out PlacementRecord placement)
     {
         placement = null;

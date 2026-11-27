@@ -323,6 +323,66 @@ public sealed class LevelEditSessionTests
         }
     }
 
+    [Fact]
+    public void ReferencedCreatorTypesIncludeOnlyProjectedSupportedAdditions()
+    {
+        FrameworkObjectData supported = new(
+            "logic",
+            "TRAPS/BELL",
+            CreatorFixtures.BellIronType,
+            "supported",
+            FrameworkVector.Zero,
+            FrameworkVector.Zero,
+            FrameworkVector.One,
+            string.Empty,
+            Array.Empty<string>());
+        FrameworkObjectData duplicate = new(
+            "logic",
+            "TRAPS/BELL",
+            CreatorFixtures.BellIronType,
+            "duplicate",
+            FrameworkVector.Zero,
+            FrameworkVector.Zero,
+            FrameworkVector.One,
+            string.Empty,
+            Array.Empty<string>());
+        FrameworkObjectData preserved = new FrameworkObjectData(
+            "logic",
+            "TRAPS/UNKNOWN",
+            "unknown-creator",
+            "preserved",
+            FrameworkVector.Zero,
+            FrameworkVector.Zero,
+            FrameworkVector.One,
+            string.Empty,
+            Array.Empty<string>())
+            .WithPreservedOriginalAddition();
+        FrameworkObjectData unsupported = new(
+            "logic",
+            "TRAPS/UNKNOWN",
+            "unknown-creator",
+            "unsupported",
+            FrameworkVector.Zero,
+            FrameworkVector.Zero,
+            FrameworkVector.One,
+            string.Empty,
+            Array.Empty<string>());
+        FrameworkFileResult file = new(
+            "D03Z02S06.json",
+            string.Empty,
+            new FrameworkLevelEdit(
+                new[] { supported, duplicate, preserved, unsupported },
+                Array.Empty<FrameworkObjectData>(),
+                Array.Empty<FrameworkObjectData>()),
+            Array.Empty<FrameworkDiagnostic>());
+
+        string[] types = [.. LevelEditSession.GetReferencedCreatorTypes(
+            file,
+            new[] { CreatorFixtures.BellIron })];
+
+        Assert.Equal(new[] { CreatorFixtures.BellIronType }, types);
+    }
+
     private sealed class TestFactory : IRuntimePlacementFactory
     {
         public IRuntimePlacementHandle Create(PlacementRecord placement)

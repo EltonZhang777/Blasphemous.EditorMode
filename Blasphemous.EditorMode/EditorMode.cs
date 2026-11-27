@@ -74,8 +74,10 @@ internal class EditorMode : BlasMod
     private UnityRuntimePlacementFactory _runtimeFactory;
     private RoomOverlayReconciler _overlayReconciler;
     private Coroutine _roomPreparation;
-    private Coroutine _creatorPreload;
-    private bool _creatorPreloadStarted;
+    private RoomIdentity _pendingRoomPreparation;
+    private bool _creatorSourceLoadRunning;
+    private bool _creatorSourceLoadsDisabled;
+    private int _creatorSourceLoadToken;
     private CreatorCatalogActionRouter _catalogActions;
 
     internal EditorMode() : base(ModInfo.MOD_ID, ModInfo.MOD_NAME, ModInfo.MOD_AUTHOR, ModInfo.MOD_VERSION) { }
@@ -185,7 +187,6 @@ internal class EditorMode : BlasMod
 
         if (roomLoaded)
         {
-            StartCreatorPreload();
             SafeCreateEditorAfterDelay(1.5f);
         }
     }
@@ -197,8 +198,20 @@ internal class EditorMode : BlasMod
 
     protected override void OnAllInitialized()
     {
+        _creatorSourceLoadsDisabled = false;
         CreatorInventory = RuntimeCreatorInventoryReader.Read();
-        CreatorCatalog = new CreatorCatalogController(CreatorInventory);
+        List<string> invalidatedLoadedSourceTypes = [];
+        if (CreatorCatalog != null)
+        {
+            CreatorCatalog.ResetSourceStates();
+            invalidatedLoadedSourceTypes.AddRange(
+                CreatorCatalog.GetInvalidatedLoadedSourceTypes());
+            InvalidateCreatorSourceLoads();
+        }
+        CreatorCatalog = new CreatorCatalogController(
+            CreatorInventory,
+            HasUsableRuntimeSource,
+            invalidatedLoadedSourceTypes);
         Catalog = ContentCatalog.FromInventory(
             CreatorInventory,
             metadata => UnityPreviewFactory.Create(
@@ -215,20 +228,25 @@ internal class EditorMode : BlasMod
         _overlayReconciler = new RoomOverlayReconciler(Catalog, _runtimeFactory);
         if (_lifecycleBridge.CurrentRoom != null)
         {
-            StartCreatorPreload();
             StartRoomPreparation(_lifecycleBridge.CurrentRoom);
         }
     }
 
     protected override void OnDispose()
     {
+        _creatorSourceLoadsDisabled = true;
         ExitEditorMode();
         DisposePreview();
         ClearRoomOverlay();
+        InvalidateCreatorSourceLoads();
+        CreatorCatalog?.ResetSourceStates();
     }
 
     protected override void OnUpdate()
     {
+        if (_pendingRoomPreparation != null)
+            TryStartRoomPreparation();
+
         if (InputHandler.GetKeyDown("OpenEditor"))
             ToggleEditorMode();
     }
@@ -299,6 +317,7 @@ internal class EditorMode : BlasMod
         }
 
         DisposePreview();
+        CreatorCatalog?.InvalidateActiveSourceLoad();
         _lifecycleBridge.EndEditing();
         EditorWidget?.gameObject.SetActive(false);
     }
@@ -318,7 +337,7 @@ internal class EditorMode : BlasMod
         return result;
     }
 
-    internal bool ImportCurrentRoom()
+    internal bool TryBeginImportCurrentRoom()
     {
         RoomIdentity room = _lifecycleBridge.CurrentRoom;
         if (room == null || _overlayReconciler == null)
@@ -329,7 +348,8 @@ internal class EditorMode : BlasMod
             return false;
         }
 
-        return PrepareRoom(room);
+        StartRoomPreparation(room);
+        return true;
     }
 
     internal bool TryPlaceAtCursor(string type)
@@ -506,6 +526,8 @@ internal class EditorMode : BlasMod
             PublishReport("Preview", report);
         else if (selected)
             EditorWidget?.RefreshAfterReport(true);
+        if (selected)
+            EnsureCreatorSourceLoad();
         return selected;
     }
 
@@ -723,6 +745,8 @@ internal class EditorMode : BlasMod
         ExitEditorMode();
         DisposePreview();
         ClearRoomOverlay();
+        InvalidateCreatorSourceLoads();
+        CreatorCatalog?.ResetSourceStates();
         CreatorCatalog?.SetPlacementReady(
             false,
             "No editable Room Overlay is loaded.");
@@ -734,12 +758,27 @@ internal class EditorMode : BlasMod
         if (room == null || _overlayReconciler == null)
             return;
 
-        if (UIController.instance == null)
+        _pendingRoomPreparation = room;
+        TryStartRoomPreparation();
+    }
+
+    private void TryStartRoomPreparation()
+    {
+        RoomIdentity room = _pendingRoomPreparation;
+        if (room == null || _overlayReconciler == null)
         {
-            PrepareRoom(room);
+            _pendingRoomPreparation = null;
             return;
         }
+        if (!IsCurrentRoom(room))
+        {
+            _pendingRoomPreparation = null;
+            return;
+        }
+        if (UIController.instance == null)
+            return;
 
+        _pendingRoomPreparation = null;
         if (_roomPreparation != null)
             UIController.instance.StopCoroutine(_roomPreparation);
         _roomPreparation = UIController.instance.StartCoroutine(PrepareRoomAfterFrame(room));
@@ -748,21 +787,74 @@ internal class EditorMode : BlasMod
     private IEnumerator PrepareRoomAfterFrame(RoomIdentity room)
     {
         yield return null;
-        while (_creatorPreload != null)
-            yield return null;
-        _roomPreparation = null;
-        if (_lifecycleBridge.CurrentRoom == null || !_lifecycleBridge.CurrentRoom.Equals(room))
+        if (!IsCurrentRoom(room))
+        {
+            _roomPreparation = null;
             yield break;
-        PrepareRoom(room);
+        }
+
+        FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(
+            RoomExportPath(room),
+            room.ExportFileKey);
+        List<string> sourceTypes = [.. LevelEditSession.GetReferencedCreatorTypes(
+            file,
+            Catalog.Entries)];
+        foreach (string type in sourceTypes)
+            CreatorCatalog?.RequireSourceLoad(type);
+        EnsureCreatorSourceLoad();
+
+        while (RequiresSourcePreparation(sourceTypes))
+        {
+            if (!IsCurrentRoom(room))
+            {
+                _roomPreparation = null;
+                yield break;
+            }
+
+            foreach (string type in sourceTypes)
+            {
+                if (CreatorCatalog?.GetSourceState(type) == CreatorCatalogSourceState.NotRequested)
+                    CreatorCatalog.RequireSourceLoad(type);
+            }
+            EnsureCreatorSourceLoad();
+            yield return null;
+        }
+
+        _roomPreparation = null;
+        if (!IsCurrentRoom(room))
+            yield break;
+
+        PrepareRoom(room, file);
     }
 
-    private bool PrepareRoom(RoomIdentity room)
+    private bool IsCurrentRoom(RoomIdentity room)
     {
-        if (room == null || _overlayReconciler == null)
+        return _lifecycleBridge != null
+            && _lifecycleBridge.CurrentRoom != null
+            && _lifecycleBridge.CurrentRoom.Equals(room);
+    }
+
+    private bool RequiresSourcePreparation(IEnumerable<string> types)
+    {
+        if (CreatorCatalog == null)
             return false;
 
-        string path = RoomExportPath(room);
-        FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, room.ExportFileKey);
+        foreach (string type in types)
+        {
+            CreatorCatalogSourceState state = CreatorCatalog.GetSourceState(type);
+            if (state == CreatorCatalogSourceState.NotRequested
+                || state == CreatorCatalogSourceState.Loading)
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool PrepareRoom(RoomIdentity room, FrameworkFileResult file)
+    {
+        if (room == null || _overlayReconciler == null || file == null)
+            return false;
+
         RoomOverlayReconcileResult result = _overlayReconciler.Apply(room, file);
         if (!result.Succeeded)
         {
@@ -782,6 +874,7 @@ internal class EditorMode : BlasMod
 
     private void ClearRoomOverlay()
     {
+        _pendingRoomPreparation = null;
         if (_roomPreparation != null && UIController.instance != null)
             UIController.instance.StopCoroutine(_roomPreparation);
         _roomPreparation = null;
@@ -816,174 +909,240 @@ internal class EditorMode : BlasMod
         PublishReport(operation, report);
     }
 
-    private void StartCreatorPreload()
+    private void PublishCreatorSourceFailure(
+        string type,
+        string reason,
+        bool registryFailure)
     {
-        // Level Framework preload from MainMenu previously failed with "Scene to unload is invalid".
-        if (_lifecycleBridge == null
-            || _lifecycleBridge.CurrentRoom == null
-            || _creatorPreloadStarted
-            || Catalog == null
+        try
+        {
+            ApplyReport failure = new();
+            failure.Error(
+                registryFailure
+                    ? ReportCodes.CreatorUnsupported
+                    : ReportCodes.RuntimeCreateFailed,
+                type,
+                reason);
+            PublishReport("Creator source", failure);
+        }
+        catch (System.Exception exception)
+        {
+            ModLog.Error("Creator source failure could not be reported: " + exception.Message);
+        }
+    }
+
+    private void RefreshEditorAfterCreatorSourceLoad()
+    {
+        try
+        {
+            EditorWidget?.RefreshAfterReport(true);
+        }
+        catch (System.Exception exception)
+        {
+            ModLog.Error("Creator source UI refresh failed: " + exception.Message);
+        }
+    }
+
+    private void EnsureCreatorSourceLoad()
+    {
+        if (_creatorSourceLoadsDisabled
+            || _creatorSourceLoadRunning
+            || CreatorCatalog == null
             || UIController.instance == null)
             return;
 
-        _creatorPreloadStarted = true;
-        _creatorPreload = UIController.instance.StartCoroutine(PreloadCreatorSources());
-    }
-
-    private IEnumerator PreloadCreatorSources()
-    {
-        ApplyReport report = new();
+        _creatorSourceLoadRunning = true;
+        int token = ++_creatorSourceLoadToken;
         try
         {
-            yield return null;
-            foreach (CreatorMetadata metadata in Catalog.Entries)
+            UIController.instance.StartCoroutine(ProcessCreatorSourceLoads(token, CreatorCatalog));
+        }
+        catch (System.Exception exception)
+        {
+            _creatorSourceLoadRunning = false;
+            ModLog.Error("Creator source load could not start: " + exception.Message);
+        }
+    }
+
+    private void InvalidateCreatorSourceLoads()
+    {
+        _creatorSourceLoadToken++;
+    }
+
+    private IEnumerator ProcessCreatorSourceLoads(
+        int token,
+        CreatorCatalogController catalog)
+    {
+        string activeType = null;
+        int activeGeneration = 0;
+        bool completionRecorded = false;
+        bool loadIterationInProgress = false;
+        try
+        {
+            while (token == _creatorSourceLoadToken
+                && ReferenceEquals(CreatorCatalog, catalog)
+                && catalog.TryBeginNextSourceLoad(out string type, out int generation))
             {
-                if (!metadata.HasLoader)
-                {
-                    report.Warning(
-                        ReportCodes.CreatorLoaderMissing,
-                        metadata.Type,
-                        "Creator has no loader; Preview and Place are unavailable.");
-                    UpdateCatalogSourceState(
-                        metadata.Type,
-                        CreatorCatalogSourceState.Unavailable,
-                        "Creator has no loader; Preview and Place are unavailable.");
-                    continue;
-                }
+                loadIterationInProgress = true;
+                activeType = type;
+                activeGeneration = generation;
+                completionRecorded = false;
+                ModLog.Info(
+                    string.Equals(catalog.SelectedType, type, System.StringComparison.Ordinal)
+                        ? "Creator source loading: " + type
+                            + "; Preview disabled: " + catalog.PreviewUnavailableReason
+                            + "; Place disabled: " + catalog.PlaceUnavailableReason
+                        : "Creator source loading: " + type);
+                string reason = null;
+                bool registryFailure = false;
+                bool succeeded = false;
 
-                if (!RuntimeCreatorRegistry.TryGet(metadata.Type, out Blasphemous.Framework.Levels.ObjectCreator creator, out string error))
+                if (!RuntimeCreatorRegistry.TryGet(
+                    type,
+                    out Blasphemous.Framework.Levels.ObjectCreator creator,
+                    out reason))
                 {
-                    report.Error(ReportCodes.CreatorUnsupported, metadata.Type, error);
-                    UpdateCatalogSourceState(
-                        metadata.Type,
-                        CreatorCatalogSourceState.Failed,
-                        error);
-                    ModLog.Warn(error);
-                    continue;
+                    registryFailure = true;
                 }
-                if (creator.Loader == null)
+                else if (creator.Loader == null)
                 {
-                    report.Error(
-                        ReportCodes.RuntimeCreateFailed,
-                        metadata.Type,
-                        "Creator has no runtime loader.");
-                    UpdateCatalogSourceState(
-                        metadata.Type,
-                        CreatorCatalogSourceState.Failed,
-                        "Creator has no runtime loader.");
-                    continue;
-                }
-                if (creator.Loader.Result != null)
-                {
-                    UpdateCatalogSourceState(
-                        metadata.Type,
-                        CreatorCatalogSourceState.Ready,
-                        null);
-                    continue;
-                }
-
-                IEnumerator load;
-                UpdateCatalogSourceState(
-                    metadata.Type,
-                    CreatorCatalogSourceState.Loading,
-                    "Source preload is running.");
-                try
-                {
-                    load = creator.Loader.Apply();
-                }
-                catch (System.Exception exception)
-                {
-                    report.Error(
-                        ReportCodes.RuntimeCreateFailed,
-                        metadata.Type,
-                        "Creator source preload could not start: " + exception.Message);
-                    UpdateCatalogSourceState(
-                        metadata.Type,
-                        CreatorCatalogSourceState.Failed,
-                        "Creator source preload could not start: " + exception.Message);
-                    ModLog.Error("Creator source preload could not start for " + metadata.Type + ": " + exception.Message);
-                    continue;
-                }
-                if (load == null)
-                {
-                    report.Error(
-                        ReportCodes.RuntimeCreateFailed,
-                        metadata.Type,
-                        "Creator source preload returned no enumerator.");
-                    UpdateCatalogSourceState(
-                        metadata.Type,
-                        CreatorCatalogSourceState.Failed,
-                        "Creator source preload returned no enumerator.");
-                    ModLog.Error("Creator source preload returned no enumerator: " + metadata.Type);
-                    continue;
-                }
-
-                string failureReason = null;
-                bool failed = false;
-                while (true)
-                {
-                    bool hasNext;
-                    object current = null;
-                    try
-                    {
-                        hasNext = load.MoveNext();
-                        if (hasNext)
-                            current = load.Current;
-                    }
-                    catch (System.Exception exception)
-                    {
-                        failed = true;
-                        failureReason = "Creator source preload failed: " + exception.Message;
-                        UpdateCatalogSourceState(
-                            metadata.Type,
-                            CreatorCatalogSourceState.Failed,
-                            failureReason);
-                        ModLog.Error("Creator source preload failed for " + metadata.Type + ": " + exception.Message);
-                        break;
-                    }
-
-                    if (!hasNext)
-                        break;
-                    yield return current;
-                }
-
-                if (failed || creator.Loader.Result == null)
-                {
-                    string reason = failureReason ?? "Creator source preload returned no object.";
-                    report.Error(ReportCodes.RuntimeCreateFailed, metadata.Type, reason);
-                    UpdateCatalogSourceState(
-                        metadata.Type,
-                        CreatorCatalogSourceState.Failed,
-                        reason);
-                    if (!failed)
-                        ModLog.Warn(reason);
+                    reason = "Creator has no runtime loader.";
                 }
                 else
                 {
-                    UpdateCatalogSourceState(
-                        metadata.Type,
-                        CreatorCatalogSourceState.Ready,
-                        null);
+                    IEnumerator load = null;
+                    try
+                    {
+                        load = creator.Loader.Apply();
+                    }
+                    catch (System.Exception exception)
+                    {
+                        reason = "Creator source load could not start: " + exception.Message;
+                    }
+
+                    if (load == null)
+                    {
+                        reason ??= "Creator source load returned no enumerator.";
+                    }
+                    else
+                    {
+                        RefreshEditorAfterCreatorSourceLoad();
+                        yield return null;
+
+                        bool failed = false;
+                        while (true)
+                        {
+                            bool hasNext;
+                            object current = null;
+                            try
+                            {
+                                hasNext = load.MoveNext();
+                                if (hasNext)
+                                    current = load.Current;
+                            }
+                            catch (System.Exception exception)
+                            {
+                                failed = true;
+                                reason = "Creator source load failed: " + exception.Message;
+                                break;
+                            }
+
+                            if (!hasNext)
+                                break;
+
+                            yield return current;
+                        }
+
+                        if (failed)
+                        {
+                            reason ??= "Creator source load failed.";
+                        }
+                        else if (creator.Loader.Result == null)
+                        {
+                            reason = "Creator source load returned no object.";
+                        }
+                        else
+                        {
+                            succeeded = true;
+                        }
+                    }
                 }
+
+                bool currentCompletion = catalog.CompleteSourceLoad(
+                    type,
+                    generation,
+                    succeeded,
+                    reason);
+                completionRecorded = true;
+                activeType = null;
+                if (currentCompletion && !succeeded)
+                {
+                    PublishCreatorSourceFailure(type, reason, registryFailure);
+                }
+                else if (currentCompletion)
+                {
+                    ModLog.Info("Creator source ready: " + type);
+                }
+
+                yield return null;
+                loadIterationInProgress = false;
             }
         }
         finally
         {
-            _creatorPreload = null;
-            if (report.DiagnosticCount > 0)
-                PublishReport("Creator preload", report, false);
+            _creatorSourceLoadRunning = false;
+            bool interrupted = !completionRecorded && activeType != null;
+            if (!completionRecorded && activeType != null)
+            {
+                try
+                {
+                    if (catalog.CompleteSourceLoad(
+                        activeType,
+                        activeGeneration,
+                        false,
+                        "Creator source load was interrupted."))
+                    {
+                        PublishCreatorSourceFailure(
+                            activeType,
+                            "Creator source load was interrupted.",
+                            false);
+                    }
+                }
+                catch (System.Exception exception)
+                {
+                    ModLog.Error("Creator source interruption could not be recorded: " + exception.Message);
+                }
+            }
+
+            if (!_creatorSourceLoadsDisabled)
+            {
+                try
+                {
+                    RefreshEditorAfterCreatorSourceLoad();
+                    if (interrupted
+                        || loadIterationInProgress
+                        || token != _creatorSourceLoadToken
+                        || !ReferenceEquals(CreatorCatalog, catalog))
+                    {
+                        EnsureCreatorSourceLoad();
+                    }
+                }
+                catch (System.Exception exception)
+                {
+                    ModLog.Error("Creator source scheduler cleanup failed: " + exception.Message);
+                }
+            }
         }
     }
 
-    private void UpdateCatalogSourceState(
-        string type,
-        CreatorCatalogSourceState state,
-        string reason)
+    private static bool HasUsableRuntimeSource(string type)
     {
-        if (CreatorCatalog == null || !CreatorCatalog.TrySetSourceState(type, state, reason))
-            return;
-
-        EditorWidget?.RefreshAfterReport(true);
+        return RuntimeCreatorRegistry.TryGet(
+                type,
+                out Blasphemous.Framework.Levels.ObjectCreator creator,
+                out _)
+            && creator.Loader != null
+            && creator.Loader.Result != null;
     }
 
     private string RoomExportPath(RoomIdentity room)
