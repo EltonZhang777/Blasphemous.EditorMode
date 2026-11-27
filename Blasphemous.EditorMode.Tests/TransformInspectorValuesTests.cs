@@ -9,7 +9,7 @@ public sealed class TransformInspectorValuesTests
     [Fact]
     public void EditingPositionChangesOnlyPosition()
     {
-        PlacementTransform original = CreateOriginalTransform();
+        PlacementTransform original = TransformInspectorTestData.CreateDefault();
         TransformInspectorValues values = new(
             new TransformInspectorGroup("4", "5", "6"),
             new TransformInspectorGroup("10", "20", "30"),
@@ -30,7 +30,7 @@ public sealed class TransformInspectorValuesTests
     [Fact]
     public void EditingRotationChangesOnlyRotation()
     {
-        PlacementTransform original = CreateOriginalTransform();
+        PlacementTransform original = TransformInspectorTestData.CreateDefault();
         TransformInspectorValues values = new(
             new TransformInspectorGroup("1", "2", "3"),
             new TransformInspectorGroup("40", "50", "60"),
@@ -51,7 +51,7 @@ public sealed class TransformInspectorValuesTests
     [Fact]
     public void EditingScaleChangesOnlyScale()
     {
-        PlacementTransform original = CreateOriginalTransform();
+        PlacementTransform original = TransformInspectorTestData.CreateDefault();
         TransformInspectorValues values = new(
             new TransformInspectorGroup("1", "2", "3"),
             new TransformInspectorGroup("10", "20", "30"),
@@ -72,16 +72,7 @@ public sealed class TransformInspectorValuesTests
     [Fact]
     public void AllThreeGroupsRoundTripThroughInspectorValues()
     {
-        PlacementTransform original = new(
-            1.25f,
-            -2.5f,
-            3.75f,
-            10.5f,
-            -20.25f,
-            30.125f,
-            0.5f,
-            1.25f,
-            2.5f);
+        PlacementTransform original = TransformInspectorTestData.CreateRoundTrip();
 
         TransformInspectorValues values = TransformInspectorValues.FromTransform(original);
 
@@ -118,17 +109,4 @@ public sealed class TransformInspectorValuesTests
         Assert.False(string.IsNullOrEmpty(error));
     }
 
-    private static PlacementTransform CreateOriginalTransform()
-    {
-        return new PlacementTransform(
-            1f,
-            2f,
-            3f,
-            10f,
-            20f,
-            30f,
-            2f,
-            3f,
-            4f);
-    }
 }

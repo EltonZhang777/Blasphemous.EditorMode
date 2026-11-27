@@ -9,8 +9,8 @@ public sealed class TransformInspectorUiStateTests
     [Fact]
     public void SameIdAndSameTransformDoesNotRequireRefresh()
     {
-        PlacementTransform displayed = CreateTransform();
-        PlacementTransform selected = CreateTransform();
+        PlacementTransform displayed = TransformInspectorTestData.CreateDefault();
+        PlacementTransform selected = TransformInspectorTestData.CreateDefault();
 
         TransformInspectorRefreshDecision decision =
             TransformInspectorRefreshPolicy.Evaluate(
@@ -29,9 +29,9 @@ public sealed class TransformInspectorUiStateTests
         TransformInspectorRefreshDecision decision =
             TransformInspectorRefreshPolicy.Evaluate(
             "placement-1",
-            CreateTransform(),
+            TransformInspectorTestData.CreateDefault(),
             "placement-1",
-            CreateTransform(45f));
+            TransformInspectorTestData.CreateDefault(45f));
 
         Assert.False(decision.SelectionChanged);
         Assert.True(decision.FieldsRequireRefresh);
@@ -43,9 +43,9 @@ public sealed class TransformInspectorUiStateTests
         TransformInspectorRefreshDecision decision =
             TransformInspectorRefreshPolicy.Evaluate(
             "placement-1",
-            CreateTransform(),
+            TransformInspectorTestData.CreateDefault(),
             "placement-2",
-            CreateTransform());
+            TransformInspectorTestData.CreateDefault());
 
         Assert.True(decision.SelectionChanged);
         Assert.True(decision.FieldsRequireRefresh);
@@ -78,17 +78,63 @@ public sealed class TransformInspectorUiStateTests
         Assert.Equal("6", fields[2]);
     }
 
-    private static PlacementTransform CreateTransform(float rotationX = 30f)
+    [Fact]
+    public void RefreshAppliesFieldCallbackWithoutResettingSelection()
     {
-        return new PlacementTransform(
-            1f,
-            2f,
-            3f,
-            10f,
-            20f,
-            rotationX,
-            2f,
-            3f,
-            4f);
+        int selectionResets = 0;
+        int fieldRefreshes = 0;
+        TransformInspectorRefreshDecision decision =
+            TransformInspectorRefreshPolicy.Evaluate(
+            "placement-1",
+            TransformInspectorTestData.CreateDefault(),
+            "PLACEMENT-1",
+            TransformInspectorTestData.CreateDefault(45f));
+
+        TransformInspectorRefreshPolicy.Apply(
+            decision,
+            () => selectionResets++,
+            () => fieldRefreshes++);
+
+        Assert.Equal(0, selectionResets);
+        Assert.Equal(1, fieldRefreshes);
+    }
+
+    [Fact]
+    public void ReadingTransformValuesKeepsGroupsIndependent()
+    {
+        string[] position = ["1", "2", "3"];
+        string[] rotation = ["4", "5", "6"];
+        string[] scale = ["7", "8", "9"];
+
+        TransformInspectorValues values = TransformInspectorFieldMapping.ReadValues(
+            index => position[index],
+            index => rotation[index],
+            index => scale[index]);
+
+        Assert.Equal("1", values.Position.X);
+        Assert.Equal("5", values.Rotation.Y);
+        Assert.Equal("9", values.Scale.Z);
+    }
+
+    [Fact]
+    public void WritingTransformValuesKeepsGroupsIndependent()
+    {
+        string[] position = new string[3];
+        string[] rotation = new string[3];
+        string[] scale = new string[3];
+        TransformInspectorValues values = new(
+            new TransformInspectorGroup("1", "2", "3"),
+            new TransformInspectorGroup("4", "5", "6"),
+            new TransformInspectorGroup("7", "8", "9"));
+
+        TransformInspectorFieldMapping.WriteValues(
+            values,
+            (index, text) => position[index] = text,
+            (index, text) => rotation[index] = text,
+            (index, text) => scale[index] = text);
+
+        Assert.Equal(["1", "2", "3"], position);
+        Assert.Equal(["4", "5", "6"], rotation);
+        Assert.Equal(["7", "8", "9"], scale);
     }
 }

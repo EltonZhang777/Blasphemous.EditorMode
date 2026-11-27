@@ -156,6 +156,33 @@ internal static class TransformInspectorFieldMapping
         writeField(1, values.Y);
         writeField(2, values.Z);
     }
+
+    internal static TransformInspectorValues ReadValues(
+        Func<int, string> readPosition,
+        Func<int, string> readRotation,
+        Func<int, string> readScale)
+    {
+        return new TransformInspectorValues(
+            Read(readPosition),
+            Read(readRotation),
+            Read(readScale));
+    }
+
+    internal static void WriteValues(
+        TransformInspectorValues values,
+        Action<int, string> writePosition,
+        Action<int, string> writeRotation,
+        Action<int, string> writeScale)
+    {
+        if (values == null)
+        {
+            throw new ArgumentNullException(nameof(values));
+        }
+
+        Write(values.Position, writePosition);
+        Write(values.Rotation, writeRotation);
+        Write(values.Scale, writeScale);
+    }
 }
 
 internal static class TransformInspectorRefreshPolicy
@@ -173,6 +200,30 @@ internal static class TransformInspectorRefreshPolicy
         return new TransformInspectorRefreshDecision(
             selectionChanged,
             selectionChanged || transformChanged);
+    }
+
+    internal static void Apply(
+        TransformInspectorRefreshDecision decision,
+        Action resetSelection,
+        Action refreshFields)
+    {
+        if (resetSelection == null)
+        {
+            throw new ArgumentNullException(nameof(resetSelection));
+        }
+        if (refreshFields == null)
+        {
+            throw new ArgumentNullException(nameof(refreshFields));
+        }
+
+        if (decision.SelectionChanged)
+        {
+            resetSelection();
+        }
+        if (decision.FieldsRequireRefresh)
+        {
+            refreshFields();
+        }
     }
 }
 

@@ -535,16 +535,18 @@ internal class EditorWidget : MonoBehaviour
             _selectedTransform,
             selectedPlacementId,
             selectedPlacement?.Transform);
-        if (refresh.SelectionChanged)
-        {
-            _selectedId = selectedPlacementId;
-            editor.ClearRawPropertiesDiagnostics();
-        }
-        if (refresh.FieldsRequireRefresh)
-        {
-            _selectedTransform = selectedPlacement?.Transform;
-            SetTransformFields(selectedPlacement);
-        }
+        TransformInspectorRefreshPolicy.Apply(
+            refresh,
+            () =>
+            {
+                _selectedId = selectedPlacementId;
+                editor.ClearRawPropertiesDiagnostics();
+            },
+            () =>
+            {
+                _selectedTransform = selectedPlacement?.Transform;
+                SetTransformFields(selectedPlacement);
+            });
         SetPropertiesEditor(selectedPlacement, preservePropertiesDraft);
         string dependency = Main.DependencyStatus == null
             ? "unknown"
@@ -623,34 +625,31 @@ internal class EditorWidget : MonoBehaviour
     {
         if (placement == null)
         {
-            SetFieldValues(_positionFields, TransformInspectorGroup.Empty);
-            SetFieldValues(_rotationFields, TransformInspectorGroup.Empty);
-            SetFieldValues(_scaleFields, TransformInspectorGroup.Empty);
+            TransformInspectorGroup empty = TransformInspectorGroup.Empty;
+            TransformInspectorFieldMapping.WriteValues(
+                new TransformInspectorValues(empty, empty, empty),
+                (index, text) => SetFieldValue(_positionFields, index, text),
+                (index, text) => SetFieldValue(_rotationFields, index, text),
+                (index, text) => SetFieldValue(_scaleFields, index, text));
             return;
         }
 
         TransformInspectorValues values = TransformInspectorValues.FromTransform(placement.Transform);
-        SetFieldValues(_positionFields, values.Position);
-        SetFieldValues(_rotationFields, values.Rotation);
-        SetFieldValues(_scaleFields, values.Scale);
+        TransformInspectorFieldMapping.WriteValues(
+            values,
+            (index, text) => SetFieldValue(_positionFields, index, text),
+            (index, text) => SetFieldValue(_rotationFields, index, text),
+            (index, text) => SetFieldValue(_scaleFields, index, text));
     }
 
-    private static void SetFieldValues(InputField[] fields, TransformInspectorGroup values)
+    private static void SetFieldValue(InputField[] fields, int index, string text)
     {
-        if (fields == null)
+        if (fields == null || index >= fields.Length || fields[index] == null)
         {
             return;
         }
 
-        TransformInspectorFieldMapping.Write(values, (index, text) =>
-        {
-            if (index >= fields.Length || fields[index] == null)
-            {
-                return;
-            }
-
-            fields[index].text = text;
-        });
+        fields[index].text = text;
     }
 
     private void ApplyTransform()
@@ -660,17 +659,11 @@ internal class EditorWidget : MonoBehaviour
             return;
         }
 
-        TransformInspectorValues values = new(
-            ReadTransformGroup(_positionFields),
-            ReadTransformGroup(_rotationFields),
-            ReadTransformGroup(_scaleFields));
+        TransformInspectorValues values = TransformInspectorFieldMapping.ReadValues(
+            index => ReadFieldValue(_positionFields, index),
+            index => ReadFieldValue(_rotationFields, index),
+            index => ReadFieldValue(_scaleFields, index));
         Main.EditorMode.TryApplySelectedTransform(values);
-    }
-
-    private static TransformInspectorGroup ReadTransformGroup(InputField[] fields)
-    {
-        return TransformInspectorFieldMapping.Read(
-            index => ReadFieldValue(fields, index));
     }
 
     private static string ReadFieldValue(InputField[] fields, int index)

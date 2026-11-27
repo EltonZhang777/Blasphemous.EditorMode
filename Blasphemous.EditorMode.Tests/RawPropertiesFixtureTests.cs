@@ -31,7 +31,7 @@ public sealed class RawPropertiesFixtureTests
     ];
 
     [Fact]
-    public void SmokeFixtureImportsAsAnEditablePlacementWithOrderedRawProperties()
+    public void SmokeFixtureImportsAsAnEditableOverlayPlacementWithOrderedRawProperties()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "D01Z02S01.json");
         Assert.True(File.Exists(path), path);
