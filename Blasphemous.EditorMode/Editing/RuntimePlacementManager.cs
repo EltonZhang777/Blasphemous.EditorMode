@@ -93,7 +93,7 @@ internal static class PlacementIdGenerator
     }
 }
 
-/// <summary>Projects Architect-owned Placements into the current room.</summary>
+/// <summary>Projects Editable Overlay Placements into the current room.</summary>
 internal sealed class RuntimePlacementManager
 {
     private readonly LevelEditSession _session;
@@ -176,7 +176,7 @@ internal sealed class RuntimePlacementManager
                 creator.Type,
                 transform,
                 properties,
-                PlacementOwnership.ArchitectOwned,
+                PlacementOwnership.EditableOverlayPlacement,
                 false,
                 condition);
         }
@@ -234,7 +234,7 @@ internal sealed class RuntimePlacementManager
             {
                 handle.TryDestroy(out _);
             }
-            report.Error(ReportCodes.OwnershipRejected, id, "Runtime factory did not return an Architect-owned projection.");
+            report.Error(ReportCodes.OwnershipRejected, id, "Runtime factory did not return an Editable Overlay Placement projection.");
             placement = null;
             return false;
         }
@@ -262,7 +262,7 @@ internal sealed class RuntimePlacementManager
             || !handle.IsAlive
             || !_session.TryGetPlacement(id, out placement))
         {
-            report.Error(ReportCodes.OwnershipRejected, id, "Only live Architect-owned projections are selectable.");
+            report.Error(ReportCodes.OwnershipRejected, id, "Only live Editable Overlay Placement projections are selectable.");
             placement = null;
             return false;
         }
@@ -289,10 +289,13 @@ internal sealed class RuntimePlacementManager
     internal bool TryProjectExisting(PlacementRecord placement, ApplyReport report)
     {
         if (placement == null
-            || placement.Ownership != PlacementOwnership.ArchitectOwned
+            || placement.Ownership != PlacementOwnership.EditableOverlayPlacement
             || !_session.TryGetPlacement(placement.Id, out PlacementRecord sessionPlacement))
         {
-            report.Error(ReportCodes.OwnershipRejected, placement == null ? "$" : placement.Id, "Only owned session placements can be projected.");
+            report.Error(
+                ReportCodes.OwnershipRejected,
+                placement == null ? "$" : placement.Id,
+                "Only Editable Overlay Placements from the current session can be projected.");
             return false;
         }
 
@@ -330,7 +333,7 @@ internal sealed class RuntimePlacementManager
         {
             if (existing == null || existing.IsOriginal || !existing.IsAlive)
             {
-                report.Error(ReportCodes.RuntimeCreateFailed, placement.Id, "Existing projection is not live and owned.");
+                report.Error(ReportCodes.RuntimeCreateFailed, placement.Id, "Existing runtime projection is not live.");
                 return false;
             }
 
@@ -697,7 +700,7 @@ internal sealed class RuntimePlacementManager
             || handle.IsOriginal
             || !_session.TryGetPlacement(id, out PlacementRecord current))
         {
-            report.Error(ReportCodes.OwnershipRejected, id, "Only Architect-owned placements can be removed.");
+            report.Error(ReportCodes.OwnershipRejected, id, "Only Editable Overlay Placements can be removed.");
             return false;
         }
         if (current.IsLocked)

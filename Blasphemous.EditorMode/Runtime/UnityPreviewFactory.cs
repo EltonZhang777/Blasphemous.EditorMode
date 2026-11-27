@@ -59,7 +59,7 @@ internal static class UnityPreviewFactory
                     1f,
                     1f),
                 [],
-                PlacementOwnership.ArchitectOwned);
+                PlacementOwnership.EditableOverlayPlacement);
             ObjectData data = RuntimeObjectData.Create(placement);
             BaseModifier baseModifier = new();
             baseModifier.Apply(previewObject, data);

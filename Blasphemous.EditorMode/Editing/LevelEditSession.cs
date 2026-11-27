@@ -258,9 +258,9 @@ internal sealed class LevelEditSession
             report.Error(ReportCodes.PlacementRequired, "$", "Placement is required.");
             return false;
         }
-        if (placement.Ownership != PlacementOwnership.ArchitectOwned)
+        if (placement.Ownership != PlacementOwnership.EditableOverlayPlacement)
         {
-            report.Error(ReportCodes.OwnershipRejected, placement.Id, "Only Architect-owned placements can be edited.");
+            report.Error(ReportCodes.OwnershipRejected, placement.Id, "Only Editable Overlay Placements can be edited.");
             return false;
         }
         if (TryGetPlacement(placement.Id, out _))
@@ -276,7 +276,7 @@ internal sealed class LevelEditSession
 
     internal bool TryReplacePlacement(PlacementRecord placement, ApplyReport report)
     {
-        if (placement == null || placement.Ownership != PlacementOwnership.ArchitectOwned)
+        if (placement == null || placement.Ownership != PlacementOwnership.EditableOverlayPlacement)
         {
             report.Error(ReportCodes.OwnershipRejected, placement == null ? "$" : placement.Id, "Placement is not editable.");
             return false;
@@ -308,7 +308,7 @@ internal sealed class LevelEditSession
             {
                 continue;
             }
-            if (placement.Ownership != PlacementOwnership.ArchitectOwned)
+            if (placement.Ownership != PlacementOwnership.EditableOverlayPlacement)
             {
                 report.Error(ReportCodes.OwnershipRejected, id, "Original objects cannot be removed.");
                 return false;
@@ -352,7 +352,7 @@ internal sealed class LevelEditSession
         Dictionary<string, PlacementRecord> currentById = new(StringComparer.OrdinalIgnoreCase);
         foreach (PlacementRecord placement in _placements)
         {
-            if (placement.Ownership == PlacementOwnership.ArchitectOwned)
+            if (placement.Ownership == PlacementOwnership.EditableOverlayPlacement)
             {
                 currentById.Add(placement.Id, placement);
             }
@@ -377,7 +377,7 @@ internal sealed class LevelEditSession
 
         foreach (PlacementRecord placement in _placements)
         {
-            if (placement.Ownership == PlacementOwnership.ArchitectOwned
+            if (placement.Ownership == PlacementOwnership.EditableOverlayPlacement
                 && !importedIds.Contains(placement.Id))
             {
                 additions.Add(placement.ToFrameworkData());

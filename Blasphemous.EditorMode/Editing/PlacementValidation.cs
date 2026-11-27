@@ -97,7 +97,7 @@ internal static class PlacementValidation
                 creator.Type,
                 transform,
                 [],
-                PlacementOwnership.ArchitectOwned),
+                PlacementOwnership.EditableOverlayPlacement),
             creator,
             report);
     }

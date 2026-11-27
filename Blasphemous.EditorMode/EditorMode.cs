@@ -8,7 +8,6 @@ using Blasphemous.EditorMode.Runtime;
 using Blasphemous.Framework.UI;
 using Blasphemous.ModdingAPI;
 using Framework.Managers;
-using Gameplay.GameControllers.Environment;
 using Gameplay.UI;
 using System.Collections;
 using System.Collections.Generic;
@@ -60,6 +59,7 @@ internal class EditorMode : BlasMod
     private BlasphemousLifecycleBridge _lifecycleBridge;
     private EditorModeGuard _editorGuard;
     private ApplyReportPublisher _reportPublisher;
+    private readonly RoomRuntimeContextAdapter _roomRuntimeContext = new();
     private UnityRuntimePlacementFactory _runtimeFactory;
     private RoomOverlayReconciler _overlayReconciler;
     private Coroutine _roomPreparation;
@@ -127,63 +127,40 @@ internal class EditorMode : BlasMod
     protected override void OnLevelPreloaded(string oldLevel, string newLevel)
     {
         _lifecycleBridge.OnLevelPreloaded(oldLevel, newLevel);
-        RefreshCurrentLevelConfig();
-    }
-
-    private void RefreshCurrentLevelConfig()
-    {
-        LogicManager logic = Core.Logic;
-        if (logic == null)
-        {
-            return;
-        }
-
-        Scene activeScene = SceneManager.GetActiveScene();
-        if (!activeScene.IsValid() || !activeScene.isLoaded)
-        {
-            return;
-        }
-
-        LevelInitializer initializer = null;
-        foreach (GameObject root in activeScene.GetRootGameObjects())
-        {
-            LevelInitializer candidate = root.GetComponentInChildren<LevelInitializer>();
-            if (candidate == null || !candidate.isActiveAndEnabled)
-            {
-                continue;
-            }
-
-            initializer = candidate;
-            break;
-        }
-
-        if (initializer == null)
-        {
-            return;
-        }
-
-        if (initializer.GetComponentInChildren<LevelEffectsStore>() == null)
+        RoomRuntimeContextRecord record = _roomRuntimeContext.ObserveAndRebindAtPreload(newLevel);
+        LogRoomRuntimeContext(record);
+        if (record.Kind == RoomRuntimeContextRecordKind.Failed
+            && record.Reason == RoomRuntimeContextReasons.StoreComponentMissing)
         {
             ApplyReport report = new();
             report.Error(
                 ReportCodes.RoomEffectsStoreMissing,
-                activeScene.name,
+                record.ActiveScene,
                 "The active room has no LevelEffectsStore component; its context was not refreshed.");
             PublishReport("Room context refresh", report, false);
-            return;
         }
+    }
 
-        if (logic.CurrentLevelConfig == initializer)
+    private void LogRoomRuntimeContext(RoomRuntimeContextRecord record)
+    {
+        string line = record.ToLogLine();
+        if (record.State == RoomRuntimeContextState.Failed)
         {
-            return;
+            ModLog.Error(line);
         }
-
-        logic.SetCurrentLevelConfig(initializer);
-        ModLog.Warn("Refreshed the active room context before spawning: " + activeScene.name);
+        else if (record.State == RoomRuntimeContextState.ObservedNotReady)
+        {
+            ModLog.Warn(line);
+        }
+        else
+        {
+            ModLog.Info(line);
+        }
     }
 
     protected override void OnLevelLoaded(string oldLevel, string newLevel)
     {
+        LogRoomRuntimeContext(_roomRuntimeContext.ObserveAfterLoad(newLevel));
         bool roomLoaded = _lifecycleBridge.OnLevelLoaded(
             newLevel,
             SceneManager.GetActiveScene().name);
@@ -452,7 +429,7 @@ internal class EditorMode : BlasMod
         }
         if (manager.Selected == null)
         {
-            report.Warning(ReportCodes.PickNoSelection, "clipboard", "Select or place an Architect-owned placement before clicking Pick.");
+            report.Warning(ReportCodes.PickNoSelection, "clipboard", "Select or place an Editable Overlay Placement before clicking Pick.");
             PublishReport("Pick", report);
             return false;
         }
@@ -467,7 +444,7 @@ internal class EditorMode : BlasMod
             ApplyReport report = new();
             if (error == null)
             {
-                report.Warning(ReportCodes.PickNoTarget, "cursor", "Point to an Architect-owned placement before pressing P.");
+                report.Warning(ReportCodes.PickNoTarget, "cursor", "Point to an Editable Overlay Placement before pressing P.");
             }
             else
             {

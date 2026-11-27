@@ -404,7 +404,7 @@ internal sealed class UnityRuntimePlacementFactory :
     }
 }
 
-/// <summary>Unity projection for one Architect-owned Placement.</summary>
+/// <summary>Unity projection for one Editable Overlay Placement.</summary>
 internal sealed class UnityRuntimePlacementHandle : IRuntimePlacementHandle
 {
     private readonly string _type;

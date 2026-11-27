@@ -28,7 +28,7 @@ public sealed class RuntimePlacementManagerTests
         Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out first));
         Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out second));
         Assert.NotEqual(first.Id, second.Id);
-        Assert.Equal(PlacementOwnership.ArchitectOwned, first.Ownership);
+        Assert.Equal(PlacementOwnership.EditableOverlayPlacement, first.Ownership);
         Assert.Equal(2, manager.OwnedPlacementIds.Count);
         Assert.Equal(2, session.Placements.Count);
         Assert.Equal(2, factory.Created.Count);
