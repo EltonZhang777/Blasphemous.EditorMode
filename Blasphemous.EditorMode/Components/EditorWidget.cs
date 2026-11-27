@@ -540,7 +540,7 @@ internal class EditorWidget : MonoBehaviour
             _selectedId = selectedPlacementId;
             editor.ClearRawPropertiesDiagnostics();
         }
-        if (refresh.FieldsChanged)
+        if (refresh.FieldsRequireRefresh)
         {
             _selectedTransform = selectedPlacement?.Transform;
             SetTransformFields(selectedPlacement);

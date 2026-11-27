@@ -20,7 +20,7 @@ public sealed class TransformInspectorUiStateTests
             selected);
 
         Assert.False(decision.SelectionChanged);
-        Assert.False(decision.FieldsChanged);
+        Assert.False(decision.FieldsRequireRefresh);
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public sealed class TransformInspectorUiStateTests
             CreateTransform(45f));
 
         Assert.False(decision.SelectionChanged);
-        Assert.True(decision.FieldsChanged);
+        Assert.True(decision.FieldsRequireRefresh);
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public sealed class TransformInspectorUiStateTests
             CreateTransform());
 
         Assert.True(decision.SelectionChanged);
-        Assert.True(decision.FieldsChanged);
+        Assert.True(decision.FieldsRequireRefresh);
     }
 
     [Fact]

@@ -178,13 +178,15 @@ internal static class TransformInspectorRefreshPolicy
 
 internal readonly struct TransformInspectorRefreshDecision
 {
-    internal TransformInspectorRefreshDecision(bool selectionChanged, bool fieldsChanged)
+    internal TransformInspectorRefreshDecision(
+        bool selectionChanged,
+        bool fieldsRequireRefresh)
     {
         SelectionChanged = selectionChanged;
-        FieldsChanged = fieldsChanged;
+        FieldsRequireRefresh = fieldsRequireRefresh;
     }
 
     internal bool SelectionChanged { get; }
 
-    internal bool FieldsChanged { get; }
+    internal bool FieldsRequireRefresh { get; }
 }
