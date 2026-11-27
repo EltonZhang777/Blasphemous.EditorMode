@@ -570,7 +570,7 @@ internal class EditorMode : BlasMod
         PublishReport("Preview", report);
     }
 
-    internal bool TryApplySelectedTransform(ITransformInspectorFieldSource source)
+    internal bool TryApplySelectedTransform(TransformInspectorValues values)
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
@@ -579,10 +579,21 @@ internal class EditorMode : BlasMod
         }
 
         ApplyReport report = new();
-        bool result = TransformInspectorApplyPolicy.TryApplySelected(
-            manager,
-            source,
-            report);
+        PlacementTransform transform = null;
+        string error = null;
+        bool valid = values != null
+            && values.TryCreateTransform(out transform, out error);
+        if (!valid)
+        {
+            report.Error(
+                ReportCodes.TransformInvalid,
+                manager.Selected.Id,
+                values == null ? "Transform values are required." : error);
+            PublishReport("Transform", report);
+            return false;
+        }
+
+        bool result = manager.TryMove(manager.Selected.Id, transform, report);
         PublishReport("Transform", report);
         return result;
     }

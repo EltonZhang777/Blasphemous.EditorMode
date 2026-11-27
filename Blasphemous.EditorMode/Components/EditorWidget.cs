@@ -16,7 +16,7 @@ namespace Blasphemous.EditorMode.Components;
 
 /// <summary>Minimal P0 canvas for browsing and commanding the current Room Overlay.</summary>
 [DefaultExecutionOrder(10000)]
-internal class EditorWidget : MonoBehaviour, ITransformInspectorFieldSource
+internal class EditorWidget : MonoBehaviour
 {
     private const int StatusFontSize = 13;
     private const int StatusMinimumFontSize = 10;
@@ -529,24 +529,23 @@ internal class EditorWidget : MonoBehaviour, ITransformInspectorFieldSource
             : editor.PlacementManager.Selected.Id;
         PlacementRecord selectedPlacement = editor.PlacementManager?.Selected;
         string selectedPlacementId = selectedPlacement?.Id;
-        TransformInspectorRefreshDecision refresh =
-            TransformInspectorRefreshPolicy.Evaluate(
+        bool selectionChanged = !string.Equals(
             _selectedId,
-            _selectedTransform,
             selectedPlacementId,
+            StringComparison.OrdinalIgnoreCase);
+        bool transformChanged = !object.Equals(
+            _selectedTransform,
             selectedPlacement?.Transform);
-        TransformInspectorRefreshPolicy.Apply(
-            refresh,
-            () =>
-            {
-                _selectedId = selectedPlacementId;
-                editor.ClearRawPropertiesDiagnostics();
-            },
-            () =>
-            {
-                _selectedTransform = selectedPlacement?.Transform;
-                SetTransformFields(selectedPlacement);
-            });
+        if (selectionChanged)
+        {
+            _selectedId = selectedPlacementId;
+            editor.ClearRawPropertiesDiagnostics();
+        }
+        if (selectionChanged || transformChanged)
+        {
+            _selectedTransform = selectedPlacement?.Transform;
+            SetTransformFields(selectedPlacement);
+        }
         SetPropertiesEditor(selectedPlacement, preservePropertiesDraft);
         string dependency = Main.DependencyStatus == null
             ? "unknown"
@@ -625,21 +624,38 @@ internal class EditorWidget : MonoBehaviour, ITransformInspectorFieldSource
     {
         if (placement == null)
         {
-            TransformInspectorGroup empty = TransformInspectorGroup.Empty;
-            TransformInspectorFieldMapping.WriteValues(
-                new TransformInspectorValues(empty, empty, empty),
-                (index, text) => SetFieldValue(_positionFields, index, text),
-                (index, text) => SetFieldValue(_rotationFields, index, text),
-                (index, text) => SetFieldValue(_scaleFields, index, text));
+            ClearFieldValues(_positionFields);
+            ClearFieldValues(_rotationFields);
+            ClearFieldValues(_scaleFields);
             return;
         }
 
         TransformInspectorValues values = TransformInspectorValues.FromTransform(placement.Transform);
-        TransformInspectorFieldMapping.WriteValues(
-            values,
-            (index, text) => SetFieldValue(_positionFields, index, text),
-            (index, text) => SetFieldValue(_rotationFields, index, text),
-            (index, text) => SetFieldValue(_scaleFields, index, text));
+        SetFieldValue(_positionFields, 0, values.Position.X);
+        SetFieldValue(_positionFields, 1, values.Position.Y);
+        SetFieldValue(_positionFields, 2, values.Position.Z);
+        SetFieldValue(_rotationFields, 0, values.Rotation.X);
+        SetFieldValue(_rotationFields, 1, values.Rotation.Y);
+        SetFieldValue(_rotationFields, 2, values.Rotation.Z);
+        SetFieldValue(_scaleFields, 0, values.Scale.X);
+        SetFieldValue(_scaleFields, 1, values.Scale.Y);
+        SetFieldValue(_scaleFields, 2, values.Scale.Z);
+    }
+
+    private static void ClearFieldValues(InputField[] fields)
+    {
+        if (fields == null)
+        {
+            return;
+        }
+
+        foreach (InputField field in fields)
+        {
+            if (field != null)
+            {
+                field.text = string.Empty;
+            }
+        }
     }
 
     private static void SetFieldValue(InputField[] fields, int index, string text)
@@ -659,21 +675,19 @@ internal class EditorWidget : MonoBehaviour, ITransformInspectorFieldSource
             return;
         }
 
-        Main.EditorMode.TryApplySelectedTransform(this);
+        TransformInspectorValues values = new(
+            ReadTransformGroup(_positionFields),
+            ReadTransformGroup(_rotationFields),
+            ReadTransformGroup(_scaleFields));
+        Main.EditorMode.TryApplySelectedTransform(values);
     }
 
-    string ITransformInspectorFieldSource.ReadField(
-        TransformInspectorFieldGroup group,
-        int axis)
+    private static TransformInspectorGroup ReadTransformGroup(InputField[] fields)
     {
-        InputField[] fields = group switch
-        {
-            TransformInspectorFieldGroup.Position => _positionFields,
-            TransformInspectorFieldGroup.Rotation => _rotationFields,
-            TransformInspectorFieldGroup.Scale => _scaleFields,
-            _ => null
-        };
-        return ReadFieldValue(fields, axis);
+        return new TransformInspectorGroup(
+            ReadFieldValue(fields, 0),
+            ReadFieldValue(fields, 1),
+            ReadFieldValue(fields, 2));
     }
 
     private static string ReadFieldValue(InputField[] fields, int index)

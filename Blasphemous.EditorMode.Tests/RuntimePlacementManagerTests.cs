@@ -82,25 +82,62 @@ public sealed class RuntimePlacementManagerTests
         string[] position = ["4.25", "-5.5", "6.75"];
         string[] rotation = ["7.125", "-8.25", "9.5"];
         string[] scale = ["1.5", "2.5", "3.5"];
+        TransformInspectorValues values = new(
+            new TransformInspectorGroup(position[0], position[1], position[2]),
+            new TransformInspectorGroup(rotation[0], rotation[1], rotation[2]),
+            new TransformInspectorGroup(scale[0], scale[1], scale[2]));
 
-        Assert.True(TransformInspectorApplyPolicy.TryApplySelected(
-            manager,
-            new ArrayTransformInspectorFieldSource(position, rotation, scale),
-            report));
-
-        PlacementTransform expected = new(
-            4.25f,
-            -5.5f,
-            6.75f,
-            7.125f,
-            -8.25f,
-            9.5f,
-            1.5f,
-            2.5f,
-            3.5f);
+        Assert.True(values.TryCreateTransform(out PlacementTransform expected, out string error), error);
+        Assert.True(manager.TryMove(manager.Selected.Id, expected, report));
         Assert.True(session.TryGetPlacement(placement.Id, out PlacementRecord stored));
         Assert.Equal(expected, manager.Selected.Transform);
         Assert.Equal(expected, stored.Transform);
+    }
+
+    [Fact]
+    public void SelectionChangeUsesCaseInsensitiveIdentityWithoutRewritingStoredId()
+    {
+        LevelEditSession session = CreateSession();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            new FakeFactory());
+        ApplyReport report = new ApplyReport();
+        PlacementRecord first;
+        PlacementRecord second;
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out first));
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out second));
+
+        Assert.True(manager.TrySelect(first.Id.ToUpperInvariant(), report, out PlacementRecord selected));
+
+        Assert.Equal(first.Id, selected.Id);
+        Assert.Equal(first.Id, manager.Selected.Id);
+        Assert.NotEqual(second.Id, manager.Selected.Id);
+    }
+
+    [Fact]
+    public void TransformOnlyChangeKeepsTheSelectedIdentity()
+    {
+        LevelEditSession session = CreateSession();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            new FakeFactory());
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        string selectedId = manager.Selected.Id;
+        PlacementTransform moved = new(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f);
+
+        Assert.True(manager.TryMove(selectedId.ToUpperInvariant(), moved, report));
+
+        Assert.Equal(selectedId, manager.Selected.Id);
+        Assert.Equal(moved, manager.Selected.Transform);
     }
 
     [Fact]
