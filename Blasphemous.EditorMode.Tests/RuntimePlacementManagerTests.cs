@@ -63,7 +63,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void InspectorFieldGroupsRoundTripThroughSelectedPlacement()
+    public void InspectorValuesRoundTripThroughSelectedPlacement()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();

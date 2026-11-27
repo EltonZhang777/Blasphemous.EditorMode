@@ -630,15 +630,11 @@ internal class EditorWidget : MonoBehaviour
         }
 
         TransformInspectorValues values = TransformInspectorValues.FromTransform(placement.Transform);
-        SetFieldValue(_positionFields, 0, values.Position.X);
-        SetFieldValue(_positionFields, 1, values.Position.Y);
-        SetFieldValue(_positionFields, 2, values.Position.Z);
-        SetFieldValue(_rotationFields, 0, values.Rotation.X);
-        SetFieldValue(_rotationFields, 1, values.Rotation.Y);
-        SetFieldValue(_rotationFields, 2, values.Rotation.Z);
-        SetFieldValue(_scaleFields, 0, values.Scale.X);
-        SetFieldValue(_scaleFields, 1, values.Scale.Y);
-        SetFieldValue(_scaleFields, 2, values.Scale.Z);
+        TransformInspectorFieldMapping.WriteValues(
+            values,
+            (index, text) => SetFieldValue(_positionFields, index, text),
+            (index, text) => SetFieldValue(_rotationFields, index, text),
+            (index, text) => SetFieldValue(_scaleFields, index, text));
     }
 
     private static void ClearFieldValues(InputField[] fields)
@@ -674,19 +670,11 @@ internal class EditorWidget : MonoBehaviour
             return;
         }
 
-        TransformInspectorValues values = new(
-            ReadTransformGroup(_positionFields),
-            ReadTransformGroup(_rotationFields),
-            ReadTransformGroup(_scaleFields));
+        TransformInspectorValues values = TransformInspectorFieldMapping.ReadValues(
+            index => ReadFieldValue(_positionFields, index),
+            index => ReadFieldValue(_rotationFields, index),
+            index => ReadFieldValue(_scaleFields, index));
         Main.EditorMode.TryApplySelectedTransform(values);
-    }
-
-    private static TransformInspectorGroup ReadTransformGroup(InputField[] fields)
-    {
-        return new TransformInspectorGroup(
-            ReadFieldValue(fields, 0),
-            ReadFieldValue(fields, 1),
-            ReadFieldValue(fields, 2));
     }
 
     private static string ReadFieldValue(InputField[] fields, int index)
