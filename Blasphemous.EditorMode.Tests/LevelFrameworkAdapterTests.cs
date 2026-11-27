@@ -36,6 +36,67 @@ public sealed class LevelFrameworkAdapterTests
     }
 
     [Fact]
+    public void Property_strings_are_trimmed_and_blank_items_are_removed_in_order()
+    {
+        const string json = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"bell-1\",\"properties\":[\"  first=1  \",\"\\t\",\"\",\" second = value \",\"first=1\",\"  keep inner  spaces  \"]},{\"type\":\"bell-iron\",\"id\":\"bell-blank\",\"properties\":[\"\",\"   \",\"\\t\"]}],\"modifications\":[{\"scene\":\"logic\",\"path\":\"TRAPS/Bell\",\"type\":\"bell-iron\",\"id\":\"bell-2\",\"properties\":[\"  modified=1  \",\"   \"]}],\"deletions\":[]}";
+
+        FrameworkCodecResult parsed = LevelFrameworkAdapter.Parse(json);
+
+        Assert.True(parsed.IsValid, Messages(parsed));
+        Assert.Equal(
+            new[] { "first=1", "second = value", "first=1", "keep inner  spaces" },
+            parsed.Document.Additions[0].Properties);
+        Assert.Empty(parsed.Document.Additions[1].Properties);
+        Assert.Equal(new[] { "modified=1" }, parsed.Document.Modifications[0].Properties);
+
+        FrameworkCodecResult serialized = LevelFrameworkAdapter.Serialize(parsed.Document);
+        Assert.True(serialized.IsValid, Messages(serialized));
+        JObject root = JObject.Parse(serialized.CanonicalJson);
+        Assert.Equal(
+            new[] { "first=1", "second = value", "first=1", "keep inner  spaces" },
+            root["additions"][0]["properties"].Values<string>());
+        Assert.Empty(root["additions"][1]["properties"]);
+        Assert.Equal(
+            new[] { "modified=1" },
+            root["modifications"][0]["properties"].Values<string>());
+    }
+
+    [Fact]
+    public void Preserved_additions_normalize_valid_property_arrays_but_keep_invalid_arrays()
+    {
+        const string preservedJson = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"condition\",\"condition\":\"future:value\",\"properties\":[\"  keep=1  \",\"  \",\"keep=1\"]}],\"modifications\":[],\"deletions\":[]}";
+
+        FrameworkCodecResult preserved = LevelFrameworkAdapter.Parse(preservedJson);
+
+        Assert.True(preserved.Document.Additions[0].PreserveOriginalAddition);
+        Assert.Equal(
+            new[] { "keep=1", "keep=1" },
+            preserved.Document.Additions[0].OriginalAddition["properties"].Values<string>());
+        FrameworkCodecResult preservedExport = LevelFrameworkAdapter.Serialize(preserved.Document);
+        JObject preservedRoot = JObject.Parse(preservedExport.CanonicalJson);
+        Assert.Equal(
+            new[] { "keep=1", "keep=1" },
+            preservedRoot["additions"][0]["properties"].Values<string>());
+
+        const string invalidJson = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"invalid\",\"condition\":\"future:value\",\"properties\":[\"  keep=1  \",1]}],\"modifications\":[],\"deletions\":[]}";
+        FrameworkCodecResult invalid = LevelFrameworkAdapter.Parse(invalidJson);
+
+        Assert.False(invalid.IsValid);
+        Assert.True(invalid.Document.Additions[0].PreserveOriginalAddition);
+        Assert.Equal(JTokenType.Integer, invalid.Document.Additions[0].OriginalAddition["properties"][1].Type);
+        Assert.Contains(
+            invalid.Diagnostics,
+            diagnostic => diagnostic.Location == "additions[0].properties[1]"
+                && diagnostic.Message.Contains("must be a string"));
+        Assert.True(
+            JToken.DeepEquals(
+                new JArray("  keep=1  ", 1),
+                invalid.Document.Additions[0].OriginalAddition["properties"]));
+        FrameworkCodecResult invalidExport = LevelFrameworkAdapter.Serialize(invalid.Document);
+        Assert.False(invalidExport.IsValid);
+    }
+
+    [Fact]
     public void InvalidAdditionsAreRetainedIndividuallyAndReported()
     {
         const string json = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"same\"},{\"type\":\"bell-iron\",\"id\":\"same\"},{\"type\":\"bell-iron\",\"id\":\"bad-condition\",\"condition\":\"unknown:value\"},{\"type\":\"bell-iron\",\"id\":\"bad-transform\",\"position\":{\"x\":\"not-number\"}},{\"type\":\"bell-iron\",\"id\":\"valid\"}],\"modifications\":[],\"deletions\":[]}";

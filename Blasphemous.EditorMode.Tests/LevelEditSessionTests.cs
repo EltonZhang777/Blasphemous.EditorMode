@@ -61,14 +61,16 @@ public sealed class LevelEditSessionTests
 
             Assert.True(result.Succeeded, result.StatusMessage);
             Assert.Equal(LevelEditSessionState.Clean, result.State);
-            Assert.Single(result.Session.Placements);
+            Assert.Equal(2, result.Session.Placements.Count);
             Assert.Equal("valid", result.Session.Placements[0].Id);
+            Assert.Equal("property", result.Session.Placements[1].Id);
+            Assert.Equal(new[] { "unsupported" }, result.Session.Placements[1].Properties);
             Assert.DoesNotContain(result.Report.Entries, x => x.Code == "CREATOR_UNSUPPORTED");
             Assert.DoesNotContain(result.Report.Entries, x => x.Code == "PROPERTY_UNSUPPORTED");
             Assert.Equal(
-                2,
+                1,
                 result.Report.Entries.Count(x => x.Code == "ADDITION_UNEDITABLE_PRESERVED"));
-            Assert.Equal(1, result.Report.AppliedCount);
+            Assert.Equal(2, result.Report.AppliedCount);
             Assert.False(result.Report.HasErrors, result.StatusMessage);
             Assert.False(result.Report.IsPartial, result.StatusMessage);
             Assert.Equal(0, result.Report.SkippedCount);
@@ -187,11 +189,83 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
+    public void Import_keeps_known_creator_additions_with_opaque_properties_editable_and_selectable()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        const string source = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"bell-iron-3\",\"position\":{\"x\":1,\"y\":2,\"z\":0},\"scale\":{\"x\":2,\"y\":2,\"z\":1},\"properties\":[\"  x=1  \",\"   \",\"note=length = 3.0  \",\"x=1\"]},{\"type\":\"bell-iron\",\"id\":\"bell-iron-crlf\",\"properties\":[\"  note=first\\r\\nsecond  \"]}],\"modifications\":[],\"deletions\":[]}";
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, source);
+            FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
+
+            LevelEditSessionImportResult result = LevelEditSession.Import(
+                CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
+                file,
+                new[] { BaseCreatorCatalog.BellIron });
+
+            Assert.True(result.Succeeded, result.StatusMessage);
+            Assert.Equal(LevelEditSessionState.Clean, result.State);
+            Assert.Equal(2, result.Session.Placements.Count);
+            Assert.Equal(2, result.Report.AppliedCount);
+            Assert.DoesNotContain(
+                result.Report.Entries,
+                entry => entry.Code == "PROPERTY_UNSUPPORTED"
+                    || entry.Code == "ADDITION_UNEDITABLE_PRESERVED");
+            Assert.Equal(new[] { "x=1", "note=length = 3.0", "x=1" }, result.Session.Placements[0].Properties);
+            Assert.Equal(new[] { "note=first\r\nsecond" }, result.Session.Placements[1].Properties);
+
+            TestFactory factory = new();
+            RuntimePlacementManager manager = new(
+                result.Session,
+                ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+                factory);
+            ApplyReport projectionReport = new();
+            foreach (PlacementRecord placement in result.Session.Placements)
+            {
+                Assert.True(manager.TryProjectExisting(placement, projectionReport), projectionReport.ToSummary("project"));
+            }
+
+            ApplyReport selectionReport = new();
+            Assert.True(
+                manager.TryPresentCandidates(factory.Created, selectionReport),
+                selectionReport.ToSummary("select"));
+            Assert.Equal(2, manager.Candidates.Count);
+            Assert.Null(manager.Selected);
+            Assert.True(
+                manager.TryChooseCandidate(
+                    "bell-iron/bell-iron-3",
+                    selectionReport,
+                    out PlacementRecord selected),
+                selectionReport.ToSummary("choose"));
+            Assert.Equal("bell-iron-3", selected.Id);
+            Assert.True(
+                manager.TryMove(
+                    "bell-iron-3",
+                    new PlacementTransform(3f, 4f, 0f, 0f, 0f, 0f, 2f, 2f, 1f),
+                    selectionReport),
+                selectionReport.ToSummary("move opaque"));
+            Assert.True(
+                manager.TryApplyProperties(
+                    "bell-iron-3",
+                    "x=2\nnote=length = 4.0",
+                    selectionReport),
+                selectionReport.ToSummary("edit opaque properties"));
+            Assert.Equal(new[] { "x=2", "note=length = 4.0" }, manager.Selected.Properties);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void Preserved_addition_ids_still_claim_case_insensitive_identity()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
-        const string source = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"A\",\"properties\":[\"unsupported\"]},{\"type\":\"bell-iron\",\"id\":\"a\"}],\"modifications\":[],\"deletions\":[]}";
+        const string source = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"A\",\"condition\":\"future:value\"},{\"type\":\"bell-iron\",\"id\":\"a\"}],\"modifications\":[],\"deletions\":[]}";
         try
         {
             Directory.CreateDirectory(directory);
@@ -228,7 +302,7 @@ public sealed class LevelEditSessionTests
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
-        const string source = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"bell-iron-1\",\"properties\":[\"unsupported\"]}],\"modifications\":[],\"deletions\":[]}";
+        const string source = "{\"additions\":[{\"type\":\"future-bell\",\"id\":\"bell-iron-1\"}],\"modifications\":[],\"deletions\":[]}";
         try
         {
             Directory.CreateDirectory(directory);
@@ -401,11 +475,11 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void Export_preserves_uneditable_additions_and_round_trips_supported_edits()
+    public void Export_preserves_preserved_additions_and_round_trips_opaque_properties()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
-        const string source = "{\"additions\":[{\"type\":\"unknown\",\"id\":\"missing\",\"payload\":{\"keep\":true}},{\"type\":\"bell-iron\",\"id\":\"unsupported\",\"properties\":[\"unsupported\"]},{\"type\":\"bell-iron\",\"id\":\"unsupported-condition\",\"condition\":\"future:value\"},{\"type\":\"bell-iron\",\"id\":\"supported\",\"position\":{\"x\":1,\"y\":2,\"z\":3}}],\"modifications\":[],\"deletions\":[]}";
+        const string source = "{\"additions\":[{\"type\":\"unknown\",\"id\":\"missing\",\"payload\":{\"keep\":true}},{\"type\":\"bell-iron\",\"id\":\"unsupported\",\"properties\":[\"  unsupported  \",\"   \"]},{\"type\":\"bell-iron\",\"id\":\"unsupported-condition\",\"condition\":\"future:value\"},{\"type\":\"bell-iron\",\"id\":\"supported\",\"position\":{\"x\":1,\"y\":2,\"z\":3}}],\"modifications\":[],\"deletions\":[]}";
         try
         {
             Directory.CreateDirectory(directory);
@@ -428,20 +502,22 @@ public sealed class LevelEditSessionTests
             Assert.DoesNotContain(imported.Report.Entries, entry => entry.Code == "CREATOR_UNSUPPORTED");
             Assert.DoesNotContain(imported.Report.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
             Assert.Equal(
-                3,
+                2,
                 imported.Report.Entries.Count(entry =>
                     entry.Code == "ADDITION_UNEDITABLE_PRESERVED"
                     && entry.Severity == ApplySeverity.Info
                     && !entry.Skipped));
-            Assert.Equal(1, imported.Report.AppliedCount);
-            Assert.Single(imported.Session.Placements);
+            Assert.Equal(2, imported.Report.AppliedCount);
+            Assert.Equal(2, imported.Session.Placements.Count);
 
             RuntimePlacementManager manager = new RuntimePlacementManager(
                 imported.Session,
                 ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
                 new TestFactory());
             ApplyReport report = new ApplyReport();
-            PlacementRecord supported = imported.Session.Placements[0];
+            PlacementRecord supported = imported.Session.Placements.Single(placement => placement.Id == "supported");
+            PlacementRecord opaque = imported.Session.Placements.Single(placement => placement.Id == "unsupported");
+            Assert.True(manager.TryProjectExisting(opaque, report), report.ToSummary("project opaque"));
             Assert.True(manager.TryProjectExisting(supported, report), report.ToSummary("project"));
             Assert.True(manager.TryMove(
                 supported.Id,
@@ -459,7 +535,7 @@ public sealed class LevelEditSessionTests
                         entry.Severity + ":" + entry.Code + ":" + entry.Location + ":" + entry.Skipped)));
             Assert.False(exported.Report.IsPartial, exported.StatusMessage);
             Assert.Equal(
-                3,
+                2,
                 exported.Report.Entries.Count(entry =>
                     entry.Code == "UNEDITABLE_ADDITION_PRESERVED"
                     && entry.Severity == ApplySeverity.Info
@@ -468,9 +544,18 @@ public sealed class LevelEditSessionTests
             Assert.Equal(1, exported.Report.AppliedCount);
             JObject originalJson = JObject.Parse(source);
             JObject exportedJson = JObject.Parse(File.ReadAllText(path));
-            Assert.True(JToken.DeepEquals(originalJson["additions"][0], exportedJson["additions"][0]));
-            Assert.True(JToken.DeepEquals(originalJson["additions"][1], exportedJson["additions"][1]));
-            Assert.True(JToken.DeepEquals(originalJson["additions"][2], exportedJson["additions"][2]));
+            Assert.True(
+                JToken.DeepEquals(originalJson["additions"][0], exportedJson["additions"][0]),
+                "Preserved unknown addition changed: " + exportedJson["additions"][0]);
+            Assert.True(
+                JToken.DeepEquals(
+                    new JArray("unsupported"),
+                    exportedJson["additions"][1]["properties"]),
+                "Opaque properties changed: " + exportedJson["additions"][1]);
+            Assert.True(
+                JToken.DeepEquals(originalJson["additions"][2], exportedJson["additions"][2]),
+                "Preserved conditional addition changed: " + exportedJson["additions"][2]);
+            Assert.Empty(exportedJson["additions"][3]["properties"]);
 
             FrameworkFileResult reimportedFile = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
             LevelEditSessionImportResult reimported = LevelEditSession.Import(
@@ -479,11 +564,17 @@ public sealed class LevelEditSessionTests
                 new[] { BaseCreatorCatalog.BellIron });
 
             Assert.Equal(4, reimportedFile.Document.Additions.Count);
-            Assert.Equal(8f, reimported.Session.Placements[0].Transform.PositionX);
+            Assert.Equal(2, reimported.Session.Placements.Count);
+            Assert.Equal(
+                8f,
+                reimported.Session.Placements.Single(placement => placement.Id == "supported").Transform.PositionX);
+            Assert.Equal(
+                new[] { "unsupported" },
+                reimported.Session.Placements.Single(placement => placement.Id == "unsupported").Properties);
             Assert.DoesNotContain(reimported.Report.Entries, entry => entry.Code == "CREATOR_UNSUPPORTED");
             Assert.DoesNotContain(reimported.Report.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
             Assert.Equal(
-                3,
+                2,
                 reimported.Report.Entries.Count(entry =>
                     entry.Code == "ADDITION_UNEDITABLE_PRESERVED"
                     && entry.Severity == ApplySeverity.Info
@@ -562,9 +653,13 @@ public sealed class LevelEditSessionTests
 
     private sealed class TestFactory : IRuntimePlacementFactory
     {
+        internal List<TestHandle> Created { get; } = [];
+
         public IRuntimePlacementHandle Create(PlacementRecord placement)
         {
-            return new TestHandle(placement.Id);
+            TestHandle handle = new(placement.Id);
+            Created.Add(handle);
+            return handle;
         }
     }
 

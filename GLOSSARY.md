@@ -46,8 +46,12 @@ _Avoid_: Asset, which may refer to any game or mod resource, including resources
 Any validated addition admitted into the current Level Edit Session, whether newly authored or imported. The term denotes editable authority, not the object's provenance.
 _Avoid_: Architect-owned, owned object, author-created addition
 
+**Opaque Property**:
+A Level Framework property string retained as ordered data without interpreting a creator key, type, or modifier-specific meaning. Opaque properties preserve duplicates and content.
+_Avoid_: Unsupported property, unknown field
+
 **Preserved Addition**:
-A Level Framework addition that the current editor profile cannot fully represent or validate. It is retained as its original JSON value for round-trip, is not a Placement, and is not editable.
+A Level Framework addition that the current editor profile cannot safely model or structurally validate, such as an unknown creator, unsupported condition, invalid transform, or malformed field. It is retained as its original JSON value for round-trip, is not a Placement, and is not editable. A known-creator addition whose only unsupported content is opaque properties is an Editable Overlay Placement instead.
 _Avoid_: Uneditable addition, opaque addition
 
 ## Level editing session

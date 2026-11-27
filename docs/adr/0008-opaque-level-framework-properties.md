@@ -1,0 +1,9 @@
+# Treat Level Framework properties as opaque strings
+
+Status: Accepted. Partially supersedes [ADR-0004](0004-preserve-unmodelable-additions.md) for structurally valid property arrays.
+
+Level Framework properties are an ordered string list without a shared creator schema. A runtime modifier may consume values that Editor Mode metadata does not describe, so creator metadata cannot decide whether a property string is valid or whether an addition is editable. Treating those strings as typed `key=value` data also forced otherwise valid additions into the Preserved Addition set and made imported entries unselectable merely because their keys were absent from editor metadata.
+
+Editor Mode therefore treats every property string as opaque across import, placement, editing, and export. It validates the outer JSON shape and that each item is a string, but it does not parse keys, validate values or types, or require a modifier to consume them. On JSON input, each string is trimmed, items that are blank after trimming are discarded, and all other order, duplicates, internal spaces, and internal CR/LF are retained. Canonical export writes the same normalized list. A Preserved Addition still normalizes its property array when that array has valid string structure; a structurally invalid array remains unchanged and diagnostic, and export refuses to rewrite it under the existing fail-closed rule.
+
+The raw-properties editor follows issue #86: committed text is split into lines, each line is trimmed, blank lines are discarded, and order and duplicates are retained. A committed property that already contains CR/LF cannot be represented losslessly by that line editor and is therefore read-only. This decision does not relax validation of creator identity, transforms, conditions, duplicate ids, or the required JSON structure, and it does not claim that a runtime modifier will accept any particular opaque property.

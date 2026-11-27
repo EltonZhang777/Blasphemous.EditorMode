@@ -71,8 +71,8 @@ internal sealed class FrameworkObjectData
         Scale = scale ?? FrameworkVector.One;
         Condition = condition ?? string.Empty;
         Properties = new ReadOnlyCollection<string>(
-            [.. properties ?? []]);
-        OriginalAddition = originalAddition;
+            LevelFrameworkProperties.Normalize(properties));
+        OriginalAddition = NormalizeOriginalAddition(originalAddition);
         PreserveOriginalAddition = preserveOriginalAddition;
     }
 
@@ -122,6 +122,30 @@ internal sealed class FrameworkObjectData
             Properties,
             OriginalAddition,
             true);
+    }
+
+    private static JToken NormalizeOriginalAddition(JToken originalAddition)
+    {
+        if (originalAddition is not JObject source)
+            return originalAddition?.DeepClone();
+
+        JToken token = source[LevelFrameworkContract.PropertiesField];
+        if (token is not JArray array)
+            return source.DeepClone();
+
+        List<string> values = [];
+        foreach (JToken property in array)
+        {
+            if (property.Type != JTokenType.String)
+                return source.DeepClone();
+
+            values.Add(property.Value<string>());
+        }
+
+        JObject normalized = (JObject)source.DeepClone();
+        normalized[LevelFrameworkContract.PropertiesField] =
+            new JArray(LevelFrameworkProperties.Normalize(values));
+        return normalized;
     }
 }
 
@@ -939,6 +963,7 @@ internal static class LevelFrameworkAdapter
 
         JArray array = (JArray)token;
         bool valid = true;
+        List<string> values = [];
         for (int index = 0; index < array.Count; index++)
         {
             JToken property = array[index];
@@ -949,16 +974,11 @@ internal static class LevelFrameworkAdapter
                 continue;
             }
 
-            string value = property.Value<string>();
-            if (string.IsNullOrEmpty(value) || value.Trim().Length == 0)
-            {
-                AddError(diagnostics, location + ".properties[" + index + "]", "Property cannot be blank.");
-                valid = false;
-                continue;
-            }
-
-            properties.Add(value);
+            values.Add(property.Value<string>());
         }
+
+        if (valid)
+            properties = LevelFrameworkProperties.Normalize(values);
 
         return valid;
     }

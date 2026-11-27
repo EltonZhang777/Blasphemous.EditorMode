@@ -253,7 +253,7 @@ internal sealed class RuntimePlacementManager
         ApplyReport report,
         out PlacementRecord placement)
     {
-        return TryPlaceCore(type, transform, properties, report, "place", condition, true, out placement);
+        return TryPlaceCore(type, transform, properties, report, "place", condition, out placement);
     }
 
     private bool TryPlaceCore(
@@ -263,7 +263,6 @@ internal sealed class RuntimePlacementManager
         ApplyReport report,
         string commandName,
         string condition,
-        bool validatePropertySchema,
         out PlacementRecord placement)
     {
         PlacementManagerSnapshot before = CaptureSnapshot();
@@ -281,7 +280,7 @@ internal sealed class RuntimePlacementManager
                 id,
                 creator.Type,
                 transform,
-                properties,
+                LevelFrameworkProperties.Normalize(properties),
                 PlacementOwnership.ArchitectOwned,
                 false,
                 condition);
@@ -293,10 +292,7 @@ internal sealed class RuntimePlacementManager
             return false;
         }
 
-        bool placementValid = validatePropertySchema
-            ? PlacementValidation.Validate(placement, creator, report)
-            : PlacementValidation.ValidateTransform(placement.Transform, creator, id, report);
-        if (!placementValid)
+        if (!PlacementValidation.Validate(placement, creator, report))
         {
             placement = null;
             return false;
@@ -554,7 +550,6 @@ internal sealed class RuntimePlacementManager
             report,
             "paste",
             Clipboard.Condition,
-            false,
             out pasted);
     }
 
@@ -641,72 +636,6 @@ internal sealed class RuntimePlacementManager
         Selected = changed;
         report.Applied();
         RecordSnapshotCommand("transform", before, CaptureSnapshot());
-        return true;
-    }
-
-    internal bool TrySetProperty(
-        string id,
-        string key,
-        string rawValue,
-        ApplyReport report)
-    {
-        PlacementManagerSnapshot before = CaptureSnapshot();
-        if (!TrySelect(id, report, out PlacementRecord current)
-            || !_projections.TryGetValue(id, out IRuntimePlacementHandle handle)
-            || !_catalog.TryGet(current.Type, out CreatorMetadata creator))
-            return false;
-        if (current.IsLocked)
-        {
-            report.Error(ReportCodes.PlacementLocked, id, "Locked placement cannot be edited.");
-            return false;
-        }
-
-        if (!creator.TryGetProperty(key, out CreatorPropertyDefinition definition))
-        {
-            report.Error(ReportCodes.PropertyUnsupported, id, "Property key '" + key + "' is not supported.");
-            return false;
-        }
-
-        if (!definition.TrySerialize(rawValue, out string serialized, out string error))
-        {
-            report.Error(ReportCodes.PropertyInvalid, id, error);
-            return false;
-        }
-
-        List<string> properties = [.. current.Properties];
-        bool replaced = false;
-        string prefix = definition.Key + "=";
-        for (int index = 0; index < properties.Count; index++)
-        {
-            if (string.Equals(properties[index], definition.Key, StringComparison.OrdinalIgnoreCase)
-                || (properties[index] != null
-                    && properties[index].StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-            {
-                properties[index] = serialized;
-                replaced = true;
-                break;
-            }
-        }
-        if (!replaced)
-            properties.Add(serialized);
-
-        PlacementRecord changed = current.WithProperties(properties);
-        if (!handle.TryApply(changed, out error))
-        {
-            RestoreRuntime(handle, current, report);
-            report.Error(ReportCodes.RuntimeApplyFailed, id, error ?? "Runtime projection rejected the property.");
-            return false;
-        }
-
-        if (!_session.TryReplacePlacement(changed, report))
-        {
-            RestoreRuntime(handle, current, report);
-            return false;
-        }
-
-        Selected = changed;
-        report.Applied();
-        RecordSnapshotCommand("property", before, CaptureSnapshot());
         return true;
     }
 

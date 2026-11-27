@@ -1,23 +1,11 @@
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Diagnostics;
-using Blasphemous.EditorMode.Framework;
 
 namespace Blasphemous.EditorMode.Editing;
 
-/// <summary>Single validation boundary shared by import and runtime edits.</summary>
+/// <summary>Shared validation rules for import and runtime edits.</summary>
 internal static class PlacementValidation
 {
-    internal static bool Validate(
-        FrameworkObjectData data,
-        CreatorMetadata creator,
-        ApplyReport report)
-    {
-        return Validate(
-            PlacementRecord.FromFramework(data),
-            creator,
-            report);
-    }
-
     internal static bool Validate(
         PlacementRecord placement,
         CreatorMetadata creator,
@@ -47,18 +35,6 @@ internal static class PlacementValidation
         {
             report.Error(ReportCodes.TransformUnsupported, placement.Id, "Creator does not support scale editing.");
             valid = false;
-        }
-
-        foreach (string property in placement.Properties)
-        {
-            if (!creator.TryValidateProperty(property, out string error))
-            {
-                report.Error(
-                    ReportCodes.PropertyUnsupported,
-                    placement.Id,
-                    "Creator does not support property '" + property + "': " + error);
-                valid = false;
-            }
         }
 
         return valid;

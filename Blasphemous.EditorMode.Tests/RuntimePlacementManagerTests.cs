@@ -96,7 +96,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Transform_and_property_failures_leave_previous_values_intact()
+    public void Transform_failure_preserves_values_and_reports_unsupported_capability()
     {
         CreatorMetadata creator = new CreatorMetadata(
             "limited",
@@ -106,11 +106,7 @@ public sealed class RuntimePlacementManagerTests
             "scene",
             "path",
             TransformCapabilities.Position,
-            new[]
-            {
-                new CreatorPropertyDefinition("count", CreatorPropertyType.Integer),
-                new CreatorPropertyDefinition("mode", CreatorPropertyType.Enum, new[] { "safe", "fast" })
-            },
+            new string[0],
             true);
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -122,20 +118,14 @@ public sealed class RuntimePlacementManagerTests
         PlacementRecord placement;
         Assert.True(manager.TryPlace(creator.Type, PlacementTransform.Default, null, report, out placement));
 
-        Assert.True(manager.TrySetProperty(placement.Id, "count", "42", report));
-        Assert.False(manager.TrySetProperty(placement.Id, "count", "bad", report));
-        Assert.False(manager.TrySetProperty(placement.Id, "missing", "1", report));
         Assert.False(manager.TryMove(
             placement.Id,
             new PlacementTransform(1f, 0f, 0f, 0f, 5f, 0f, 1f, 1f, 1f),
             report));
 
         Assert.True(session.TryGetPlacement(placement.Id, out placement));
-        Assert.Contains("count=42", placement.Properties);
-        Assert.DoesNotContain("count=bad", placement.Properties);
-        Assert.Equal(1, factory.Created[0].ApplyCount);
-        Assert.Contains(report.Entries, x => x.Code == "PROPERTY_INVALID");
-        Assert.Contains(report.Entries, x => x.Code == "PROPERTY_UNSUPPORTED");
+        Assert.Equal(PlacementTransform.Default, placement.Transform);
+        Assert.Equal(0, factory.Created[0].ApplyCount);
         Assert.Contains(report.Entries, x => x.Code == "TRANSFORM_UNSUPPORTED");
     }
 
@@ -161,11 +151,11 @@ public sealed class RuntimePlacementManagerTests
         ApplyReport report = new ApplyReport();
         PlacementRecord placement;
         Assert.True(manager.TryPlace(creator.Type, PlacementTransform.Default, null, report, out placement));
-        Assert.True(manager.TrySetProperty(placement.Id, "count", "42", report));
+        Assert.True(manager.TryApplyProperties(placement.Id, "count=42", report), report.ToSummary("initial properties"));
 
         FakeHandle handle = factory.Created[0];
         handle.FailNextApplyAfterMutation = true;
-        Assert.False(manager.TrySetProperty(placement.Id, "count", "7", report));
+        Assert.False(manager.TryApplyProperties(placement.Id, "count=7", report));
         Assert.True(session.TryGetPlacement(placement.Id, out placement));
         Assert.Contains("count=42", placement.Properties);
         Assert.DoesNotContain("count=7", placement.Properties);
@@ -656,7 +646,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Paste_preserves_raw_properties_accepted_by_apply()
+    public void Paste_and_direct_placement_preserve_normalized_raw_properties()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -687,16 +677,17 @@ public sealed class RuntimePlacementManagerTests
         Assert.Equal(expected, committed.Properties);
         Assert.Equal(2, session.Placements.Count);
 
-        ApplyReport invalidReport = new ApplyReport();
-        PlacementRecord rejected;
-        Assert.False(manager.TryPlace(
+        ApplyReport opaqueReport = new ApplyReport();
+        PlacementRecord opaque;
+        Assert.True(manager.TryPlace(
             BaseCreatorCatalog.BellIronType,
             PlacementTransform.Default,
-            new[] { "OneWayDown" },
+            new[] { "  OneWayDown  ", "   ", "length = 3.0", "OneWayDown" },
             null,
-            invalidReport,
-            out rejected));
-        Assert.Contains(invalidReport.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
+            opaqueReport,
+            out opaque), opaqueReport.ToSummary("opaque placement"));
+        Assert.Equal(new[] { "OneWayDown", "length = 3.0", "OneWayDown" }, opaque.Properties);
+        Assert.DoesNotContain(opaqueReport.Entries, entry => entry.Code == "PROPERTY_UNSUPPORTED");
     }
 
     [Fact]

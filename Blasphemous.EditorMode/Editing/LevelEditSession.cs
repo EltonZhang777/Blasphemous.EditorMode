@@ -192,7 +192,7 @@ internal sealed class LevelEditSession
             }
 
             ApplyReport validation = new();
-            if (!PlacementValidation.Validate(data, creator, validation))
+            if (!PlacementValidation.Validate(PlacementRecord.FromFramework(data), creator, validation))
             {
                 string location = "additions[" + data.Id + "]";
                 importedAdditions.Add(data.WithPreservedOriginalAddition());
