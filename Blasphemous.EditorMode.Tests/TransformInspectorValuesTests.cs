@@ -9,16 +9,7 @@ public sealed class TransformInspectorValuesTests
     [Fact]
     public void EditingPositionChangesOnlyPosition()
     {
-        PlacementTransform original = new(
-            1f,
-            2f,
-            3f,
-            10f,
-            20f,
-            30f,
-            2f,
-            3f,
-            4f);
+        PlacementTransform original = CreateOriginalTransform();
         TransformInspectorValues values = new(
             new TransformInspectorGroup("4", "5", "6"),
             new TransformInspectorGroup("10", "20", "30"),
@@ -39,16 +30,7 @@ public sealed class TransformInspectorValuesTests
     [Fact]
     public void EditingRotationChangesOnlyRotation()
     {
-        PlacementTransform original = new(
-            1f,
-            2f,
-            3f,
-            10f,
-            20f,
-            30f,
-            2f,
-            3f,
-            4f);
+        PlacementTransform original = CreateOriginalTransform();
         TransformInspectorValues values = new(
             new TransformInspectorGroup("1", "2", "3"),
             new TransformInspectorGroup("40", "50", "60"),
@@ -69,16 +51,7 @@ public sealed class TransformInspectorValuesTests
     [Fact]
     public void EditingScaleChangesOnlyScale()
     {
-        PlacementTransform original = new(
-            1f,
-            2f,
-            3f,
-            10f,
-            20f,
-            30f,
-            2f,
-            3f,
-            4f);
+        PlacementTransform original = CreateOriginalTransform();
         TransformInspectorValues values = new(
             new TransformInspectorGroup("1", "2", "3"),
             new TransformInspectorGroup("10", "20", "30"),
@@ -122,16 +95,6 @@ public sealed class TransformInspectorValuesTests
     [InlineData("scale", "Infinity")]
     public void InvalidValueInAnyGroupFailsWithoutPartialTransform(string group, string invalidValue)
     {
-        PlacementTransform original = new(
-            1f,
-            2f,
-            3f,
-            10f,
-            20f,
-            30f,
-            2f,
-            3f,
-            4f);
         TransformInspectorGroup invalid = new(invalidValue, "4", "5");
         TransformInspectorValues values = group switch
         {
@@ -153,5 +116,19 @@ public sealed class TransformInspectorValuesTests
         Assert.False(values.TryCreateTransform(out PlacementTransform transform, out string error));
         Assert.Null(transform);
         Assert.False(string.IsNullOrEmpty(error));
+    }
+
+    private static PlacementTransform CreateOriginalTransform()
+    {
+        return new PlacementTransform(
+            1f,
+            2f,
+            3f,
+            10f,
+            20f,
+            30f,
+            2f,
+            3f,
+            4f);
     }
 }
