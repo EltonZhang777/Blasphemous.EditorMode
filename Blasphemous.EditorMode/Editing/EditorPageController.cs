@@ -166,6 +166,14 @@ internal sealed class EditorPageController
             && _originalObjects.TryDeleteSelected(report);
     }
 
+    internal bool TryResolveOriginalConflict(
+        OriginalObjectOperation operation,
+        ApplyReport report)
+    {
+        return ActivePage == EditorPage.OriginalObjects
+            && _originalObjects.TryResolveConflict(operation, report);
+    }
+
     internal bool TryRemoveOriginalEdit(ApplyReport report)
     {
         return ActivePage == EditorPage.OriginalObjects

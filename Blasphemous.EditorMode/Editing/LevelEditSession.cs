@@ -68,6 +68,7 @@ internal sealed class LevelEditSession
     private readonly List<FrameworkObjectData> _modifications;
     private readonly List<FrameworkObjectData> _deletions;
     private readonly HashSet<string> _issuedOriginalObjectIds;
+    private readonly Dictionary<OriginalObjectIdentity, FrameworkObjectData> _resolvedImportedEdits = [];
 
     private LevelEditSession(
         RoomIdentity room,
@@ -100,7 +101,7 @@ internal sealed class LevelEditSession
     internal FrameworkLevelEdit ImportedDocument { get; }
     internal string OriginalSourceText { get; }
     internal LevelEditSessionState State { get; private set; }
-    internal LevelEditSessionState ImportedState { get; }
+    internal LevelEditSessionState ImportedState { get; private set; }
     internal ApplyReport LastReport { get; private set; }
 
     internal ReadOnlyCollection<PlacementRecord> Placements
@@ -505,37 +506,184 @@ internal sealed class LevelEditSession
             return false;
         }
 
-        List<FrameworkObjectData> importedModifications =
-            FindMatching(ImportedDocument.Modifications, identity);
-        List<FrameworkObjectData> importedDeletions =
-            FindMatching(ImportedDocument.Deletions, identity);
-        if (importedModifications.Count + importedDeletions.Count > 1)
+        FrameworkObjectData restored = null;
+        if (_resolvedImportedEdits.TryGetValue(identity, out FrameworkObjectData resolved)
+            && IsImportedReference(resolved))
+        {
+            restored = resolved;
+        }
+        else
+        {
+            _resolvedImportedEdits.Remove(identity);
+            List<FrameworkObjectData> importedModifications =
+                FindMatching(ImportedDocument.Modifications, identity);
+            List<FrameworkObjectData> importedDeletions =
+                FindMatching(ImportedDocument.Deletions, identity);
+            if (importedModifications.Count + importedDeletions.Count > 1)
+            {
+                report.Error(
+                    ReportCodes.OriginalObjectEditConflict,
+                    identity.DisplayText,
+                    "Multiple imported operations target this identity and cannot be restored as one operation.");
+                return false;
+            }
+            if (importedModifications.Count == 1)
+                restored = importedModifications[0];
+            else if (importedDeletions.Count == 1)
+                restored = importedDeletions[0];
+        }
+
+        if (restored == null)
         {
             report.Error(
-                ReportCodes.OriginalObjectEditConflict,
+                ReportCodes.OriginalObjectEditNotFound,
                 identity.DisplayText,
-                "Multiple imported operations target this identity and cannot be restored as one operation.");
+                "No imported Original Object operation remains for this identity.");
             return false;
         }
 
         RemoveMatching(_modifications, identity);
         RemoveMatching(_deletions, identity);
-        if (importedModifications.Count == 1)
+        if (IsImportedModification(restored))
         {
-            int index = ImportedModificationInsertionIndex(identity);
-            _modifications.Insert(
-                Math.Min(index, _modifications.Count),
-                importedModifications[0]);
+            int index = ImportedModificationInsertionIndex(identity, restored);
+            _modifications.Insert(Math.Min(index, _modifications.Count), restored);
         }
-        if (importedDeletions.Count == 1)
+        else
         {
-            int index = ImportedDeletionInsertionIndex(identity);
-            _deletions.Insert(
-                Math.Min(index, _deletions.Count),
-                importedDeletions[0]);
+            int index = ImportedDeletionInsertionIndex(identity, restored);
+            _deletions.Insert(Math.Min(index, _deletions.Count), restored);
         }
 
         SetState(ResolveRestoredState(State), report);
+        return true;
+    }
+
+    internal bool TryRemoveOriginalObjectEdit(
+        OriginalObjectIdentity identity,
+        ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (!ValidateOriginalObjectDeletion(identity, report))
+            return false;
+
+        int operationCount = CountMatchingOperations(identity.Scene, identity.Path);
+        if (operationCount == 0)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditNotFound,
+                identity.DisplayText,
+                "No Original Object operation targets this identity.");
+            return false;
+        }
+        if (operationCount > 1)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditConflict,
+                identity.DisplayText,
+                "Multiple operations target this identity and must be resolved before removal.");
+            return false;
+        }
+
+        if (IsImportedOriginalObjectOperation(identity.Scene, identity.Path))
+        {
+            report.Warning(
+                ReportCodes.OriginalObjectEditReadOnly,
+                identity.DisplayText,
+                "The untouched imported Original Object operation is read-only and cannot be removed.");
+            return false;
+        }
+
+        RemoveMatching(_modifications, identity);
+        RemoveMatching(_deletions, identity);
+        SetState(ResolveRestoredState(State), report);
+        return true;
+    }
+
+    internal bool TryResolveOriginalObjectConflict(
+        FrameworkObjectData chosen,
+        OriginalObjectOperationKind kind,
+        ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (chosen == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectIdentityInvalid,
+                "$",
+                "The chosen Original Object operation is required.");
+            return false;
+        }
+        if (!OriginalObjectIdentity.TryCreate(
+            chosen.Scene,
+            chosen.Path,
+            out OriginalObjectIdentity identity,
+            out string identityError))
+        {
+            report.Error(
+                ReportCodes.OriginalObjectIdentityInvalid,
+                chosen.Scene + ":" + chosen.Path,
+                identityError);
+            return false;
+        }
+        if (kind == OriginalObjectOperationKind.Modification
+            && !ValidateOriginalObjectModification(chosen, report))
+            return false;
+        if (kind == OriginalObjectOperationKind.Deletion
+            && !ValidateOriginalObjectDeletion(identity, report))
+            return false;
+
+        bool present = false;
+        List<FrameworkObjectData> retained = kind == OriginalObjectOperationKind.Modification
+            ? _modifications
+            : _deletions;
+        foreach (FrameworkObjectData operation in retained)
+        {
+            if (ReferenceEquals(operation, chosen))
+            {
+                present = true;
+                break;
+            }
+        }
+        if (!present)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditNotFound,
+                identity.DisplayText,
+                "The chosen Original Object operation is not present in the session.");
+            return false;
+        }
+
+        int operationCount = CountMatchingOperations(identity.Scene, identity.Path);
+        if (operationCount <= 1)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditConflict,
+                identity.DisplayText,
+                "No unresolved conflict exists for this Original Object identity.");
+            return false;
+        }
+        if (!IsImportedReference(chosen))
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditNotFound,
+                identity.DisplayText,
+                "The chosen Original Object operation is not an imported conflict entry.");
+            return false;
+        }
+
+        _resolvedImportedEdits[identity] = chosen;
+        RemoveMatchingExcept(
+            _modifications,
+            identity,
+            kind == OriginalObjectOperationKind.Modification ? chosen : null);
+        RemoveMatchingExcept(
+            _deletions,
+            identity,
+            kind == OriginalObjectOperationKind.Deletion ? chosen : null);
+        MarkDirty(report);
         return true;
     }
 
@@ -549,6 +697,7 @@ internal sealed class LevelEditSession
         _modifications.AddRange(modifications ?? []);
         _deletions.Clear();
         _deletions.AddRange(deletions ?? []);
+        ReconcileResolvedImportedEdits();
         SetState(ResolveRestoredState(state), report);
     }
 
@@ -556,6 +705,11 @@ internal sealed class LevelEditSession
     {
         State = state;
         LastReport = report;
+    }
+
+    internal void SetImportedState(LevelEditSessionState state)
+    {
+        ImportedState = state;
     }
 
     internal void MarkDirty(ApplyReport report)
@@ -716,30 +870,40 @@ internal sealed class LevelEditSession
         return -1;
     }
 
-    private int ImportedModificationInsertionIndex(OriginalObjectIdentity identity)
+    private int ImportedModificationInsertionIndex(
+        OriginalObjectIdentity identity,
+        FrameworkObjectData operation)
     {
         int index = 0;
-        foreach (FrameworkObjectData operation in ImportedDocument.Modifications)
+        int precedingMatches = 0;
+        foreach (FrameworkObjectData candidate in ImportedDocument.Modifications)
         {
-            if (SameIdentity(operation, identity.Scene, identity.Path))
-                return index;
+            if (ReferenceEquals(candidate, operation))
+                return index - precedingMatches;
+            if (SameIdentity(candidate, identity.Scene, identity.Path))
+                precedingMatches++;
             index++;
         }
 
-        return index;
+        return index - precedingMatches;
     }
 
-    private int ImportedDeletionInsertionIndex(OriginalObjectIdentity identity)
+    private int ImportedDeletionInsertionIndex(
+        OriginalObjectIdentity identity,
+        FrameworkObjectData operation)
     {
         int index = 0;
-        foreach (FrameworkObjectData operation in ImportedDocument.Deletions)
+        int precedingMatches = 0;
+        foreach (FrameworkObjectData candidate in ImportedDocument.Deletions)
         {
-            if (SameIdentity(operation, identity.Scene, identity.Path))
-                return index;
+            if (ReferenceEquals(candidate, operation))
+                return index - precedingMatches;
+            if (SameIdentity(candidate, identity.Scene, identity.Path))
+                precedingMatches++;
             index++;
         }
 
-        return index;
+        return index - precedingMatches;
     }
 
     private static List<FrameworkObjectData> FindMatching(
@@ -756,6 +920,117 @@ internal sealed class LevelEditSession
         return matching;
     }
 
+    private bool IsImportedOriginalObjectOperation(string scene, string path)
+    {
+        foreach (FrameworkObjectData operation in ImportedDocument.Modifications)
+        {
+            if (SameIdentity(operation, scene, path))
+                return true;
+        }
+        foreach (FrameworkObjectData operation in ImportedDocument.Deletions)
+        {
+            if (SameIdentity(operation, scene, path))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool IsImportedReference(FrameworkObjectData operation)
+    {
+        return IsImportedModification(operation) || IsImportedDeletion(operation);
+    }
+
+    private bool IsImportedModification(FrameworkObjectData operation)
+    {
+        foreach (FrameworkObjectData imported in ImportedDocument.Modifications)
+        {
+            if (ReferenceEquals(imported, operation))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool IsImportedDeletion(FrameworkObjectData operation)
+    {
+        foreach (FrameworkObjectData imported in ImportedDocument.Deletions)
+        {
+            if (ReferenceEquals(imported, operation))
+                return true;
+        }
+
+        return false;
+    }
+
+    private void ReconcileResolvedImportedEdits()
+    {
+        List<OriginalObjectIdentity> identities = [.. _resolvedImportedEdits.Keys];
+        AddImportedOperationIdentities(ImportedDocument.Modifications, identities);
+        AddImportedOperationIdentities(ImportedDocument.Deletions, identities);
+        Dictionary<OriginalObjectIdentity, FrameworkObjectData> next = [];
+        foreach (OriginalObjectIdentity identity in identities)
+        {
+            List<FrameworkObjectData> importedModifications =
+                FindMatching(ImportedDocument.Modifications, identity);
+            List<FrameworkObjectData> importedDeletions =
+                FindMatching(ImportedDocument.Deletions, identity);
+            if (importedModifications.Count + importedDeletions.Count <= 1)
+                continue;
+            if (CountMatchingOperations(identity.Scene, identity.Path) != 1)
+                continue;
+
+            FrameworkObjectData current = FindSingleOperation(identity.Scene, identity.Path);
+            if (current == null)
+                continue;
+            if (IsImportedReference(current))
+            {
+                next[identity] = current;
+            }
+            else if (_resolvedImportedEdits.TryGetValue(identity, out FrameworkObjectData resolved))
+            {
+                next[identity] = resolved;
+            }
+        }
+
+        _resolvedImportedEdits.Clear();
+        foreach (KeyValuePair<OriginalObjectIdentity, FrameworkObjectData> entry in next)
+            _resolvedImportedEdits[entry.Key] = entry.Value;
+    }
+
+    private static void AddImportedOperationIdentities(
+        IEnumerable<FrameworkObjectData> operations,
+        List<OriginalObjectIdentity> identities)
+    {
+        foreach (FrameworkObjectData operation in operations ?? [])
+        {
+            if (operation != null
+                && OriginalObjectIdentity.TryCreate(
+                    operation.Scene,
+                    operation.Path,
+                    out OriginalObjectIdentity identity,
+                    out _)
+                && !identities.Contains(identity))
+                identities.Add(identity);
+        }
+    }
+
+    private FrameworkObjectData FindSingleOperation(string scene, string path)
+    {
+        foreach (FrameworkObjectData operation in _modifications)
+        {
+            if (SameIdentity(operation, scene, path))
+                return operation;
+        }
+        foreach (FrameworkObjectData operation in _deletions)
+        {
+            if (SameIdentity(operation, scene, path))
+                return operation;
+        }
+
+        return null;
+    }
+
     private static void RemoveMatching(
         List<FrameworkObjectData> operations,
         OriginalObjectIdentity identity)
@@ -763,6 +1038,20 @@ internal sealed class LevelEditSession
         for (int index = operations.Count - 1; index >= 0; index--)
         {
             if (SameIdentity(operations[index], identity.Scene, identity.Path))
+                operations.RemoveAt(index);
+        }
+    }
+
+    private static void RemoveMatchingExcept(
+        List<FrameworkObjectData> operations,
+        OriginalObjectIdentity identity,
+        FrameworkObjectData retained)
+    {
+        for (int index = operations.Count - 1; index >= 0; index--)
+        {
+            FrameworkObjectData operation = operations[index];
+            if (!ReferenceEquals(operation, retained)
+                && SameIdentity(operation, identity.Scene, identity.Path))
                 operations.RemoveAt(index);
         }
     }

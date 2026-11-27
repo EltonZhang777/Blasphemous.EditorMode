@@ -105,6 +105,7 @@ internal static class ReportCodes
     internal const string OriginalObjectDeletionInvalid = "ORIGINAL_OBJECT_DELETION_INVALID";
     internal const string OriginalObjectEditConflict = "ORIGINAL_OBJECT_EDIT_CONFLICT";
     internal const string OriginalObjectEditNotFound = "ORIGINAL_OBJECT_EDIT_NOT_FOUND";
+    internal const string OriginalObjectEditReadOnly = "ORIGINAL_OBJECT_EDIT_READ_ONLY";
     internal const string OriginalObjectModifierUnavailable = "ORIGINAL_OBJECT_MODIFIER_UNAVAILABLE";
     internal const string OriginalObjectModifierFailed = "ORIGINAL_OBJECT_MODIFIER_FAILED";
     internal const string OriginalObjectLiveRestoreFailed = "ORIGINAL_OBJECT_LIVE_RESTORE_FAILED";

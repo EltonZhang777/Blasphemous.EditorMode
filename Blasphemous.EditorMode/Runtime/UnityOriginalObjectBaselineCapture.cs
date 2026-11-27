@@ -90,7 +90,18 @@ internal sealed class UnityOriginalObjectBaselineCapture
             provenance,
             addressable,
             addressError,
-            gameObject.activeSelf));
+            gameObject.activeSelf,
+            new PlacementTransform(
+                gameObject.transform.position.x,
+                gameObject.transform.position.y,
+                gameObject.transform.position.z,
+                gameObject.transform.eulerAngles.x,
+                gameObject.transform.eulerAngles.y,
+                gameObject.transform.eulerAngles.z,
+                gameObject.transform.localScale.x,
+                gameObject.transform.localScale.y,
+                gameObject.transform.localScale.z),
+            gameObject.name));
     }
 
     private static OriginalObjectProvenance ClassifyProvenance(Transform transform)

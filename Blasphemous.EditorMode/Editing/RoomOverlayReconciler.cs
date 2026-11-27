@@ -117,7 +117,10 @@ internal sealed class RoomOverlayReconciler
                 _originalObjectProjector,
                 report);
         if (report.IsPartial)
+        {
             imported.Session.SetState(LevelEditSessionState.Partial, report);
+            imported.Session.SetImportedState(LevelEditSessionState.Partial);
+        }
 
         if (_manager != null && !_manager.TryClear(report))
         {

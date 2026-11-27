@@ -109,7 +109,9 @@ internal sealed class OriginalObjectSnapshotEntry
         OriginalObjectProvenance provenance,
         bool addressable,
         string addressError = null,
-        bool? activeSelf = null)
+        bool? activeSelf = null,
+        PlacementTransform authoredTransform = null,
+        string authoredName = null)
     {
         ObjectKey = objectKey ?? throw new ArgumentNullException(nameof(objectKey));
         Scene = scene;
@@ -119,6 +121,8 @@ internal sealed class OriginalObjectSnapshotEntry
         Provenance = provenance;
         IsAddressable = addressable;
         AddressError = addressError;
+        AuthoredTransform = authoredTransform;
+        AuthoredName = authoredName;
     }
 
     internal string ObjectKey { get; }
@@ -129,6 +133,8 @@ internal sealed class OriginalObjectSnapshotEntry
     internal OriginalObjectProvenance Provenance { get; }
     internal bool IsAddressable { get; }
     internal string AddressError { get; }
+    internal PlacementTransform AuthoredTransform { get; }
+    internal string AuthoredName { get; }
 
     internal string Location
     {
@@ -221,7 +227,9 @@ internal sealed class OriginalObjectCatalogEntry
         PlacementTransform runtimeTransform = null,
         string runtimeName = null,
         bool? runtimeActiveSelf = null,
-        bool? baselineActiveSelf = null)
+        bool? baselineActiveSelf = null,
+        PlacementTransform authoredTransform = null,
+        string authoredName = null)
     {
         Identity = identity ?? throw new ArgumentNullException(nameof(identity));
         ObjectKey = objectKey ?? throw new ArgumentNullException(nameof(objectKey));
@@ -231,6 +239,8 @@ internal sealed class OriginalObjectCatalogEntry
         IsRuntimeActiveSelf = runtimeActiveSelf ?? runtimeActive;
         RuntimeTransform = runtimeTransform ?? PlacementTransform.Default;
         RuntimeName = runtimeName ?? string.Empty;
+        AuthoredTransform = authoredTransform ?? RuntimeTransform;
+        AuthoredName = authoredName ?? RuntimeName;
     }
 
     internal OriginalObjectIdentity Identity { get; }
@@ -242,6 +252,8 @@ internal sealed class OriginalObjectCatalogEntry
     internal bool IsRuntimeActiveSelf { get; }
     internal PlacementTransform RuntimeTransform { get; }
     internal string RuntimeName { get; }
+    internal PlacementTransform AuthoredTransform { get; }
+    internal string AuthoredName { get; }
     internal string DisplayText { get { return Identity.DisplayText; } }
 
     internal OriginalObjectLiveState LiveState
@@ -253,6 +265,18 @@ internal sealed class OriginalObjectCatalogEntry
                 IsRuntimeActiveSelf,
                 RuntimeTransform,
                 RuntimeName);
+        }
+    }
+
+    internal OriginalObjectLiveState AuthoredLiveState
+    {
+        get
+        {
+            return new OriginalObjectLiveState(
+                ObjectKey,
+                IsBaselineActiveSelf,
+                AuthoredTransform,
+                AuthoredName);
         }
     }
 }
@@ -470,7 +494,9 @@ internal sealed class OriginalObjectCatalog
                 projection.Transform,
                 projection.Name,
                 projection.IsActiveSelf,
-                snapshot.IsActiveSelf));
+                snapshot.IsActiveSelf,
+                snapshot.AuthoredTransform,
+                snapshot.AuthoredName));
         }
 
         OriginalObjectCatalog built = new OriginalObjectCatalog(entries);
@@ -550,7 +576,8 @@ internal sealed class OriginalObjectOperation
         bool locatable,
         bool isImported,
         bool isPending,
-        bool hasConflict = false)
+        bool hasConflict,
+        FrameworkObjectData data)
     {
         Kind = kind;
         Source = source ?? string.Empty;
@@ -562,6 +589,7 @@ internal sealed class OriginalObjectOperation
         IsImported = isImported;
         IsPending = isPending;
         HasConflict = hasConflict;
+        Data = data;
     }
 
     internal OriginalObjectOperationKind Kind { get; }
@@ -574,6 +602,8 @@ internal sealed class OriginalObjectOperation
     internal bool IsImported { get; }
     internal bool IsPending { get; }
     internal bool HasConflict { get; }
+    internal FrameworkObjectData Data { get; }
+    internal bool IsReadOnly { get { return !IsLocatable || HasConflict; } }
 
     internal string DisplayIdentity
     {
@@ -612,7 +642,6 @@ internal sealed class OriginalObjectPage
     private readonly Dictionary<OriginalObjectIdentity, OriginalObjectLiveState> _liveStates = [];
     private readonly Dictionary<OriginalObjectIdentity, OriginalObjectLiveState> _importLiveStates = [];
     private readonly List<OriginalObjectOperationProvenance> _importedOperations = [];
-    private readonly LevelEditSessionState _importedState;
     private ReadOnlyCollection<OriginalObjectOperation> _operations;
     private ReadOnlyCollection<OriginalObjectCandidate> _candidates;
     private OriginalObjectCatalogEntry _selected;
@@ -631,7 +660,6 @@ internal sealed class OriginalObjectPage
         _operations = new ReadOnlyCollection<OriginalObjectOperation>(
             [.. operations ?? []]);
         _candidates = new ReadOnlyCollection<OriginalObjectCandidate>([]);
-        _importedState = LevelEditSessionState.Clean;
     }
 
     internal OriginalObjectPage(
@@ -657,7 +685,6 @@ internal sealed class OriginalObjectPage
 
         _session = session;
         _projector = projector;
-        _importedState = session.ImportedState;
         _frameworkLevelKey = session.Room.FrameworkLevelKey;
         if (baseline != null
             && !string.Equals(
@@ -1358,6 +1385,136 @@ internal sealed class OriginalObjectPage
         return true;
     }
 
+    internal bool TryResolveConflict(
+        OriginalObjectOperation operation,
+        ApplyReport report)
+    {
+        if (report == null)
+            throw new ArgumentNullException(nameof(report));
+        if (_session == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectApplyFailed,
+                "Original Objects",
+                "No editable Level Edit Session is available.");
+            return false;
+        }
+        if (operation == null
+            || operation.Data == null
+            || !ContainsOperation(operation))
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditNotFound,
+                operation == null ? "$" : operation.Source,
+                "The selected Original Object operation is no longer present in the session.");
+            return false;
+        }
+        if (!OriginalObjectIdentity.TryCreate(
+            operation.Scene,
+            operation.Path,
+            out OriginalObjectIdentity identity,
+            out string identityError))
+        {
+            report.Error(
+                ReportCodes.OriginalObjectIdentityInvalid,
+                operation.Source,
+                identityError);
+            return false;
+        }
+        if (!operation.HasConflict || CountOperations(operation.Scene, operation.Path) <= 1)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectEditConflict,
+                identity.DisplayText,
+                "No unresolved conflict exists for this Original Object identity.");
+            return false;
+        }
+        if (!operation.IsLocatable)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectOperationUnlocatable,
+                operation.Source,
+                "An unlocatable Original Object operation is read-only and cannot resolve a conflict.");
+            return false;
+        }
+        if (_projector == null)
+        {
+            report.Error(
+                ReportCodes.OriginalObjectApplyFailed,
+                identity.DisplayText,
+                "Original Object live projection is unavailable.");
+            return false;
+        }
+
+        OriginalObjectPageSnapshot before = CaptureSnapshot(identity);
+        OriginalObjectLiveState appliedState = null;
+        bool liveStateChanged = false;
+        if (operation.Kind == OriginalObjectOperationKind.Modification)
+        {
+            if (_projector.IsModifierAvailable(operation.Type))
+            {
+                if (!TryRestoreAuthoredState(identity, report)
+                    || !_projector.TryApplyModification(
+                        _frameworkLevelKey,
+                        operation.Data,
+                        report,
+                        out appliedState))
+                {
+                    RestoreLiveStateFromSnapshot(before, report);
+                    return false;
+                }
+
+                liveStateChanged = true;
+            }
+            else
+            {
+                report.Warning(
+                    ReportCodes.OriginalObjectModifierUnavailable,
+                    identity.DisplayText,
+                    "Modifier '" + operation.Type + "' is unavailable; the conflict was resolved in the session but its live preview was not applied.");
+            }
+        }
+        else
+        {
+            if (!_projector.TryApplyDeletion(
+                _frameworkLevelKey,
+                identity,
+                HiddenImportLiveState(identity),
+                report,
+                out appliedState))
+            {
+                RestoreLiveStateFromSnapshot(before, report);
+                return false;
+            }
+
+            liveStateChanged = true;
+        }
+
+        if (!_session.TryResolveOriginalObjectConflict(
+            operation.Data,
+            operation.Kind,
+            report))
+        {
+            RestoreLiveStateFromSnapshot(before, report);
+            return false;
+        }
+
+        if (liveStateChanged)
+            _liveStates[identity] = appliedState;
+        _history.Record(new OriginalObjectSnapshotCommand(
+            this,
+            "Resolve Original Object Conflict",
+            before,
+            CaptureSnapshot(identity)));
+        RefreshState(report);
+        report.Applied();
+        report.Info(
+            ReportCodes.OriginalObjectEditRemoved,
+            identity.DisplayText,
+            "Kept " + operation.Source + " and removed the competing Original Object operations.");
+        return true;
+    }
+
     internal bool TryRemoveSelectedEdit(ApplyReport report)
     {
         if (report == null)
@@ -1386,15 +1543,16 @@ internal sealed class OriginalObjectPage
                 "Select an Original Object operation before removing it.");
             return false;
         }
-        if (!TryGetResolvedOperations(
+        TryGetResolvedOperations(
             _selected.Identity,
             out List<FrameworkObjectData> modifications,
-            out List<FrameworkObjectData> deletions))
-            return false;
+            out List<FrameworkObjectData> deletions);
         if (modifications.Count + deletions.Count != 1)
         {
-            report.Warning(
-                ReportCodes.OriginalObjectEditNotFound,
+            report.Error(
+                modifications.Count + deletions.Count == 0
+                    ? ReportCodes.OriginalObjectEditNotFound
+                    : ReportCodes.OriginalObjectEditConflict,
                 _selected.DisplayText,
                 modifications.Count + deletions.Count == 0
                     ? "No pending Original Object operation targets this identity."
@@ -1410,24 +1568,31 @@ internal sealed class OriginalObjectPage
             : OriginalObjectOperationKind.Deletion;
         FrameworkObjectData currentOperation =
             currentModification ?? currentDeletion;
-        if (WasImported(currentKind, currentOperation))
+        bool currentWasImported = WasImported(currentKind, currentOperation);
+        if (currentWasImported)
         {
             report.Warning(
-                ReportCodes.OriginalObjectEditNotFound,
+                ReportCodes.OriginalObjectEditReadOnly,
                 _selected.DisplayText,
-                "The imported Original Object operation has no pending change to remove.");
+                "The untouched imported Original Object operation is read-only and cannot be removed.");
             return false;
         }
+        bool restoreImportedEdit = HasImportedOperation(_selected.Identity);
 
         OriginalObjectPageSnapshot before = CaptureSnapshot(_selected.Identity);
-        OriginalObjectLiveState importState = ImportLiveState(_selected.Identity);
+        OriginalObjectLiveState restoredState = restoreImportedEdit
+            ? ImportLiveState(_selected.Identity)
+            : AuthoredLiveState(_selected.Identity);
         if (!_projector.TryRestore(
             _frameworkLevelKey,
             _selected.Identity,
-            importState,
+            restoredState,
             report))
             return false;
-        if (!_session.TryRestoreImportedOriginalObjectEdit(_selected.Identity, report))
+        bool removed = restoreImportedEdit
+            ? _session.TryRestoreImportedOriginalObjectEdit(_selected.Identity, report)
+            : _session.TryRemoveOriginalObjectEdit(_selected.Identity, report);
+        if (!removed)
         {
             if (!RestoreLiveStateFromSnapshot(before, report))
             {
@@ -1439,7 +1604,7 @@ internal sealed class OriginalObjectPage
             return false;
         }
 
-        _liveStates[_selected.Identity] = importState;
+        _liveStates[_selected.Identity] = restoredState;
         _history.Record(new OriginalObjectSnapshotCommand(
             this,
             "Remove Original Object Edit",
@@ -1450,7 +1615,9 @@ internal sealed class OriginalObjectPage
         report.Info(
             ReportCodes.OriginalObjectEditRemoved,
             _selected.DisplayText,
-            "Removed the pending Original Object change and restored the imported state.");
+            restoreImportedEdit
+                ? "Removed the pending Original Object change and restored the imported state."
+                : "Removed the Original Object operation and restored the authored baseline.");
         return true;
     }
 
@@ -1522,7 +1689,7 @@ internal sealed class OriginalObjectPage
         _session.RestoreOriginalObjectEdits(
             _session.ImportedDocument.Modifications,
             _session.ImportedDocument.Deletions,
-            _importedState,
+            _session.ImportedState,
             report);
         foreach (OriginalObjectIdentity identity in identities)
             _liveStates[identity] = ImportLiveState(identity);
@@ -1644,7 +1811,9 @@ internal sealed class OriginalObjectPage
                 }
                 else
                 {
-                    bool reactivated = TryReactivateAuthoredState(identity, report);
+                    bool reactivated = HasImportedConflict(identity)
+                        ? TryRestoreAuthoredState(identity, report)
+                        : TryReactivateAuthoredState(identity, report);
                     OriginalObjectLiveState state = null;
                     restored = reactivated
                         && _projector.TryApplyModification(
@@ -1826,11 +1995,25 @@ internal sealed class OriginalObjectPage
             identity);
         if (targetModifications.Count + targetDeletions.Count > 1)
         {
-            report.Error(
-                ReportCodes.HistoryRestoreFailed,
-                identity.DisplayText,
-                "The history snapshot contains an unresolved Original Object conflict.");
-            return false;
+            if (_projector != null
+                && _catalog.TryGetByIdentity(identity, out _)
+                && !_projector.TryRestore(
+                    _frameworkLevelKey,
+                    identity,
+                    ImportLiveState(identity),
+                    report))
+                return false;
+
+            _session.RestoreOriginalObjectEdits(
+                snapshot.Modifications,
+                snapshot.Deletions,
+                snapshot.State,
+                report);
+            if (_catalog.TryGetByIdentity(identity, out _))
+                _liveStates[identity] = ImportLiveState(identity);
+            RefreshState(report);
+            report.Applied();
+            return true;
         }
 
         OriginalObjectLiveState appliedState = null;
@@ -1849,7 +2032,9 @@ internal sealed class OriginalObjectPage
                 else
                 {
                     OriginalObjectPageSnapshot current = CaptureSnapshot(identity);
-                    bool reactivated = TryReactivateAuthoredState(identity, report);
+                    bool reactivated = HasImportedConflict(identity)
+                        ? TryRestoreAuthoredState(identity, report)
+                        : TryReactivateAuthoredState(identity, report);
                     restored = reactivated
                         && _projector.TryApplyModification(
                             _frameworkLevelKey,
@@ -1878,11 +2063,14 @@ internal sealed class OriginalObjectPage
             }
             else
             {
+                OriginalObjectLiveState authored = AuthoredLiveState(identity);
                 restored = _projector.TryRestore(
                     _frameworkLevelKey,
                     identity,
-                    ImportLiveState(identity),
+                    authored,
                     report);
+                if (restored)
+                    appliedState = authored;
             }
 
             if (!restored)
@@ -1904,7 +2092,7 @@ internal sealed class OriginalObjectPage
         }
         else
         {
-            _liveStates[identity] = ImportLiveState(identity);
+            _liveStates[identity] = AuthoredLiveState(identity);
         }
 
         RefreshState(report);
@@ -1963,14 +2151,17 @@ internal sealed class OriginalObjectPage
         }
 
         OriginalObjectLiveState importState = ImportLiveState(snapshot.Identity);
+        OriginalObjectLiveState restoredState = modifications.Count + deletions.Count == 0
+            ? AuthoredLiveState(snapshot.Identity)
+            : importState;
         if (!_projector.TryRestore(
             _frameworkLevelKey,
             snapshot.Identity,
-            importState,
+            restoredState,
             report))
             return false;
 
-        _liveStates[snapshot.Identity] = importState;
+        _liveStates[snapshot.Identity] = restoredState;
         return true;
     }
 
@@ -2007,11 +2198,7 @@ internal sealed class OriginalObjectPage
             || !entry.IsBaselineActiveSelf)
             return true;
 
-        OriginalObjectLiveState authored = new(
-            current.ObjectKey,
-            true,
-            current.Transform,
-            current.Name);
+        OriginalObjectLiveState authored = entry.AuthoredLiveState;
         if (!_projector.TryRestore(
             _frameworkLevelKey,
             identity,
@@ -2021,6 +2208,49 @@ internal sealed class OriginalObjectPage
 
         _liveStates[identity] = authored;
         return true;
+    }
+
+    private bool TryRestoreAuthoredState(
+        OriginalObjectIdentity identity,
+        ApplyReport report)
+    {
+        if (_projector == null)
+            return true;
+        if (!_catalog.TryGetByIdentity(identity, out OriginalObjectCatalogEntry entry))
+            return true;
+
+        OriginalObjectLiveState authored = entry.AuthoredLiveState;
+        if (!_projector.TryRestore(
+            _frameworkLevelKey,
+            identity,
+            authored,
+            report))
+            return false;
+
+        _liveStates[identity] = authored;
+        return true;
+    }
+
+    private bool HasImportedConflict(OriginalObjectIdentity identity)
+    {
+        if (identity == null)
+            return false;
+
+        int count = 0;
+        foreach (FrameworkObjectData operation in _session.ImportedDocument.Modifications)
+        {
+            if (string.Equals(operation.Scene, identity.Scene, StringComparison.Ordinal)
+                && string.Equals(operation.Path, identity.Path, StringComparison.Ordinal))
+                count++;
+        }
+        foreach (FrameworkObjectData operation in _session.ImportedDocument.Deletions)
+        {
+            if (string.Equals(operation.Scene, identity.Scene, StringComparison.Ordinal)
+                && string.Equals(operation.Path, identity.Path, StringComparison.Ordinal))
+                count++;
+        }
+
+        return count > 1;
     }
 
     private void RefreshState(ApplyReport report)
@@ -2110,6 +2340,19 @@ internal sealed class OriginalObjectPage
         return _catalog.TryGetByIdentity(identity, out OriginalObjectCatalogEntry entry)
             ? entry.LiveState
             : new OriginalObjectLiveState(string.Empty, true, PlacementTransform.Default, string.Empty);
+    }
+
+    private OriginalObjectLiveState AuthoredLiveState(OriginalObjectIdentity identity)
+    {
+        if (_catalog.TryGetByIdentity(identity, out OriginalObjectCatalogEntry entry))
+            return entry.AuthoredLiveState;
+
+        OriginalObjectLiveState current = CurrentLiveState(identity);
+        return new OriginalObjectLiveState(
+            current.ObjectKey,
+            current.IsActiveSelf,
+            current.Transform,
+            current.Name);
     }
 
     private OriginalObjectLiveState ImportLiveState(OriginalObjectIdentity identity)
@@ -2210,6 +2453,31 @@ internal sealed class OriginalObjectPage
         return false;
     }
 
+    private bool HasImportedOperation(OriginalObjectIdentity identity)
+    {
+        foreach (OriginalObjectOperationProvenance imported in _importedOperations)
+        {
+            FrameworkObjectData operation = imported.Operation;
+            if (operation != null
+                && string.Equals(operation.Scene, identity.Scene, StringComparison.Ordinal)
+                && string.Equals(operation.Path, identity.Path, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool ContainsOperation(OriginalObjectOperation operation)
+    {
+        foreach (OriginalObjectOperation current in _operations)
+        {
+            if (ReferenceEquals(current, operation))
+                return true;
+        }
+
+        return false;
+    }
+
     private static HashSet<string> CollectTargetedObjectKeys(
         OriginalObjectBaseline baseline,
         IEnumerable<FrameworkObjectData> modifications,
@@ -2286,7 +2554,8 @@ internal sealed class OriginalObjectPage
                 locatable,
                 isImported: imported,
                 isPending: !imported,
-                hasConflict: operationCount > 1);
+                hasConflict: operationCount > 1,
+                data: source);
             destination.Add(operation);
             if (!locatable)
             {

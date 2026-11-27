@@ -754,8 +754,9 @@ internal class EditorWidget : MonoBehaviour
         {
             OriginalObjectOperation operation = page.Operations[index];
             float y = -4f - (index * rowHeight);
-            float textX = operation.IsLocatable ? -30f : 0f;
-            float textWidth = operation.IsLocatable ? 180f : 230f;
+            bool showKeep = operation.IsLocatable && operation.HasConflict;
+            float textX = operation.IsLocatable ? (showKeep ? -55f : -30f) : 0f;
+            float textWidth = operation.IsLocatable ? (showKeep ? 130f : 180f) : 230f;
             Text rowText = CreateText(
                 "Original Operation " + index,
                 Vector2.zero,
@@ -780,8 +781,21 @@ internal class EditorWidget : MonoBehaviour
                 _originalOperationsRoot);
             ConfigureTopAnchored(
                 select.GetComponent<RectTransform>(),
-                new Vector2(96f, y),
-                new Vector2(54f, 22f));
+                new Vector2(showKeep ? 24f : 96f, y - (showKeep ? 24f : 0f)),
+                new Vector2(showKeep ? 50f : 54f, 22f));
+            if (!showKeep)
+                continue;
+
+            Button keep = CreateButton(
+                "Resolve Original Conflict " + index,
+                "Keep",
+                Vector2.zero,
+                () => Main.EditorMode.TryResolveOriginalConflict(operation),
+                _originalOperationsRoot);
+            ConfigureTopAnchored(
+                keep.GetComponent<RectTransform>(),
+                new Vector2(86f, y - 24f),
+                new Vector2(50f, 22f));
         }
 
         SetScrollContentHeight(
@@ -798,6 +812,7 @@ internal class EditorWidget : MonoBehaviour
             .Append(operation.Source)
             .Append(operation.IsImported ? " [imported]" : operation.IsPending ? " [pending]" : " [unknown status]")
             .Append(operation.IsLocatable ? " [LOCATABLE]" : " [UNLOCATABLE]")
+            .Append(operation.HasConflict ? " [CONFLICT]" : string.Empty)
             .Append('\n')
             .Append(operation.DisplayIdentity);
         if (!string.IsNullOrEmpty(operation.Type))

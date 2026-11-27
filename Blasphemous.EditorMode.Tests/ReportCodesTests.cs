@@ -95,6 +95,7 @@ public sealed class ReportCodesTests
             ["OriginalObjectDeletionInvalid"] = "ORIGINAL_OBJECT_DELETION_INVALID",
             ["OriginalObjectEditConflict"] = "ORIGINAL_OBJECT_EDIT_CONFLICT",
             ["OriginalObjectEditNotFound"] = "ORIGINAL_OBJECT_EDIT_NOT_FOUND",
+            ["OriginalObjectEditReadOnly"] = "ORIGINAL_OBJECT_EDIT_READ_ONLY",
             ["OriginalObjectModifierUnavailable"] = "ORIGINAL_OBJECT_MODIFIER_UNAVAILABLE",
             ["OriginalObjectModifierFailed"] = "ORIGINAL_OBJECT_MODIFIER_FAILED",
             ["OriginalObjectLiveRestoreFailed"] = "ORIGINAL_OBJECT_LIVE_RESTORE_FAILED",

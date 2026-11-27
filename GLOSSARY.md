@@ -71,11 +71,11 @@ A Layout treated as an independently authored play space rather than an overlay 
 _Avoid_: Map, unless the scope includes room connectivity and world traversal
 
 **Original Object**:
-A game object already supplied by the packaged room, captured from the pre-mod baseline before supported mod preload callbacks run. A locatable Original Object retains positive provenance and may receive a validated transform modification; it is not an Editable Overlay Placement.
+A game object already supplied by the packaged room, captured with its authored transform, name, and active state from the pre-mod baseline before supported mod preload callbacks run. A locatable Original Object retains positive provenance and may receive a validated transform modification; it is not an Editable Overlay Placement.
 _Avoid_: Original, when referring to the internal PlacementOwnership member, vanilla object
 
 **Original Object Edit**:
-A Level Framework modification or deletion that targets one Original Object scene/path. Apply Modify owns at most one resolved operation for that identity, preserves imported fields when updating, and creates transform-only operations with `editor-mode-empty`, a deterministic session-unique id, and an empty condition. Delete stores only scene and path, restores the imported transform and name before hiding the object, and replaces a modification for the same identity; Apply Modify restores the imported active state when it replaces a deletion. Its live preview becomes persistent content only through an explicit Level Export.
+A Level Framework modification or deletion that targets one Original Object scene/path. Apply Modify owns at most one resolved operation for that identity, preserves imported fields when updating, and creates transform-only operations with `editor-mode-empty`, a deterministic session-unique id, and an empty condition. Delete stores only scene and path, restores the imported transform and name before hiding the object, and replaces a modification for the same identity; Apply Modify restores the imported active state when it replaces a deletion. Multiple imported operations for one identity remain an unresolved, read-only conflict until one row is explicitly kept. An untouched imported operation cannot be removed; removing a pending operation restores the imported operation when one was replaced, otherwise the authored pre-mod baseline. Its live preview becomes persistent content only through an explicit Level Export.
 _Avoid_: Original modification, deletion record
 
 **Original Save**:

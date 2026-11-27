@@ -929,6 +929,19 @@ internal class EditorMode : BlasMod
         return result;
     }
 
+    internal bool TryResolveOriginalConflict(OriginalObjectOperation operation)
+    {
+        if (ActivePage != EditorPage.OriginalObjects)
+            return ReportPageCommandUnavailable("Resolve Original Object conflict");
+
+        EditorPageController pages = Pages;
+        ApplyReport report = new();
+        bool result = pages != null
+            && pages.TryResolveOriginalConflict(operation, report);
+        PublishReport("Resolve Original Object conflict", report);
+        return result;
+    }
+
     internal void ExitFromUi()
     {
         ExitEditorMode();
