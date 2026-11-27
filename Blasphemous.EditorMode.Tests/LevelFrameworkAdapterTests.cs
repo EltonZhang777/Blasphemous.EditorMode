@@ -12,7 +12,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class LevelFrameworkAdapterTests
 {
     [Fact]
-    public void Parse_and_serialize_round_trip_all_framework_arrays()
+    public void ParseAndSerializeRoundTripAllFrameworkArrays()
     {
         const string json = "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"bell-1\",\"position\":{\"x\":1,\"y\":2},\"rotation\":{\"z\":3},\"scale\":{\"x\":1,\"y\":1,\"z\":1},\"condition\":\"flag:opened\",\"properties\":[\"safe\"]}],\"modifications\":[{\"scene\":\"logic\",\"path\":\"TRAPS/Bell\",\"type\":\"bell-iron\",\"id\":\"bell-2\"}],\"deletions\":[{\"scene\":\"decoration\",\"path\":\"Props/Old\"}]}";
 
@@ -114,7 +114,7 @@ public sealed class LevelFrameworkAdapterTests
     }
 
     [Fact]
-    public void Missing_arrays_and_invalid_conditions_fail_closed()
+    public void MissingArraysAndInvalidConditionsFailClosed()
     {
         FrameworkCodecResult missing = LevelFrameworkAdapter.Parse("{\"additions\":[]}");
         Assert.False(missing.IsValid);
@@ -131,7 +131,7 @@ public sealed class LevelFrameworkAdapterTests
     }
 
     [Fact]
-    public void Import_is_room_scoped_and_preserves_source_text()
+    public void ImportIsRoomScopedAndPreservesSourceText()
     {
         string directory = Path.Combine(Path.GetTempPath(), "editor-mode-codec-" + Guid.NewGuid().ToString("N"));
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -154,12 +154,14 @@ public sealed class LevelFrameworkAdapterTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, true);
+            }
         }
     }
 
     [Fact]
-    public void Import_missing_room_file_returns_empty_document()
+    public void ImportMissingRoomFileReturnsEmptyDocument()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -176,7 +178,7 @@ public sealed class LevelFrameworkAdapterTests
     }
 
     [Fact]
-    public void Missing_file_hresult_codes_are_distinguished_from_access_denied()
+    public void MissingFileHresultCodesAreDistinguishedFromAccessDenied()
     {
         Assert.True(LevelFrameworkAdapter.IsMissingFileHResult(unchecked((int)0x80070002)));
         Assert.True(LevelFrameworkAdapter.IsMissingFileHResult(unchecked((int)0x80070003)));
@@ -184,7 +186,7 @@ public sealed class LevelFrameworkAdapterTests
     }
 
     [Fact]
-    public void Mono_isolated_storage_missing_file_is_treated_as_empty_but_access_error_is_not()
+    public void MonoIsolatedStorageMissingFileIsTreatedAsEmptyButAccessErrorIsNot()
     {
         const string path = @"C:\Modding\levels\Editor Mode\D01Z02S01.json";
         const int monoExceptionHresult = unchecked((int)0x80131500);
@@ -196,7 +198,7 @@ public sealed class LevelFrameworkAdapterTests
     }
 
     [Fact]
-    public void Export_validates_before_replace_and_keeps_previous_version_backup()
+    public void ExportValidatesBeforeReplaceAndKeepsPreviousVersionBackup()
     {
         string directory = Path.Combine(Path.GetTempPath(), "editor-mode-export-" + Guid.NewGuid().ToString("N"));
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -233,12 +235,14 @@ public sealed class LevelFrameworkAdapterTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, true);
+            }
         }
     }
 
     [Fact]
-    public void Backup_format_failure_preserves_existing_backup_and_original_level()
+    public void BackupFormatFailurePreservesExistingBackupAndOriginalLevel()
     {
         string directory = Path.Combine(Path.GetTempPath(), "editor-mode-export-" + Guid.NewGuid().ToString("N"));
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -267,15 +271,19 @@ public sealed class LevelFrameworkAdapterTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, true);
+            }
         }
     }
 
     [Fact]
-    public void Failed_main_replace_preserves_existing_level_and_previous_backup()
+    public void FailedMainReplacePreservesExistingLevelAndPreviousBackup()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
             return;
+        }
 
         string directory = Path.Combine(Path.GetTempPath(), "editor-mode-export-" + Guid.NewGuid().ToString("N"));
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -305,7 +313,9 @@ public sealed class LevelFrameworkAdapterTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, true);
+            }
         }
     }
 

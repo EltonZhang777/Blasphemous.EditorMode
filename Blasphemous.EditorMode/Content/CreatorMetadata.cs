@@ -42,10 +42,14 @@ internal sealed class CreatorPropertyDefinition
         IEnumerable<string> allowedValues = null)
     {
         if (string.IsNullOrEmpty(key) || key.Trim().Length == 0)
+        {
             throw new ArgumentException("Property key is required.", nameof(key));
+        }
         List<string> values = [.. allowedValues ?? []];
         if (type == CreatorPropertyType.Enum && values.Count == 0)
+        {
             throw new ArgumentException("Enum properties require allowed values.", nameof(allowedValues));
+        }
 
         Key = key;
         Type = type;
@@ -125,7 +129,9 @@ internal sealed class CreatorPropertyDefinition
     {
         error = null;
         if (string.Equals(serialized, Key, StringComparison.OrdinalIgnoreCase))
+        {
             return true;
+        }
 
         string prefix = Key + "=";
         if (serialized == null || !serialized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -176,15 +182,25 @@ internal sealed class CreatorMetadata
         bool isSupported)
     {
         if (IsBlank(type))
+        {
             throw new ArgumentException("Creator type is required.", nameof(type));
+        }
         if (IsBlank(displayName))
+        {
             throw new ArgumentException("Creator display name is required.", nameof(displayName));
+        }
         if (IsBlank(category))
+        {
             throw new ArgumentException("Creator category is required.", nameof(category));
+        }
         if (IsBlank(sourceScene))
+        {
             throw new ArgumentException("Creator source scene is required.", nameof(sourceScene));
+        }
         if (IsBlank(sourcePath))
+        {
             throw new ArgumentException("Creator source path is required.", nameof(sourcePath));
+        }
 
         Type = type;
         DisplayName = displayName;
@@ -232,7 +248,9 @@ internal sealed class CreatorMetadata
         foreach (CreatorPropertyDefinition definition in PropertyDefinitions)
         {
             if (definition.IsValidSerialized(serialized, out error))
+            {
                 return true;
+            }
         }
 
         error ??= "Property key is not supported by this creator.";

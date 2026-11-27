@@ -42,7 +42,9 @@ internal sealed class EditorFlowRecovery
         }
 
         if (succeeded)
+        {
             return true;
+        }
 
         report.Error(ReportCodes.FlowFailed, operation, "Operation failed; attempting safe state recovery.");
         bool recovered = false;

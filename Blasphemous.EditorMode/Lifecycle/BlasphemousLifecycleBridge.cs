@@ -62,7 +62,9 @@ internal sealed class BlasphemousLifecycleBridge
         if (_currentRoom != null && _currentRoom.Equals(identity))
         {
             if (State != RoomLifecycleState.Editing)
+            {
                 State = RoomLifecycleState.RoomLoaded;
+            }
             return false;
         }
 
@@ -76,7 +78,9 @@ internal sealed class BlasphemousLifecycleBridge
     internal bool TryBeginEditing()
     {
         if (State != RoomLifecycleState.RoomLoaded || _currentRoom == null)
+        {
             return false;
+        }
 
         State = RoomLifecycleState.Editing;
         return true;
@@ -85,14 +89,18 @@ internal sealed class BlasphemousLifecycleBridge
     internal void EndEditing()
     {
         if (State == RoomLifecycleState.Editing && _currentRoom != null)
+        {
             State = RoomLifecycleState.RoomLoaded;
+        }
     }
 
     internal void OnLevelUnloaded(string oldLevel, string newLevel)
     {
         if (_currentRoom != null
             && string.Equals(_currentRoom.FrameworkLevelKey, oldLevel, StringComparison.OrdinalIgnoreCase))
+        {
             ClearCurrentRoom();
+        }
 
         State = IsMainMenu(newLevel)
             ? RoomLifecycleState.ReadyInMainMenu
@@ -102,7 +110,9 @@ internal sealed class BlasphemousLifecycleBridge
     private void ClearCurrentRoom()
     {
         if (_currentRoom == null)
+        {
             return;
+        }
 
         RoomIdentity room = _currentRoom;
         _currentRoom = null;

@@ -143,7 +143,9 @@ internal sealed class LevelEditSession
         foreach (CreatorMetadata creator in supportedCreators ?? [])
         {
             if (creator != null && creator.IsSupported && !creators.ContainsKey(creator.Type))
+            {
                 creators.Add(creator.Type, creator);
+            }
         }
 
         List<PlacementRecord> placements = [];
@@ -186,7 +188,9 @@ internal sealed class LevelEditSession
             }
 
             if (!PlacementValidation.Validate(data, creator, report))
+            {
                 continue;
+            }
 
             if (!ids.Add(data.Id))
             {
@@ -205,7 +209,9 @@ internal sealed class LevelEditSession
         foreach (FrameworkObjectData data in file.Document.Additions)
         {
             if (!ids.Contains(data.Id))
+            {
                 preservedAdditionIds.Add(data.Id);
+            }
         }
 
         if (file.Document.Modifications.Count > 0 || file.Document.Deletions.Count > 0)
@@ -279,7 +285,9 @@ internal sealed class LevelEditSession
         for (int index = 0; index < _placements.Count; index++)
         {
             if (!string.Equals(_placements[index].Id, placement.Id, StringComparison.OrdinalIgnoreCase))
+            {
                 continue;
+            }
 
             _placements[index] = placement;
             MarkDirty(report);
@@ -297,7 +305,9 @@ internal sealed class LevelEditSession
         {
             PlacementRecord placement = _placements[index];
             if (!string.Equals(placement.Id, id, StringComparison.OrdinalIgnoreCase))
+            {
                 continue;
+            }
             if (placement.Ownership != PlacementOwnership.ArchitectOwned)
             {
                 report.Error(ReportCodes.OwnershipRejected, id, "Original objects cannot be removed.");
@@ -343,7 +353,9 @@ internal sealed class LevelEditSession
         foreach (PlacementRecord placement in _placements)
         {
             if (placement.Ownership == PlacementOwnership.ArchitectOwned)
+            {
                 currentById.Add(placement.Id, placement);
+            }
         }
 
         HashSet<string> importedIds = new(StringComparer.OrdinalIgnoreCase);
@@ -358,7 +370,9 @@ internal sealed class LevelEditSession
             }
 
             if (currentById.TryGetValue(sourceAddition.Id, out PlacementRecord placement))
+            {
                 additions.Add(placement.ToFrameworkData());
+            }
         }
 
         foreach (PlacementRecord placement in _placements)
@@ -426,14 +440,18 @@ internal sealed class LevelEditSession
         foreach (FrameworkDiagnostic diagnostic in diagnostics ?? [])
         {
             if (diagnostic.Severity != FrameworkDiagnosticSeverity.Error)
+            {
                 continue;
+            }
             if (diagnostic.Location == "$"
                 || diagnostic.Location == LevelFrameworkContract.AdditionsField
                 || diagnostic.Location == LevelFrameworkContract.ModificationsField
                 || diagnostic.Location == LevelFrameworkContract.DeletionsField
                 || diagnostic.Location.StartsWith(LevelFrameworkContract.ModificationsField + "[", StringComparison.Ordinal)
                 || diagnostic.Location.StartsWith(LevelFrameworkContract.DeletionsField + "[", StringComparison.Ordinal))
+            {
                 return true;
+            }
         }
 
         return false;

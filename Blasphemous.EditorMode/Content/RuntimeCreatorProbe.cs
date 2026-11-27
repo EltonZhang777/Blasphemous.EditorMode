@@ -29,7 +29,9 @@ internal static class RuntimeCreatorProbe
                 PropertyInfo keyProperty = entry.GetType().GetProperty("Key");
                 string type = keyProperty == null ? null : keyProperty.GetValue(entry, null) as string;
                 if (!string.IsNullOrEmpty(type) && type.Trim().Length > 0)
+                {
                     registeredTypes.Add(type);
+                }
             }
 
             return CreatorProbe.Evaluate(catalog, registeredTypes);

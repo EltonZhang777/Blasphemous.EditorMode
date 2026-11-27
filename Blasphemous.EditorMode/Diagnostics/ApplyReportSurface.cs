@@ -35,7 +35,9 @@ internal sealed class ApplyReportSurface
         foreach (ApplyReportEntry entry in report.Entries)
         {
             if (entry.Severity == ApplySeverity.Info)
+            {
                 continue;
+            }
 
             string message = "[" + entry.Code + "] " + entry.Message;
             if (entry.Severity == ApplySeverity.Error)
@@ -71,7 +73,9 @@ internal sealed class ApplyReportPublisher
     {
         _surface.Publish(operation, report);
         if (_log == null)
+        {
             return;
+        }
 
         _log(
             report.HasErrors ? ApplySeverity.Error : report.IsPartial ? ApplySeverity.Warning : ApplySeverity.Info,

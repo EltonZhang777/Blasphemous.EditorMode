@@ -25,13 +25,17 @@ internal sealed class PreviewInstance : IDisposable
     internal void FollowCursor()
     {
         if (!IsDisposed && _followCursor != null)
+        {
             _followCursor();
+        }
     }
 
     public void Dispose()
     {
         if (IsDisposed)
+        {
             return;
+        }
 
         IsDisposed = true;
         Action dispose = _dispose;
@@ -57,7 +61,9 @@ internal sealed class ContentCatalog
         foreach (CreatorMetadata metadata in available ?? [])
         {
             if (metadata == null || !metadata.IsSupported || _byType.ContainsKey(metadata.Type))
+            {
                 continue;
+            }
 
             _byType.Add(metadata.Type, metadata);
             entries.Add(metadata);
@@ -77,7 +83,9 @@ internal sealed class ContentCatalog
         Func<CreatorMetadata, PreviewInstance> previewFactory = null)
     {
         if (probe == null)
+        {
             throw new ArgumentNullException(nameof(probe));
+        }
 
         return new ContentCatalog(probe.Available, probe.Diagnostics, previewFactory);
     }
@@ -105,7 +113,9 @@ internal sealed class ContentCatalog
                 || metadata.DisplayName.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0
                 || metadata.Type.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0;
             if (categoryMatches && textMatches)
+            {
                 yield return metadata;
+            }
         }
     }
 

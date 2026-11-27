@@ -13,7 +13,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class RoomOverlayReconcilerTests
 {
     [Fact]
-    public void Repeated_room_apply_replaces_old_projections_without_duplicates()
+    public void RepeatedRoomApplyReplacesOldProjectionsWithoutDuplicates()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -46,7 +46,7 @@ public sealed class RoomOverlayReconcilerTests
     }
 
     [Fact]
-    public void Multiple_placements_share_one_adoption_lookup_and_adopt_compatible_markers_once()
+    public void MultiplePlacementsShareOneAdoptionLookupAndAdoptCompatibleMarkersOnce()
     {
         string source = DocumentWithPlacements();
         FrameworkCodecResult parsed = LevelFrameworkAdapter.Parse(source);
@@ -83,7 +83,7 @@ public sealed class RoomOverlayReconcilerTests
     }
 
     [Fact]
-    public void Failed_import_preserves_current_session_and_projection()
+    public void FailedImportPreservesCurrentSessionAndProjection()
     {
         string path = "D03Z02S06.json";
         string source = DocumentWithPlacement();
@@ -119,7 +119,7 @@ public sealed class RoomOverlayReconcilerTests
     }
 
     [Fact]
-    public void Round_trip_comparer_covers_scope_identity_transform_properties_and_ownership()
+    public void RoundTripComparerCoversScopeIdentityTransformPropertiesAndOwnership()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -159,7 +159,7 @@ public sealed class RoomOverlayReconcilerTests
     }
 
     [Fact]
-    public void Clear_destroys_all_owned_projections_and_forgets_the_room()
+    public void ClearDestroysAllOwnedProjectionsAndForgetsTheRoom()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -189,7 +189,7 @@ public sealed class RoomOverlayReconcilerTests
     }
 
     [Fact]
-    public void Reset_restores_imported_placements_and_their_runtime_projections()
+    public void ResetRestoresImportedPlacementsAndTheirRuntimeProjections()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -254,7 +254,9 @@ public sealed class RoomOverlayReconcilerTests
     private static void DeleteDirectory(string directory)
     {
         if (Directory.Exists(directory))
+        {
             Directory.Delete(directory, true);
+        }
     }
 
     private sealed class FakeFactory : IRuntimePlacementFactory
@@ -302,7 +304,9 @@ public sealed class RoomOverlayReconcilerTests
             {
                 if (string.Equals(marker.Holder, "room", StringComparison.OrdinalIgnoreCase)
                     && string.Equals(marker.Source, "Framework", StringComparison.OrdinalIgnoreCase))
+                {
                     _lookup.Add(marker);
+                }
             }
         }
 
@@ -324,7 +328,9 @@ public sealed class RoomOverlayReconcilerTests
                 FakeFrameworkMarker marker = _lookup[index];
                 if (!string.Equals(marker.PlacementId, placement.Id, StringComparison.OrdinalIgnoreCase)
                     || !string.Equals(marker.Type, placement.Type, StringComparison.OrdinalIgnoreCase))
+                {
                     continue;
+                }
 
                 _lookup.RemoveAt(index);
                 marker.AdoptionCount++;

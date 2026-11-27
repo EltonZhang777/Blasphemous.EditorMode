@@ -15,11 +15,15 @@ internal static class HitboxWindow_PreserveEditorModeCursor_Patch
     {
         System.Type type = AccessTools.TypeByName("Blasphemous.DebugMod.HitboxViewer.HitboxWindow");
         if (type == null)
+        {
             yield break;
+        }
 
         MethodBase method = AccessTools.Method(type, "OnGUI", Type.EmptyTypes);
         if (method != null)
+        {
             yield return method;
+        }
     }
 
     [HarmonyPrefix]
@@ -27,7 +31,9 @@ internal static class HitboxWindow_PreserveEditorModeCursor_Patch
     {
         EditorMode editor = Main.EditorMode;
         if (editor == null || !editor.IsActive)
+        {
             return true;
+        }
 
         Cursor.visible = true;
         return false;

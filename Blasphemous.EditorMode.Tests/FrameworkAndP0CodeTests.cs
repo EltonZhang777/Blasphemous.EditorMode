@@ -24,7 +24,7 @@ public sealed class FrameworkAndP0CodeTests
     [InlineData("Duplicate object id: torch", "PLACEMENT_DUPLICATE_ID")]
     [InlineData("Unknown field ignored.", "JSON_UNKNOWN_FIELD")]
     [InlineData("Unclassified diagnostic", "FRAMEWORK_JSON")]
-    public void Framework_messages_map_to_exact_codes(string message, string expectedCode)
+    public void FrameworkMessagesMapToExactCodes(string message, string expectedCode)
     {
         ApplyReportEntry entry = Assert.Single(ReportFor(message).Entries);
 
@@ -41,7 +41,7 @@ public sealed class FrameworkAndP0CodeTests
     [InlineData("transform; property", "TRANSFORM_INVALID")]
     [InlineData("property; Unknown", "PROPERTY_INVALID")]
     [InlineData("Duplicate object id; Unknown", "PLACEMENT_DUPLICATE_ID")]
-    public void Framework_classifier_uses_the_first_matching_branch(string message, string expectedCode)
+    public void FrameworkClassifierUsesTheFirstMatchingBranch(string message, string expectedCode)
     {
         ApplyReportEntry entry = Assert.Single(ReportFor(message).Entries);
 
@@ -55,7 +55,7 @@ public sealed class FrameworkAndP0CodeTests
     [InlineData("fIlE cOuLd NoT bE rEaD", "FILE_IO")]
     [InlineData("dUpLiCaTe ObJeCt Id: torch", "PLACEMENT_DUPLICATE_ID")]
     [InlineData("uNkNoWn field ignored", "JSON_UNKNOWN_FIELD")]
-    public void Framework_classifier_is_case_insensitive(string message, string expectedCode)
+    public void FrameworkClassifierIsCaseInsensitive(string message, string expectedCode)
     {
         ApplyReportEntry entry = Assert.Single(ReportFor(message).Entries);
 
@@ -63,7 +63,7 @@ public sealed class FrameworkAndP0CodeTests
     }
 
     [Fact]
-    public void Framework_diagnostic_severity_is_preserved()
+    public void FrameworkDiagnosticSeverityIsPreserved()
     {
         ApplyReport report = new ApplyReport();
         report.MergeFrameworkDiagnostics(
@@ -94,7 +94,7 @@ public sealed class FrameworkAndP0CodeTests
     }
 
     [Fact]
-    public void P0_checks_emit_only_the_exact_pass_codes()
+    public void P0ChecksEmitOnlyTheExactPassCodes()
     {
         P0AcceptanceResult result = P0AcceptanceGate.Evaluate(new P0AcceptanceEvidence
         {
@@ -125,7 +125,7 @@ public sealed class FrameworkAndP0CodeTests
     }
 
     [Fact]
-    public void P0_checks_emit_only_the_exact_fail_codes()
+    public void P0ChecksEmitOnlyTheExactFailCodes()
     {
         P0AcceptanceResult result = P0AcceptanceGate.Evaluate(new P0AcceptanceEvidence
         {
@@ -163,7 +163,7 @@ public sealed class FrameworkAndP0CodeTests
     [InlineData("ORIGINAL_SAVE", "ORIGINAL_SAVE_FAILED", true, true, true, false, true, true)]
     [InlineData("RECOVERY", "RECOVERY_FAILED", true, true, true, true, false, true)]
     [InlineData("NO_DUPLICATE", "NO_DUPLICATE_FAILED", true, true, true, true, true, false)]
-    public void Exactly_one_failed_p0_check_blocks_release_with_its_exact_code(
+    public void ExactlyOneFailedP0CheckBlocksReleaseWithItsExactCode(
         string expectedIdentity,
         string expectedCode,
         bool seamPassed,

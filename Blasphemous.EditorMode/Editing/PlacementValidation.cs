@@ -108,7 +108,9 @@ internal static class PlacementValidation
         ApplyReport report)
     {
         if (string.IsNullOrEmpty(condition) || condition.Trim().Length == 0)
+        {
             return true;
+        }
 
         int colon = condition.IndexOf(':');
         if (colon <= 0 || colon == condition.Length - 1)
@@ -152,7 +154,9 @@ internal static class PlacementValidation
         foreach (float value in values)
         {
             if (float.IsNaN(value) || float.IsInfinity(value))
+            {
                 return false;
+            }
         }
 
         return true;

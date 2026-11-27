@@ -31,7 +31,7 @@ public sealed class RawPropertiesFixtureTests
     ];
 
     [Fact]
-    public void Smoke_fixture_imports_as_an_editable_placement_with_ordered_raw_properties()
+    public void SmokeFixtureImportsAsAnEditablePlacementWithOrderedRawProperties()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "D01Z02S01.json");
         Assert.True(File.Exists(path), path);
@@ -74,13 +74,13 @@ public sealed class RawPropertiesFixtureTests
 
 #if DEBUG
     [Fact]
-    public void Debug_catalog_does_not_expose_smoke_fixture_keys_without_activation()
+    public void DebugCatalogDoesNotExposeSmokeFixtureKeysWithoutActivation()
     {
         Assert.Empty(BaseCreatorCatalog.BellIron.PropertyKeys);
     }
 
     [Fact]
-    public void Raw_properties_smoke_activation_resolves_the_fixture_keys()
+    public void RawPropertiesSmokeActivationResolvesTheFixtureKeys()
     {
         Assert.Equal(
             FixturePropertyKeys,

@@ -10,7 +10,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class ReportCodesTests
 {
     [Fact]
-    public void Catalog_preserves_the_exact_existing_static_codes()
+    public void CatalogPreservesTheExactExistingStaticCodes()
     {
         Dictionary<string, string> expected = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -112,7 +112,7 @@ public sealed class ReportCodesTests
     }
 
     [Fact]
-    public void P0_code_factory_rejects_an_invalid_check_identity()
+    public void P0CodeFactoryRejectsAnInvalidCheckIdentity()
     {
         Assert.Throws<ArgumentOutOfRangeException>(
             () => ReportCodes.P0Code((P0AcceptanceCheck)int.MaxValue, true));

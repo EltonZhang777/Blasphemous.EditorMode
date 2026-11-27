@@ -55,7 +55,9 @@ internal sealed class RoomOverlayReconciler
         LevelEditSessionImportResult imported = LevelEditSession.Import(room, file, _catalog.Entries);
         report.Merge(imported.Report);
         if (!imported.Succeeded)
+        {
             return new RoomOverlayReconcileResult(room, null, null, report);
+        }
 
         RuntimePlacementManager next = new(imported.Session, _catalog, _factory);
         IRuntimePlacementAdoptionPass adoptionPass = _factory as IRuntimePlacementAdoptionPass;
@@ -66,7 +68,9 @@ internal sealed class RoomOverlayReconciler
             foreach (PlacementRecord placement in imported.Session.Placements)
             {
                 if (next.TryProjectExisting(placement, report))
+                {
                     continue;
+                }
 
                 next.TryClear(report);
                 return new RoomOverlayReconcileResult(room, null, null, report);
@@ -78,7 +82,9 @@ internal sealed class RoomOverlayReconciler
         }
 
         if (report.IsPartial)
+        {
             imported.Session.SetState(LevelEditSessionState.Partial, report);
+        }
 
         next.CaptureInitialSnapshot();
 
@@ -173,11 +179,15 @@ internal static class RoomOverlayComparer
         List<string> left = [.. expected];
         List<string> right = [.. actual];
         if (left.Count != right.Count)
+        {
             return false;
+        }
         for (int index = 0; index < left.Count; index++)
         {
             if (!string.Equals(left[index], right[index], StringComparison.Ordinal))
+            {
                 return false;
+            }
         }
 
         return true;

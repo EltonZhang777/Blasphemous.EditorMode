@@ -16,15 +16,21 @@ internal static class BaseModifier_MarkFrameworkAddition_Patch
             || !string.IsNullOrEmpty(data.scene)
             || !string.IsNullOrEmpty(data.path)
             || string.IsNullOrEmpty(data.id))
+        {
             return;
+        }
 
         RuntimePlacementMarker marker = obj.GetComponent<RuntimePlacementMarker>();
         if (marker != null
             && string.Equals(marker.Source, "EditorMode", System.StringComparison.OrdinalIgnoreCase))
+        {
             return;
+        }
 
         if (marker == null)
+        {
             marker = obj.AddComponent<RuntimePlacementMarker>();
+        }
 
         marker.PlacementId = data.id;
         marker.Type = data.type;

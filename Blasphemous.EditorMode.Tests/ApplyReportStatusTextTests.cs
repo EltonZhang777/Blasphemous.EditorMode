@@ -6,7 +6,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class ApplyReportStatusTextTests
 {
     [Fact]
-    public void All_code_groups_are_appended_when_the_status_has_room()
+    public void AllCodeGroupsAreAppendedWhenTheStatusHasRoom()
     {
         ApplyReport report = new ApplyReport();
         report.Error("PROPERTY_INVALID", "properties[0]", "first");
@@ -25,7 +25,7 @@ public sealed class ApplyReportStatusTextTests
     }
 
     [Fact]
-    public void Constrained_status_keeps_a_partial_group_summary_and_an_ellipsis()
+    public void ConstrainedStatusKeepsAPartialGroupSummaryAndAnEllipsis()
     {
         ApplyReport report = new ApplyReport();
         report.Error("FIRST", "one", "first");
@@ -42,7 +42,7 @@ public sealed class ApplyReportStatusTextTests
     }
 
     [Fact]
-    public void Constrained_status_never_silently_drops_the_omission_marker()
+    public void ConstrainedStatusNeverSilentlyDropsTheOmissionMarker()
     {
         ApplyReport report = new ApplyReport();
         report.Error("PROPERTY_INVALID", "properties[0]", "first");
@@ -58,7 +58,7 @@ public sealed class ApplyReportStatusTextTests
     }
 
     [Fact]
-    public void Reports_without_non_info_diagnostics_keep_the_base_status_unchanged()
+    public void ReportsWithoutNonInfoDiagnosticsKeepTheBaseStatusUnchanged()
     {
         ApplyReport report = new ApplyReport();
         report.Info("PREVIEW_CREATED", "preview", "informational");
@@ -73,7 +73,7 @@ public sealed class ApplyReportStatusTextTests
     }
 
     [Fact]
-    public void An_ellipsis_is_returned_when_no_larger_candidate_fits()
+    public void AnEllipsisIsReturnedWhenNoLargerCandidateFits()
     {
         ApplyReport report = new ApplyReport();
         report.Error("PROPERTY_INVALID", "properties[0]", "first");
@@ -88,7 +88,7 @@ public sealed class ApplyReportStatusTextTests
     }
 
     [Fact]
-    public void An_ellipsis_is_returned_when_even_the_actionable_diagnostic_cannot_fit()
+    public void AnEllipsisIsReturnedWhenEvenTheActionableDiagnosticCannotFit()
     {
         ApplyReport report = new ApplyReport();
         report.Error("PROPERTY_INVALID", "properties[0]", "first");
@@ -103,7 +103,7 @@ public sealed class ApplyReportStatusTextTests
     }
 
     [Fact]
-    public void Narrow_status_prioritizes_the_first_actionable_diagnostic()
+    public void NarrowStatusPrioritizesTheFirstActionableDiagnostic()
     {
         ApplyReport report = new ApplyReport();
         report.Error("PROPERTY_INVALID", "properties[0]", "bad property");

@@ -55,7 +55,9 @@ internal sealed class EditorRuntimeState
         if (currentlyPaused != Paused)
         {
             if (Paused)
+            {
                 pause();
+            }
             else
             {
                 resume();
@@ -64,15 +66,21 @@ internal sealed class EditorRuntimeState
         }
 
         if (Paused)
+        {
             setTimeScale(TimeScale);
+        }
         else if (!resumed)
+        {
             setTimeScale(1f);
+        }
     }
 
     internal EditorRuntimeState WithPlayerRuntimeFrom(EditorRuntimeState source)
     {
         if (source == null)
+        {
             throw new ArgumentNullException(nameof(source));
+        }
 
         return new EditorRuntimeState(
             TimeScale,
@@ -165,7 +173,9 @@ internal sealed class EditorModeGuard
             error = "Editor Mode activation failed: " + exception.Message;
             Exception restoreException = originalState == null ? null : TryRestore(originalState);
             if (restoreException != null)
+            {
                 restoreException = TryRestore(originalState);
+            }
             error = AppendRestoreError(error, restoreException);
             _originalState = restoreException == null ? null : originalState;
             _gameplayResumed = false;
@@ -184,7 +194,9 @@ internal sealed class EditorModeGuard
         }
 
         if (_gameplayResumed)
+        {
             return true;
+        }
 
         EditorRuntimeState current = null;
         try
@@ -205,7 +217,9 @@ internal sealed class EditorModeGuard
             error = "Editor Mode resume failed: " + exception.Message;
             Exception restoreException = current == null ? null : TryRestore(current);
             if (restoreException != null)
+            {
                 restoreException = TryRestore(current);
+            }
             error = AppendRestoreError(error, restoreException);
             return false;
         }
@@ -215,7 +229,9 @@ internal sealed class EditorModeGuard
     {
         error = null;
         if (!IsActive)
+        {
             return true;
+        }
 
         try
         {

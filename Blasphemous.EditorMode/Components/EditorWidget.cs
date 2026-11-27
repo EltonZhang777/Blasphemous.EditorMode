@@ -167,12 +167,16 @@ internal class EditorWidget : MonoBehaviour
     {
         EditorMode editor = Main.EditorMode;
         if (editor == null)
+        {
             return;
+        }
 
         editor.UpdatePreviewAtCursor();
 
         if (IsInputFieldFocused())
+        {
             return;
+        }
 
         if (editor.IsInputActionPressed("PickPlacement"))
         {
@@ -189,7 +193,9 @@ internal class EditorWidget : MonoBehaviour
         if (editor.IsInputActionPressed("PlacePreview"))
         {
             if (!IsPointerOverEditorControl())
+            {
                 editor.TryPlacePreviewAtCursor();
+            }
             return;
         }
 
@@ -225,7 +231,9 @@ internal class EditorWidget : MonoBehaviour
             || _propertiesField.textComponent == null
             || _propertiesViewport == null
             || _propertiesContent == null)
+        {
             return;
+        }
 
         if (!_propertiesField.isFocused)
         {
@@ -248,7 +256,9 @@ internal class EditorWidget : MonoBehaviour
         UpdatePropertiesLayout(text, displayedText, generator);
         float viewportWidth = _propertiesViewport.rect.width;
         if (viewportWidth <= 0f)
+        {
             return;
+        }
 
         int caretPosition = _propertiesField.caretPosition;
         float contentWidth = _propertiesContent.rect.width;
@@ -256,7 +266,9 @@ internal class EditorWidget : MonoBehaviour
             && _propertiesFollowCaret == caretPosition
             && Mathf.Approximately(_propertiesFollowViewportWidth, viewportWidth)
             && Mathf.Approximately(_propertiesFollowContentWidth, contentWidth))
+        {
             return;
+        }
 
         _propertiesFollowText = displayedText;
         _propertiesFollowCaret = caretPosition;
@@ -272,9 +284,13 @@ internal class EditorWidget : MonoBehaviour
         float rightEdge = viewportWidth - 2f;
 
         if (caretPositionInView > rightEdge)
+        {
             offset -= caretPositionInView - rightEdge;
+        }
         else if (caretPositionInView < leftEdge)
+        {
             offset += leftEdge - caretPositionInView;
+        }
 
         float minimumOffset = Mathf.Min(0f, viewportWidth - contentWidth);
         SetPropertiesHorizontalOffset(Mathf.Clamp(offset, minimumOffset, 0f));
@@ -285,7 +301,9 @@ internal class EditorWidget : MonoBehaviour
         float pixelsPerUnit = text.pixelsPerUnit;
         if (string.Equals(_propertiesGeneratorText, displayedText, StringComparison.Ordinal)
             && Mathf.Approximately(_propertiesGeneratorPixelsPerUnit, pixelsPerUnit))
+        {
             return _propertiesLayoutGenerator;
+        }
 
         TextGenerationSettings settings = text.GetGenerationSettings(Vector2.zero);
         settings.generateOutOfBounds = true;
@@ -298,22 +316,30 @@ internal class EditorWidget : MonoBehaviour
     private void UpdatePropertiesLayout(Text text, string displayedText, TextGenerator generator)
     {
         if (_propertiesViewport == null || _propertiesContent == null)
+        {
             return;
+        }
 
         RectTransform fieldRect = _propertiesField.transform as RectTransform;
         if (fieldRect == null)
+        {
             return;
+        }
 
         float fieldWidth = fieldRect.rect.width;
         float fieldHeight = fieldRect.rect.height;
         if (fieldWidth <= 0f || fieldHeight <= 0f)
+        {
             return;
+        }
 
         if (string.Equals(_propertiesSizedText, displayedText, StringComparison.Ordinal)
             && Mathf.Approximately(_propertiesSizedFieldWidth, fieldWidth)
             && Mathf.Approximately(_propertiesSizedFieldHeight, fieldHeight)
             && Mathf.Approximately(_propertiesSizedPixelsPerUnit, text.pixelsPerUnit))
+        {
             return;
+        }
 
         _propertiesSizedText = displayedText;
         _propertiesSizedFieldWidth = fieldWidth;
@@ -344,20 +370,28 @@ internal class EditorWidget : MonoBehaviour
     {
         RectTransform parent = _propertiesViewport?.parent as RectTransform;
         if (parent == null)
+        {
             return;
+        }
 
         float parentHeight = parent.rect.height;
         if (parentHeight <= 0f)
+        {
             return;
+        }
 
         Vector2 min = _propertiesViewport.offsetMin;
         min.y = Mathf.Max(4f, parentHeight - 4f - height);
         Vector2 max = _propertiesViewport.offsetMax;
         max.y = -4f;
         if (!Mathf.Approximately(_propertiesViewport.offsetMin.y, min.y))
+        {
             _propertiesViewport.offsetMin = min;
+        }
         if (!Mathf.Approximately(_propertiesViewport.offsetMax.y, max.y))
+        {
             _propertiesViewport.offsetMax = max;
+        }
     }
 
     private static int FindDisplayedStartIndex(string fullText, string displayedText, int caretPosition)
@@ -368,7 +402,9 @@ internal class EditorWidget : MonoBehaviour
         {
             int end = candidate + displayedText.Length;
             if (caretPosition >= candidate && caretPosition <= end)
+            {
                 return candidate;
+            }
 
             candidate = fullText.IndexOf(displayedText, candidate + 1, StringComparison.Ordinal);
         }
@@ -404,11 +440,15 @@ internal class EditorWidget : MonoBehaviour
     private void SetPropertiesHorizontalOffset(float offset)
     {
         if (_propertiesContent == null)
+        {
             return;
+        }
 
         Vector2 position = _propertiesContent.anchoredPosition;
         if (Mathf.Approximately(position.x, offset))
+        {
             return;
+        }
 
         position.x = offset;
         _propertiesContent.anchoredPosition = position;
@@ -426,7 +466,9 @@ internal class EditorWidget : MonoBehaviour
     {
         EventSystem eventSystem = EventSystem.current;
         if (eventSystem == null)
+        {
             return false;
+        }
 
         PointerEventData pointer = new(eventSystem)
         {
@@ -441,7 +483,9 @@ internal class EditorWidget : MonoBehaviour
             if (hit != null
                 && hit.transform.IsChildOf(transform)
                 && hit.GetComponentInParent<Selectable>() != null)
+            {
                 return true;
+            }
         }
 
         return false;
@@ -462,7 +506,9 @@ internal class EditorWidget : MonoBehaviour
     {
         EditorMode editor = Main.EditorMode;
         if (editor == null)
+        {
             return;
+        }
 
         if (!_catalogBuilt && editor.Catalog != null)
         {
@@ -723,7 +769,9 @@ internal class EditorWidget : MonoBehaviour
     private void ApplyProperties()
     {
         if (Main.EditorMode == null)
+        {
             return;
+        }
 
         Main.EditorMode.TryApplySelectedProperties(_propertiesField.text);
     }
@@ -746,7 +794,9 @@ internal class EditorWidget : MonoBehaviour
     private void RefreshPropertiesLayout()
     {
         if (_propertiesField == null || _propertiesField.textComponent == null)
+        {
             return;
+        }
 
         Text text = _propertiesField.textComponent;
         string displayedText = text.text ?? string.Empty;
@@ -913,7 +963,9 @@ internal class EditorWidget : MonoBehaviour
             eventSystem = _fallbackEventSystem.GetComponent<EventSystem>();
         }
         else if (_fallbackEventSystem != null && eventSystem.gameObject != _fallbackEventSystem)
+        {
             _fallbackEventSystem.SetActive(false);
+        }
 
         _inputModulesBeforeEditor = eventSystem.GetComponents<BaseInputModule>();
         _inputModulesWereEnabled = new bool[_inputModulesBeforeEditor.Length];
@@ -922,14 +974,20 @@ internal class EditorWidget : MonoBehaviour
         {
             BaseInputModule module = _inputModulesBeforeEditor[i];
             if (module == null)
+            {
                 continue;
+            }
 
             _inputModulesWereEnabled[i] = module.enabled;
             if (module.enabled && previousInputModule == null)
+            {
                 previousInputModule = module.GetType().Name;
+            }
 
             if (_standaloneInputModule == null && module.GetType() == typeof(StandaloneInputModule))
+            {
                 _standaloneInputModule = (StandaloneInputModule)module;
+            }
         }
 
         if (_standaloneInputModule == null)
@@ -942,7 +1000,9 @@ internal class EditorWidget : MonoBehaviour
         {
             BaseInputModule module = _inputModulesBeforeEditor[i];
             if (module != null && module != _standaloneInputModule)
+            {
                 module.enabled = false;
+            }
         }
 
         _standaloneInputModule.enabled = true;
@@ -956,7 +1016,9 @@ internal class EditorWidget : MonoBehaviour
         {
             BaseInputModule module = _inputModulesBeforeEditor[i];
             if (module != null && module != _standaloneInputModule)
+            {
                 Debug.Assert(!module.isActiveAndEnabled);
+            }
         }
     }
 
@@ -1037,7 +1099,9 @@ internal class EditorWidget : MonoBehaviour
         Button button = obj.AddComponent<Button>();
         button.interactable = true;
         if (action != null)
+        {
             button.onClick.AddListener(action);
+        }
 
         Text text = CreateChildText(obj.transform, label);
         text.color = Color.black;
@@ -1069,7 +1133,9 @@ internal class EditorWidget : MonoBehaviour
     {
         LogicManager logic = Core.Logic;
         if (logic == null)
+        {
             return;
+        }
 
         bool paused = UIController.instance != null
             ? UIController.instance.Paused
@@ -1098,7 +1164,9 @@ internal class EditorWidget : MonoBehaviour
     private void RefreshFreezeButton()
     {
         if (freezeGameButtonObj == null || Core.Logic == null)
+        {
             return;
+        }
 
         bool paused = UIController.instance != null
             ? UIController.instance.Paused

@@ -173,7 +173,9 @@ internal sealed class FrameworkCodecResult
             foreach (FrameworkDiagnostic diagnostic in Diagnostics)
             {
                 if (diagnostic.Severity == FrameworkDiagnosticSeverity.Error)
+                {
                     return false;
+                }
             }
 
             return true;
@@ -208,7 +210,9 @@ internal sealed class FrameworkFileResult
             foreach (FrameworkDiagnostic diagnostic in Diagnostics)
             {
                 if (diagnostic.Severity == FrameworkDiagnosticSeverity.Error)
+                {
                     return false;
+                }
             }
 
             return Document != null;
@@ -240,7 +244,9 @@ internal sealed class FrameworkExportResult
             foreach (FrameworkDiagnostic diagnostic in Diagnostics)
             {
                 if (diagnostic.Severity == FrameworkDiagnosticSeverity.Error)
+                {
                     return false;
+                }
             }
 
             return true;
@@ -343,7 +349,9 @@ internal static class LevelFrameworkAdapter
     {
         List<FrameworkDiagnostic> diagnostics = [];
         if (!ValidateRoomFilePath(path, expectedRoomKey, diagnostics))
+        {
             return new FrameworkFileResult(path, null, null, diagnostics);
+        }
 
         string originalText;
         try
@@ -354,7 +362,9 @@ internal static class LevelFrameworkAdapter
         {
             int hresult = Marshal.GetHRForException(exception);
             if (IsMissingFileException(exception, path, hresult))
+            {
                 return EmptyFile(path);
+            }
 
             AddError(
                 diagnostics,
@@ -377,7 +387,9 @@ internal static class LevelFrameworkAdapter
     internal static bool IsMissingFileException(Exception exception, string path, int hresult)
     {
         if (IsMissingFileHResult(hresult))
+        {
             return true;
+        }
 
         return exception is IsolatedStorageException isolatedStorageException &&
             isolatedStorageException.Message.IndexOf(
@@ -406,12 +418,16 @@ internal static class LevelFrameworkAdapter
     {
         List<FrameworkDiagnostic> diagnostics = [];
         if (!ValidateRoomFilePath(path, expectedRoomKey, diagnostics))
+        {
             return new FrameworkExportResult(path, null, diagnostics);
+        }
 
         FrameworkCodecResult serialized = Serialize(document);
         diagnostics.AddRange(serialized.Diagnostics);
         if (!serialized.IsValid)
+        {
             return new FrameworkExportResult(path, null, diagnostics);
+        }
 
         string fullPath = Path.GetFullPath(path);
         string directory = Path.GetDirectoryName(fullPath);
@@ -426,7 +442,9 @@ internal static class LevelFrameworkAdapter
         try
         {
             if (!Directory.Exists(directory))
+            {
                 Directory.CreateDirectory(directory);
+            }
 
             File.WriteAllText(temporaryPath, serialized.CanonicalJson, new UTF8Encoding(false));
 
@@ -447,9 +465,13 @@ internal static class LevelFrameworkAdapter
                         previousDocument.ToString(Formatting.Indented),
                         new UTF8Encoding(false));
                     if (File.Exists(backupPath))
+                    {
                         File.Replace(backupTemporaryPath, backupPath, backupRollbackPath, true);
+                    }
                     else
+                    {
                         File.Move(backupTemporaryPath, backupPath);
+                    }
                     exportedBackupPath = backupPath;
                 }
                 catch (Exception exception)
@@ -460,7 +482,9 @@ internal static class LevelFrameworkAdapter
                         try
                         {
                             if (File.Exists(backupPath))
+                            {
                                 File.Delete(backupPath);
+                            }
                             File.Move(backupRollbackPath, backupPath);
                         }
                         catch (Exception restoreException)
@@ -476,7 +500,9 @@ internal static class LevelFrameworkAdapter
                 }
             }
             else
+            {
                 File.Move(temporaryPath, fullPath);
+            }
         }
         catch (Exception exception)
         {
@@ -500,7 +526,9 @@ internal static class LevelFrameworkAdapter
                     try
                     {
                         if (File.Exists(fullPath))
+                        {
                             File.Delete(fullPath);
+                        }
                         File.Move(mainRollbackPath, fullPath);
                     }
                     catch (Exception restoreException)
@@ -526,7 +554,9 @@ internal static class LevelFrameworkAdapter
             try
             {
                 if (File.Exists(temporaryPath))
+                {
                     File.Delete(temporaryPath);
+                }
             }
             catch (Exception exception)
             {
@@ -536,7 +566,9 @@ internal static class LevelFrameworkAdapter
             try
             {
                 if (!preserveMainRollback && File.Exists(mainRollbackPath))
+                {
                     File.Delete(mainRollbackPath);
+                }
             }
             catch (Exception exception)
             {
@@ -547,7 +579,9 @@ internal static class LevelFrameworkAdapter
             try
             {
                 if (File.Exists(backupTemporaryPath))
+                {
                     File.Delete(backupTemporaryPath);
+                }
             }
             catch (Exception exception)
             {
@@ -557,7 +591,9 @@ internal static class LevelFrameworkAdapter
             try
             {
                 if (!preserveBackupRollback && File.Exists(backupRollbackPath))
+                {
                     File.Delete(backupRollbackPath);
+                }
             }
             catch (Exception exception)
             {
@@ -686,7 +722,9 @@ internal static class LevelFrameworkAdapter
             valid &= TryReadRequiredString(entry, LevelFrameworkContract.SceneField, location, diagnostics, out scene);
             valid &= TryReadRequiredString(entry, LevelFrameworkContract.PathField, location, diagnostics, out path);
             if (!valid)
+            {
                 return false;
+            }
 
             foreach (string field in new[]
             {
@@ -700,7 +738,9 @@ internal static class LevelFrameworkAdapter
             })
             {
                 if (entry[field] != null)
+                {
                     AddWarning(diagnostics, location + "." + field, "Field ignored for deletion.");
+                }
             }
 
             data = new FrameworkObjectData(
@@ -717,11 +757,15 @@ internal static class LevelFrameworkAdapter
         }
 
         if (operation == FrameworkOperation.Modification)
+        {
             valid &= TryReadRequiredString(entry, LevelFrameworkContract.SceneField, location, diagnostics, out scene);
+        }
         valid &= TryReadRequiredString(entry, LevelFrameworkContract.TypeField, location, diagnostics, out string type);
         valid &= TryReadRequiredString(entry, LevelFrameworkContract.IdField, location, diagnostics, out string id);
         if (operation == FrameworkOperation.Modification)
+        {
             valid &= TryReadRequiredString(entry, LevelFrameworkContract.PathField, location, diagnostics, out path);
+        }
 
         valid &= TryReadVector(entry, LevelFrameworkContract.PositionField, DefaultPosition, location, diagnostics, out FrameworkVector position);
         valid &= TryReadVector(entry, LevelFrameworkContract.RotationField, DefaultRotation, location, diagnostics, out FrameworkVector rotation);
@@ -730,7 +774,9 @@ internal static class LevelFrameworkAdapter
         valid &= TryReadProperties(entry, location, diagnostics, out List<string> properties);
 
         if (!valid)
+        {
             return false;
+        }
 
         data = new FrameworkObjectData(
             scene,
@@ -789,7 +835,9 @@ internal static class LevelFrameworkAdapter
         value = defaultValue;
         JToken token = entry[field];
         if (token == null)
+        {
             return true;
+        }
 
         if (token is not JObject vector)
         {
@@ -813,7 +861,9 @@ internal static class LevelFrameworkAdapter
             && TryReadAxis(vector, "y", location + "." + field, diagnostics, out y)
             && TryReadAxis(vector, "z", location + "." + field, diagnostics, out z);
         if (!valid)
+        {
             return false;
+        }
 
         value = new FrameworkVector(x, y, z);
         return true;
@@ -838,7 +888,9 @@ internal static class LevelFrameworkAdapter
         }
 
         if (token == null)
+        {
             return true;
+        }
 
         if (token.Type != JTokenType.Integer && token.Type != JTokenType.Float)
         {
@@ -875,7 +927,9 @@ internal static class LevelFrameworkAdapter
         condition = string.Empty;
         JToken token = entry[LevelFrameworkContract.ConditionField];
         if (token == null)
+        {
             return true;
+        }
 
         if (token.Type != JTokenType.String)
         {
@@ -929,7 +983,9 @@ internal static class LevelFrameworkAdapter
         properties = [];
         JToken token = entry[LevelFrameworkContract.PropertiesField];
         if (token == null)
+        {
             return true;
+        }
 
         if (token.Type != JTokenType.Array)
         {
@@ -999,7 +1055,9 @@ internal static class LevelFrameworkAdapter
     private static JObject BuildObject(FrameworkObjectData entry, FrameworkOperation operation)
     {
         if (entry == null)
+        {
             throw new InvalidOperationException("ObjectData entry cannot be null.");
+        }
 
         JObject result = [];
         if (operation == FrameworkOperation.Deletion)
@@ -1030,7 +1088,9 @@ internal static class LevelFrameworkAdapter
     private static JObject BuildVector(FrameworkVector vector)
     {
         if (vector == null)
+        {
             throw new InvalidOperationException("Transform vector cannot be null.");
+        }
 
         JObject result = new()
         {

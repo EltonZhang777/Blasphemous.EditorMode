@@ -9,7 +9,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class ApplyReportTests
 {
     [Fact]
-    public void Framework_and_dependency_failures_receive_actionable_codes()
+    public void FrameworkAndDependencyFailuresReceiveActionableCodes()
     {
         ApplyReport report = new ApplyReport();
         report.MergeFrameworkDiagnostics(LevelFrameworkAdapter.Parse("not-json").Diagnostics);
@@ -27,7 +27,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Counts_track_applied_skipped_failed_and_diagnostics_independently()
+    public void CountsTrackAppliedSkippedFailedAndDiagnosticsIndependently()
     {
         ApplyReport report = new ApplyReport();
         report.Applied();
@@ -46,7 +46,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Summary_has_stable_keys_units_counts_and_failure_status()
+    public void SummaryHasStableKeysUnitsCountsAndFailureStatus()
     {
         ApplyReport report = new ApplyReport();
         report.Applied();
@@ -60,7 +60,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Summary_severity_tracks_passed_partial_and_failed()
+    public void SummarySeverityTracksPassedPartialAndFailed()
     {
         ApplyReport passed = new ApplyReport();
         passed.Info("INFO", "item[0]", "info entry");
@@ -77,7 +77,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Every_diagnostic_publishes_its_full_entry_alongside_the_summary()
+    public void EveryDiagnosticPublishesItsFullEntryAlongsideTheSummary()
     {
         ApplyReport report = new ApplyReport();
         report.Warning("HIDDEN_WARNING", "item[1]", "warning entry");
@@ -102,7 +102,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void All_diagnostics_follow_the_summary_and_keep_their_own_severity()
+    public void AllDiagnosticsFollowTheSummaryAndKeepTheirOwnSeverity()
     {
         ApplyReport report = new ApplyReport();
         report.Warning("VERBOSE_WARNING", "item[1]", "warning entry");
@@ -131,7 +131,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Runtime_verbose_diagnostics_is_disabled_by_default()
+    public void RuntimeVerboseDiagnosticsIsDisabledByDefault()
     {
         EditorModeConfig config = new EditorModeConfig();
 
@@ -139,7 +139,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void The_same_report_is_published_to_ui_and_log_surfaces()
+    public void TheSameReportIsPublishedToUiAndLogSurfaces()
     {
         ApplyReport report = new ApplyReport();
         report.Applied();
@@ -160,7 +160,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void A_failed_room_import_exposes_an_actionable_recovery_report()
+    public void AFailedRoomImportExposesAnActionableRecoveryReport()
     {
         ApplyReportSurface surface = new ApplyReportSurface();
         Assert.False(surface.HasActionableMessage);
@@ -174,7 +174,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void An_error_takes_priority_over_an_earlier_warning()
+    public void AnErrorTakesPriorityOverAnEarlierWarning()
     {
         ApplyReport report = new ApplyReport();
         report.Warning("FIRST_WARNING", "$", "first warning");
@@ -188,7 +188,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void The_first_warning_is_actionable_when_the_report_has_no_error()
+    public void TheFirstWarningIsActionableWhenTheReportHasNoError()
     {
         ApplyReport report = new ApplyReport();
         report.Info("IGNORED_INFO", "$", "info");
@@ -202,7 +202,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Info_only_reports_do_not_add_an_actionable_message()
+    public void InfoOnlyReportsDoNotAddAnActionableMessage()
     {
         ApplyReport report = new ApplyReport();
         report.Info("ONLY_INFO", "$", "informational");
@@ -215,7 +215,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Clearing_property_diagnostics_does_not_remove_an_unrelated_report()
+    public void ClearingPropertyDiagnosticsDoesNotRemoveAnUnrelatedReport()
     {
         ApplyReportSurface surface = new ApplyReportSurface();
         ApplyReport properties = new ApplyReport();
@@ -237,7 +237,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Failed_edit_flow_returns_to_the_previous_safe_state_after_recovery()
+    public void FailedEditFlowReturnsToThePreviousSafeStateAfterRecovery()
     {
         ApplyReport report = new ApplyReport();
         EditorFlowRecovery recovery = new EditorFlowRecovery(EditorFlowState.Editing);
@@ -248,7 +248,7 @@ public sealed class ApplyReportTests
     }
 
     [Fact]
-    public void Failed_recovery_reduces_state_to_room_loaded()
+    public void FailedRecoveryReducesStateToRoomLoaded()
     {
         ApplyReport report = new ApplyReport();
         EditorFlowRecovery recovery = new EditorFlowRecovery(EditorFlowState.Editing);

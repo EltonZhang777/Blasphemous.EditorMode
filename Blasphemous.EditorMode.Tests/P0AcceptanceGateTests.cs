@@ -6,7 +6,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class P0AcceptanceGateTests
 {
     [Fact]
-    public void Pure_checks_can_pass_while_runtime_smoke_remains_pending()
+    public void PureChecksCanPassWhileRuntimeSmokeRemainsPending()
     {
         P0AcceptanceResult result = P0AcceptanceGate.Evaluate(new P0AcceptanceEvidence
         {
@@ -26,7 +26,7 @@ public sealed class P0AcceptanceGateTests
     }
 
     [Fact]
-    public void Missing_pure_evidence_blocks_the_gate_even_if_smoke_is_claimed()
+    public void MissingPureEvidenceBlocksTheGateEvenIfSmokeIsClaimed()
     {
         P0AcceptanceResult result = P0AcceptanceGate.Evaluate(new P0AcceptanceEvidence
         {
@@ -46,7 +46,7 @@ public sealed class P0AcceptanceGateTests
     }
 
     [Fact]
-    public void Release_ready_requires_both_pure_and_real_game_evidence()
+    public void ReleaseReadyRequiresBothPureAndRealGameEvidence()
     {
         P0AcceptanceResult result = P0AcceptanceGate.Evaluate(new P0AcceptanceEvidence
         {
