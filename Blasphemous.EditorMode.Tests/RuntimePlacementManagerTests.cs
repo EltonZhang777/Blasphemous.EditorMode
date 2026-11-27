@@ -85,9 +85,7 @@ public sealed class RuntimePlacementManagerTests
 
         Assert.True(TransformInspectorApplyPolicy.TryApplySelected(
             manager,
-            index => position[index],
-            index => rotation[index],
-            index => scale[index],
+            new ArrayTransformInspectorFieldSource(position, rotation, scale),
             report));
 
         PlacementTransform expected = new(

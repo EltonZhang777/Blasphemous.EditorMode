@@ -52,19 +52,6 @@ public sealed class TransformInspectorUiStateTests
     }
 
     [Fact]
-    public void FieldMappingReadsIndexesAsXyz()
-    {
-        string[] fields = ["4", "5", "6"];
-
-        TransformInspectorGroup group = TransformInspectorFieldMapping.Read(
-            index => fields[index]);
-
-        Assert.Equal("4", group.X);
-        Assert.Equal("5", group.Y);
-        Assert.Equal("6", group.Z);
-    }
-
-    [Fact]
     public void FieldMappingWritesXyzToIndexes()
     {
         string[] fields = new string[3];
@@ -102,18 +89,16 @@ public sealed class TransformInspectorUiStateTests
     [Fact]
     public void ReadingTransformValuesKeepsGroupsIndependent()
     {
-        string[] position = ["1", "2", "3"];
-        string[] rotation = ["4", "5", "6"];
-        string[] scale = ["7", "8", "9"];
+        ArrayTransformInspectorFieldSource source = new(
+            ["1", "2", "3"],
+            ["4", "5", "6"],
+            ["7", "8", "9"]);
 
-        TransformInspectorValues values = TransformInspectorFieldMapping.ReadValues(
-            index => position[index],
-            index => rotation[index],
-            index => scale[index]);
+        TransformInspectorValues values = TransformInspectorFieldMapping.ReadValues(source);
 
-        Assert.Equal("1", values.Position.X);
-        Assert.Equal("5", values.Rotation.Y);
-        Assert.Equal("9", values.Scale.Z);
+        Assert.Equal(["1", "2", "3"], [values.Position.X, values.Position.Y, values.Position.Z]);
+        Assert.Equal(["4", "5", "6"], [values.Rotation.X, values.Rotation.Y, values.Rotation.Z]);
+        Assert.Equal(["7", "8", "9"], [values.Scale.X, values.Scale.Y, values.Scale.Z]);
     }
 
     [Fact]

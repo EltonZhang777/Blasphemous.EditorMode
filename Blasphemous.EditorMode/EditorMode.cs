@@ -570,10 +570,7 @@ internal class EditorMode : BlasMod
         PublishReport("Preview", report);
     }
 
-    internal bool TryApplySelectedTransform(
-        System.Func<int, string> readPosition,
-        System.Func<int, string> readRotation,
-        System.Func<int, string> readScale)
+    internal bool TryApplySelectedTransform(ITransformInspectorFieldSource source)
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
@@ -584,9 +581,7 @@ internal class EditorMode : BlasMod
         ApplyReport report = new();
         bool result = TransformInspectorApplyPolicy.TryApplySelected(
             manager,
-            readPosition,
-            readRotation,
-            readScale,
+            source,
             report);
         PublishReport("Transform", report);
         return result;

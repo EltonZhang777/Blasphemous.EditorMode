@@ -9,64 +9,28 @@ public sealed class TransformInspectorValuesTests
     [Fact]
     public void EditingPositionChangesOnlyPosition()
     {
-        PlacementTransform original = TransformInspectorTestData.CreateDefault();
-        TransformInspectorValues values = new(
+        AssertOnlyEditedGroupChanges(
+            TransformGroup.Position,
             new TransformInspectorGroup("4", "5", "6"),
-            new TransformInspectorGroup("10", "20", "30"),
-            new TransformInspectorGroup("2", "3", "4"));
-
-        Assert.True(values.TryCreateTransform(out PlacementTransform edited, out string error), error);
-        Assert.Equal(4f, edited.PositionX);
-        Assert.Equal(5f, edited.PositionY);
-        Assert.Equal(6f, edited.PositionZ);
-        Assert.Equal(original.RotationX, edited.RotationX);
-        Assert.Equal(original.RotationY, edited.RotationY);
-        Assert.Equal(original.RotationZ, edited.RotationZ);
-        Assert.Equal(original.ScaleX, edited.ScaleX);
-        Assert.Equal(original.ScaleY, edited.ScaleY);
-        Assert.Equal(original.ScaleZ, edited.ScaleZ);
+            new PlacementTransform(4f, 5f, 6f, 10f, 20f, 30f, 2f, 3f, 4f));
     }
 
     [Fact]
     public void EditingRotationChangesOnlyRotation()
     {
-        PlacementTransform original = TransformInspectorTestData.CreateDefault();
-        TransformInspectorValues values = new(
-            new TransformInspectorGroup("1", "2", "3"),
+        AssertOnlyEditedGroupChanges(
+            TransformGroup.Rotation,
             new TransformInspectorGroup("40", "50", "60"),
-            new TransformInspectorGroup("2", "3", "4"));
-
-        Assert.True(values.TryCreateTransform(out PlacementTransform edited, out string error), error);
-        Assert.Equal(original.PositionX, edited.PositionX);
-        Assert.Equal(original.PositionY, edited.PositionY);
-        Assert.Equal(original.PositionZ, edited.PositionZ);
-        Assert.Equal(40f, edited.RotationX);
-        Assert.Equal(50f, edited.RotationY);
-        Assert.Equal(60f, edited.RotationZ);
-        Assert.Equal(original.ScaleX, edited.ScaleX);
-        Assert.Equal(original.ScaleY, edited.ScaleY);
-        Assert.Equal(original.ScaleZ, edited.ScaleZ);
+            new PlacementTransform(1f, 2f, 3f, 40f, 50f, 60f, 2f, 3f, 4f));
     }
 
     [Fact]
     public void EditingScaleChangesOnlyScale()
     {
-        PlacementTransform original = TransformInspectorTestData.CreateDefault();
-        TransformInspectorValues values = new(
-            new TransformInspectorGroup("1", "2", "3"),
-            new TransformInspectorGroup("10", "20", "30"),
-            new TransformInspectorGroup("7", "8", "9"));
-
-        Assert.True(values.TryCreateTransform(out PlacementTransform edited, out string error), error);
-        Assert.Equal(original.PositionX, edited.PositionX);
-        Assert.Equal(original.PositionY, edited.PositionY);
-        Assert.Equal(original.PositionZ, edited.PositionZ);
-        Assert.Equal(original.RotationX, edited.RotationX);
-        Assert.Equal(original.RotationY, edited.RotationY);
-        Assert.Equal(original.RotationZ, edited.RotationZ);
-        Assert.Equal(7f, edited.ScaleX);
-        Assert.Equal(8f, edited.ScaleY);
-        Assert.Equal(9f, edited.ScaleZ);
+        AssertOnlyEditedGroupChanges(
+            TransformGroup.Scale,
+            new TransformInspectorGroup("7", "8", "9"),
+            new PlacementTransform(1f, 2f, 3f, 10f, 20f, 30f, 7f, 8f, 9f));
     }
 
     [Fact]
@@ -109,4 +73,40 @@ public sealed class TransformInspectorValuesTests
         Assert.False(string.IsNullOrEmpty(error));
     }
 
+    private static void AssertOnlyEditedGroupChanges(
+        TransformGroup group,
+        TransformInspectorGroup editedGroup,
+        PlacementTransform expected)
+    {
+        PlacementTransform original = TransformInspectorTestData.CreateDefault();
+        TransformInspectorValues values = new(
+            group == TransformGroup.Position
+                ? editedGroup
+                : TransformInspectorGroup.FromValues(
+                    original.PositionX,
+                    original.PositionY,
+                    original.PositionZ),
+            group == TransformGroup.Rotation
+                ? editedGroup
+                : TransformInspectorGroup.FromValues(
+                    original.RotationX,
+                    original.RotationY,
+                    original.RotationZ),
+            group == TransformGroup.Scale
+                ? editedGroup
+                : TransformInspectorGroup.FromValues(
+                    original.ScaleX,
+                    original.ScaleY,
+                    original.ScaleZ));
+
+        Assert.True(values.TryCreateTransform(out PlacementTransform actual, out string error), error);
+        Assert.Equal(expected, actual);
+    }
+
+    private enum TransformGroup
+    {
+        Position,
+        Rotation,
+        Scale
+    }
 }

@@ -5,6 +5,18 @@ using System.Globalization;
 
 namespace Blasphemous.EditorMode.Components;
 
+internal enum TransformInspectorFieldGroup
+{
+    Position,
+    Rotation,
+    Scale
+}
+
+internal interface ITransformInspectorFieldSource
+{
+    string ReadField(TransformInspectorFieldGroup group, int axis);
+}
+
 internal sealed class TransformInspectorGroup
 {
     internal TransformInspectorGroup(string x, string y, string z)
@@ -127,19 +139,6 @@ internal sealed class TransformInspectorValues
 
 internal static class TransformInspectorFieldMapping
 {
-    internal static TransformInspectorGroup Read(Func<int, string> readField)
-    {
-        if (readField == null)
-        {
-            throw new ArgumentNullException(nameof(readField));
-        }
-
-        return new TransformInspectorGroup(
-            readField(0),
-            readField(1),
-            readField(2));
-    }
-
     internal static void Write(
         TransformInspectorGroup values,
         Action<int, string> writeField)
@@ -158,15 +157,27 @@ internal static class TransformInspectorFieldMapping
         writeField(2, values.Z);
     }
 
-    internal static TransformInspectorValues ReadValues(
-        Func<int, string> readPosition,
-        Func<int, string> readRotation,
-        Func<int, string> readScale)
+    internal static TransformInspectorValues ReadValues(ITransformInspectorFieldSource source)
     {
+        if (source == null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
         return new TransformInspectorValues(
-            Read(readPosition),
-            Read(readRotation),
-            Read(readScale));
+            Read(source, TransformInspectorFieldGroup.Position),
+            Read(source, TransformInspectorFieldGroup.Rotation),
+            Read(source, TransformInspectorFieldGroup.Scale));
+    }
+
+    private static TransformInspectorGroup Read(
+        ITransformInspectorFieldSource source,
+        TransformInspectorFieldGroup group)
+    {
+        return new TransformInspectorGroup(
+            source.ReadField(group, 0),
+            source.ReadField(group, 1),
+            source.ReadField(group, 2));
     }
 
     internal static void WriteValues(
@@ -190,9 +201,7 @@ internal static class TransformInspectorApplyPolicy
 {
     internal static bool TryApplySelected(
         RuntimePlacementManager manager,
-        Func<int, string> readPosition,
-        Func<int, string> readRotation,
-        Func<int, string> readScale,
+        ITransformInspectorFieldSource source,
         ApplyReport report)
     {
         if (manager == null || manager.Selected == null)
@@ -204,10 +213,7 @@ internal static class TransformInspectorApplyPolicy
             throw new ArgumentNullException(nameof(report));
         }
 
-        TransformInspectorValues values = TransformInspectorFieldMapping.ReadValues(
-            readPosition,
-            readRotation,
-            readScale);
+        TransformInspectorValues values = TransformInspectorFieldMapping.ReadValues(source);
         if (!values.TryCreateTransform(out PlacementTransform transform, out string error))
         {
             report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, error);

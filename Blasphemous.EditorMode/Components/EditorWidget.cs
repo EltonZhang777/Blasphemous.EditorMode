@@ -16,7 +16,7 @@ namespace Blasphemous.EditorMode.Components;
 
 /// <summary>Minimal P0 canvas for browsing and commanding the current Room Overlay.</summary>
 [DefaultExecutionOrder(10000)]
-internal class EditorWidget : MonoBehaviour
+internal class EditorWidget : MonoBehaviour, ITransformInspectorFieldSource
 {
     private const int StatusFontSize = 13;
     private const int StatusMinimumFontSize = 10;
@@ -659,10 +659,21 @@ internal class EditorWidget : MonoBehaviour
             return;
         }
 
-        Main.EditorMode.TryApplySelectedTransform(
-            index => ReadFieldValue(_positionFields, index),
-            index => ReadFieldValue(_rotationFields, index),
-            index => ReadFieldValue(_scaleFields, index));
+        Main.EditorMode.TryApplySelectedTransform(this);
+    }
+
+    string ITransformInspectorFieldSource.ReadField(
+        TransformInspectorFieldGroup group,
+        int axis)
+    {
+        InputField[] fields = group switch
+        {
+            TransformInspectorFieldGroup.Position => _positionFields,
+            TransformInspectorFieldGroup.Rotation => _rotationFields,
+            TransformInspectorFieldGroup.Scale => _scaleFields,
+            _ => null
+        };
+        return ReadFieldValue(fields, axis);
     }
 
     private static string ReadFieldValue(InputField[] fields, int index)

@@ -1,10 +1,11 @@
+using Blasphemous.EditorMode.Components;
 using Blasphemous.EditorMode.Editing;
 
 namespace Blasphemous.EditorMode.Tests;
 
 internal static class TransformInspectorTestData
 {
-    internal static PlacementTransform CreateDefault(float rotationX = 30f)
+    internal static PlacementTransform CreateDefault(float rotationZ = 30f)
     {
         return new PlacementTransform(
             1f,
@@ -12,7 +13,7 @@ internal static class TransformInspectorTestData
             3f,
             10f,
             20f,
-            rotationX,
+            rotationZ,
             2f,
             3f,
             4f);
@@ -30,5 +31,25 @@ internal static class TransformInspectorTestData
             0.5f,
             1.25f,
             2.5f);
+    }
+}
+
+internal sealed class ArrayTransformInspectorFieldSource : ITransformInspectorFieldSource
+{
+    private readonly string[][] _groups;
+
+    internal ArrayTransformInspectorFieldSource(
+        string[] position,
+        string[] rotation,
+        string[] scale)
+    {
+        _groups = [position, rotation, scale];
+    }
+
+    string ITransformInspectorFieldSource.ReadField(
+        TransformInspectorFieldGroup group,
+        int axis)
+    {
+        return _groups[(int)group][axis];
     }
 }
