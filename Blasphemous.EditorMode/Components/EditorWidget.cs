@@ -529,19 +529,18 @@ internal class EditorWidget : MonoBehaviour
             : editor.PlacementManager.Selected.Id;
         PlacementRecord selectedPlacement = editor.PlacementManager?.Selected;
         string selectedPlacementId = selectedPlacement?.Id;
-        bool selectionChanged = !string.Equals(
+        bool refreshTransformFields = TransformInspectorValues.ShouldRefreshTransformFields(
             _selectedId,
-            selectedPlacementId,
-            StringComparison.OrdinalIgnoreCase);
-        bool transformChanged = !object.Equals(
             _selectedTransform,
-            selectedPlacement?.Transform);
+            selectedPlacementId,
+            selectedPlacement?.Transform,
+            out bool selectionChanged);
         if (selectionChanged)
         {
             _selectedId = selectedPlacementId;
             editor.ClearRawPropertiesDiagnostics();
         }
-        if (selectionChanged || transformChanged)
+        if (refreshTransformFields)
         {
             _selectedTransform = selectedPlacement?.Transform;
             SetTransformFields(selectedPlacement);

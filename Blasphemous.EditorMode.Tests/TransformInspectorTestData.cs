@@ -4,7 +4,7 @@ namespace Blasphemous.EditorMode.Tests;
 
 internal static class TransformInspectorTestData
 {
-    internal static PlacementTransform CreateDefault(float rotationZ = 30f)
+    internal static PlacementTransform CreateDefault()
     {
         return new PlacementTransform(
             1f,
@@ -12,7 +12,7 @@ internal static class TransformInspectorTestData
             3f,
             10f,
             20f,
-            rotationZ,
+            30f,
             2f,
             3f,
             4f);

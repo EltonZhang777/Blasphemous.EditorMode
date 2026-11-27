@@ -73,7 +73,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void ImportRetainsOriginalObjectOperationsAsReadOnlyRoundTripData()
+    public void ImportRetainsOriginalObjectEditsAsReadOnlyRoundTripData()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");

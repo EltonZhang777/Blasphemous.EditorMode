@@ -98,6 +98,17 @@ internal sealed class TransformInspectorValues
                 transform.ScaleZ));
     }
 
+    internal static bool ShouldRefreshTransformFields(
+        string previousId,
+        PlacementTransform previousTransform,
+        string selectedId,
+        PlacementTransform selectedTransform,
+        out bool selectionChanged)
+    {
+        selectionChanged = !string.Equals(previousId, selectedId, StringComparison.OrdinalIgnoreCase);
+        return selectionChanged || !object.Equals(previousTransform, selectedTransform);
+    }
+
     internal bool TryCreateTransform(out PlacementTransform transform, out string error)
     {
         transform = null;

@@ -119,7 +119,7 @@ public sealed class RoomOverlayReconcilerTests
     }
 
     [Fact]
-    public void RoundTripComparerCoversScopeIdentityTransformPropertiesAndOwnership()
+    public void RoundTripComparerRejectsDifferentRoomIdentity()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");

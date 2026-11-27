@@ -44,6 +44,55 @@ public sealed class TransformInspectorValuesTests
         Assert.Equal(original, roundTripped);
     }
 
+    [Fact]
+    public void TransformRefreshIgnoresCaseOnlySelectionIdChange()
+    {
+        PlacementTransform transform = TransformInspectorTestData.CreateDefault();
+
+        bool refresh = TransformInspectorValues.ShouldRefreshTransformFields(
+            "placement-a",
+            transform,
+            "PLACEMENT-A",
+            transform,
+            out bool selectionChanged);
+
+        Assert.False(selectionChanged);
+        Assert.False(refresh);
+    }
+
+    [Fact]
+    public void TransformOnlyChangeRefreshesWithoutChangingSelection()
+    {
+        PlacementTransform before = TransformInspectorTestData.CreateDefault();
+        PlacementTransform after = TransformInspectorTestData.CreateRoundTrip();
+
+        bool refresh = TransformInspectorValues.ShouldRefreshTransformFields(
+            "placement-a",
+            before,
+            "placement-a",
+            after,
+            out bool selectionChanged);
+
+        Assert.False(selectionChanged);
+        Assert.True(refresh);
+    }
+
+    [Fact]
+    public void SelectionChangeRefreshesTransformFields()
+    {
+        PlacementTransform transform = TransformInspectorTestData.CreateDefault();
+
+        bool refresh = TransformInspectorValues.ShouldRefreshTransformFields(
+            "placement-a",
+            transform,
+            "placement-b",
+            transform,
+            out bool selectionChanged);
+
+        Assert.True(selectionChanged);
+        Assert.True(refresh);
+    }
+
     [Theory]
     [InlineData("position", "not-a-number")]
     [InlineData("rotation", "NaN")]
