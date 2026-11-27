@@ -669,6 +669,14 @@ internal sealed class RuntimePlacementManager
             report.Error(ReportCodes.PlacementLocked, id, "Locked placement cannot be removed.");
             return false;
         }
+        if (_catalog.RegistryUnavailable)
+        {
+            report.Error(
+                ReportCodes.CreatorRegistryUnavailable,
+                id,
+                "Placements cannot be removed while the Level Framework creator registry is unavailable; undo would require recreating the removed object.");
+            return false;
+        }
 
         if (!handle.TryDestroy(out string error))
         {

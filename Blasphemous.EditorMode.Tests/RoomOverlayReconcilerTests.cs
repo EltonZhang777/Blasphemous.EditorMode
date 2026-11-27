@@ -253,6 +253,44 @@ public sealed class RoomOverlayReconcilerTests
     }
 
     [Fact]
+    public void Unavailable_registry_rejects_delete_so_export_cannot_lose_additions()
+    {
+        string directory = MakeDirectory();
+        string path = Path.Combine(directory, "D03Z02S06.json");
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, DocumentWithPlacement());
+            FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
+            ContentCatalog catalog = ContentCatalog.FromInventory(
+                RuntimeCreatorInventory.RegistryUnavailable("registry denied"));
+            FakeFactory factory = new FakeFactory();
+            RoomOverlayReconciler reconciler = new RoomOverlayReconciler(catalog, factory);
+
+            RoomOverlayReconcileResult result = reconciler.Apply(
+                CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
+                file);
+            Assert.True(result.Succeeded, result.StatusMessage);
+
+            ApplyReport report = new ApplyReport();
+            Assert.False(result.Manager.TryDelete("authored", report));
+            Assert.Contains(
+                report.Entries,
+                entry => entry.Code == ReportCodes.CreatorRegistryUnavailable);
+            Assert.Single(result.Session.Placements);
+            Assert.True(factory.Created[0].IsAlive);
+
+            LevelEditSessionExportResult exported = result.Session.Export(path);
+            Assert.True(exported.Succeeded, exported.StatusMessage);
+            Assert.Contains("\"authored\"", File.ReadAllText(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void Round_trip_comparer_covers_scope_identity_transform_properties_and_ownership()
     {
         string directory = MakeDirectory();
