@@ -3,6 +3,7 @@ using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
 using Blasphemous.EditorMode.Framework;
 using Blasphemous.EditorMode.Lifecycle;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -120,14 +121,15 @@ public sealed class RoomOverlayReconcilerTests
     }
 
     [Fact]
-    public void Unavailable_registry_keeps_schema_less_additions_editable_and_properties_preserved()
+    public void UnavailableRegistryPreservesAdditionsWithoutSyntheticEditableMembers()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
         try
         {
             Directory.CreateDirectory(directory);
-            File.WriteAllText(path, DocumentWithEditableAndPropertyAddition());
+            string source = DocumentWithRegistryDependentAdditions();
+            File.WriteAllText(path, source);
             FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
             ContentCatalog catalog = ContentCatalog.FromInventory(
                 RuntimeCreatorInventory.RegistryUnavailable("registry denied"));
@@ -138,151 +140,47 @@ public sealed class RoomOverlayReconcilerTests
             RoomOverlayReconcileResult result = reconciler.Apply(room, file);
 
             Assert.True(result.Succeeded, result.StatusMessage);
+            Assert.Equal(LevelEditSessionState.Partial, result.Session.State);
             Assert.Contains(
                 result.Report.Entries,
                 entry => entry.Code == ReportCodes.CreatorRegistryUnavailable);
             Assert.Contains(
                 result.Report.Entries,
-                entry => entry.Code == ReportCodes.PropertyUnsupported
-                    && entry.Location == "property");
-            PlacementRecord editable = Assert.Single(result.Session.Placements);
-            Assert.Equal("editable", editable.Id);
-            Assert.Single(result.Manager.OwnedPlacementIds);
-
-            ApplyReport report = new ApplyReport();
-            Assert.True(result.Manager.TrySelect(editable.Id, report, out _), report.ToSummary("select"));
-            PlacementTransform moved = new(4f, 5f, 0f, 0f, 0f, 15f, 1f, 1f, 1f);
-            Assert.True(result.Manager.TryMove(editable.Id, moved, report), report.ToSummary("move"));
-            Assert.True(result.Manager.TryUndo(report), report.ToSummary("undo"));
-            Assert.True(result.Manager.TryRedo(report), report.ToSummary("redo"));
-            Assert.Equal(moved, result.Session.Placements[0].Transform);
-
-            LevelEditSessionExportResult exported = result.Session.Export(path);
-            Assert.True(exported.Succeeded, exported.StatusMessage);
-
-            FrameworkFileResult reloadedFile = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
-            RoomOverlayReconciler reloaded = new RoomOverlayReconciler(catalog, new FakeFactory());
-            RoomOverlayReconcileResult reloadedResult = reloaded.Apply(room, reloadedFile);
-
-            Assert.True(reloadedResult.Succeeded, reloadedResult.StatusMessage);
-            PlacementRecord reloadedEditable = Assert.Single(reloadedResult.Session.Placements);
-            Assert.Equal("editable", reloadedEditable.Id);
-            Assert.Equal(moved, reloadedEditable.Transform);
+                entry => entry.Code == ReportCodes.CreatorUnsupported
+                    && entry.Location == "additions[plain]");
             Assert.Contains(
-                reloadedResult.Report.Entries,
-                entry => entry.Code == ReportCodes.PropertyUnsupported);
-        }
-        finally
-        {
-            DeleteDirectory(directory);
-        }
-    }
-
-    [Fact]
-    public void Unavailable_registry_keeps_the_session_when_runtime_projection_fails()
-    {
-        string directory = MakeDirectory();
-        string path = Path.Combine(directory, "D03Z02S06.json");
-        try
-        {
-            Directory.CreateDirectory(directory);
-            File.WriteAllText(path, DocumentWithPlacement());
-            FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
-            ContentCatalog catalog = ContentCatalog.FromInventory(
-                RuntimeCreatorInventory.RegistryUnavailable("registry denied"));
-            RoomOverlayReconciler reconciler = new RoomOverlayReconciler(catalog, new RejectingFactory());
-
-            RoomOverlayReconcileResult result = reconciler.Apply(
-                CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
-                file);
-
-            Assert.True(result.Succeeded, result.StatusMessage);
-            Assert.Single(result.Session.Placements);
+                result.Report.Entries,
+                entry => entry.Code == ReportCodes.CreatorUnsupported
+                    && entry.Location == "additions[property]");
+            Assert.Empty(result.Session.Placements);
             Assert.Empty(result.Manager.OwnedPlacementIds);
+            Assert.Empty(factory.Created);
+            Assert.False(catalog.TryCreatePreview("bell-iron", out PreviewInstance preview, out _));
+            Assert.Null(preview);
+
+            ApplyReport placeReport = new();
+            PlacementRecord placed;
+            Assert.False(result.Manager.TryPlace(
+                "bell-iron",
+                PlacementTransform.Default,
+                null,
+                placeReport,
+                out placed));
+            Assert.Null(placed);
             Assert.Contains(
-                result.Report.Entries,
-                entry => entry.Code == ReportCodes.RuntimeCreateFailed);
+                placeReport.Entries,
+                entry => entry.Code == ReportCodes.CreatorUnsupported);
 
             LevelEditSessionExportResult exported = result.Session.Export(path);
             Assert.True(exported.Succeeded, exported.StatusMessage);
-        }
-        finally
-        {
-            DeleteDirectory(directory);
-        }
-    }
-
-    [Fact]
-    public void Unavailable_registry_keeps_the_existing_manager_when_same_room_reprojection_fails()
-    {
-        string directory = MakeDirectory();
-        string path = Path.Combine(directory, "D03Z02S06.json");
-        try
-        {
-            Directory.CreateDirectory(directory);
-            File.WriteAllText(path, DocumentWithPlacement());
-            FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
-            ContentCatalog catalog = ContentCatalog.FromInventory(
-                RuntimeCreatorInventory.RegistryUnavailable("registry denied"));
-            SwitchableFactory factory = new SwitchableFactory();
-            RoomOverlayReconciler reconciler = new RoomOverlayReconciler(catalog, factory);
-            RoomIdentity room = CreateRoom("D03Z02S06", "D03Z02S06_LOGIC");
-
-            RoomOverlayReconcileResult first = reconciler.Apply(room, file);
-            Assert.True(first.Succeeded, first.StatusMessage);
-            factory.Reject = true;
-
-            RoomOverlayReconcileResult second = reconciler.Apply(room, file);
-
-            Assert.True(second.Succeeded, second.StatusMessage);
-            Assert.Same(first.Session, second.Session);
-            Assert.Same(first.Manager, second.Manager);
-            Assert.Single(second.Manager.OwnedPlacementIds);
-            Assert.True(factory.Created[0].IsAlive);
-
-            ApplyReport report = new ApplyReport();
-            Assert.True(second.Manager.TrySelect("authored", report, out _), report.ToSummary("select"));
-            PlacementTransform moved = new(7f, 8f, 0f, 0f, 0f, 30f, 1f, 1f, 1f);
-            Assert.True(second.Manager.TryMove("authored", moved, report), report.ToSummary("move"));
-            Assert.True(second.Manager.TryUndo(report), report.ToSummary("undo"));
-        }
-        finally
-        {
-            DeleteDirectory(directory);
-        }
-    }
-
-    [Fact]
-    public void Unavailable_registry_rejects_delete_so_export_cannot_lose_additions()
-    {
-        string directory = MakeDirectory();
-        string path = Path.Combine(directory, "D03Z02S06.json");
-        try
-        {
-            Directory.CreateDirectory(directory);
-            File.WriteAllText(path, DocumentWithPlacement());
-            FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, "D03Z02S06");
-            ContentCatalog catalog = ContentCatalog.FromInventory(
-                RuntimeCreatorInventory.RegistryUnavailable("registry denied"));
-            FakeFactory factory = new FakeFactory();
-            RoomOverlayReconciler reconciler = new RoomOverlayReconciler(catalog, factory);
-
-            RoomOverlayReconcileResult result = reconciler.Apply(
-                CreateRoom("D03Z02S06", "D03Z02S06_LOGIC"),
-                file);
-            Assert.True(result.Succeeded, result.StatusMessage);
-
-            ApplyReport report = new ApplyReport();
-            Assert.False(result.Manager.TryDelete("authored", report));
-            Assert.Contains(
-                report.Entries,
-                entry => entry.Code == ReportCodes.CreatorRegistryUnavailable);
-            Assert.Single(result.Session.Placements);
-            Assert.True(factory.Created[0].IsAlive);
-
-            LevelEditSessionExportResult exported = result.Session.Export(path);
-            Assert.True(exported.Succeeded, exported.StatusMessage);
-            Assert.Contains("\"authored\"", File.ReadAllText(path));
+            Assert.All(
+                exported.Document.Additions,
+                addition => Assert.True(addition.PreserveOriginalAddition));
+            JObject original = JObject.Parse(source);
+            JObject roundTripped = JObject.Parse(File.ReadAllText(path));
+            Assert.True(
+                JToken.DeepEquals(original, roundTripped),
+                "Preserved additions changed during export.");
         }
         finally
         {
@@ -410,9 +308,9 @@ public sealed class RoomOverlayReconcilerTests
         return "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"first\",\"position\":{\"x\":1,\"y\":2,\"z\":3}},{\"type\":\"bell-iron\",\"id\":\"second\",\"position\":{\"x\":4,\"y\":5,\"z\":6}}],\"modifications\":[],\"deletions\":[]}";
     }
 
-    private static string DocumentWithEditableAndPropertyAddition()
+    private static string DocumentWithRegistryDependentAdditions()
     {
-        return "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"editable\",\"position\":{\"x\":1,\"y\":2,\"z\":3}},{\"type\":\"bell-iron\",\"id\":\"property\",\"position\":{\"x\":4,\"y\":5,\"z\":6},\"properties\":[\"length=3.0\"]}],\"modifications\":[],\"deletions\":[]}";
+        return "{\"additions\":[{\"type\":\"bell-iron\",\"id\":\"plain\",\"position\":{\"x\":1,\"y\":2,\"z\":3}},{\"type\":\"bell-iron\",\"id\":\"property\",\"position\":{\"x\":4,\"y\":5,\"z\":6},\"properties\":[\"length=3.0\"]}],\"modifications\":[],\"deletions\":[]}";
     }
 
     private static RoomIdentity CreateRoom(string levelKey, string scene)
@@ -440,30 +338,6 @@ public sealed class RoomOverlayReconcilerTests
 
         public IRuntimePlacementHandle Create(PlacementRecord placement)
         {
-            FakeHandle handle = new FakeHandle(placement.Id);
-            Created.Add(handle);
-            return handle;
-        }
-    }
-
-    private sealed class RejectingFactory : IRuntimePlacementFactory
-    {
-        public IRuntimePlacementHandle Create(PlacementRecord placement)
-        {
-            throw new InvalidOperationException("registry unavailable");
-        }
-    }
-
-    private sealed class SwitchableFactory : IRuntimePlacementFactory
-    {
-        internal bool Reject { get; set; }
-        internal List<FakeHandle> Created { get; } = new List<FakeHandle>();
-
-        public IRuntimePlacementHandle Create(PlacementRecord placement)
-        {
-            if (Reject)
-                throw new InvalidOperationException("registry unavailable");
-
             FakeHandle handle = new FakeHandle(placement.Id);
             Created.Add(handle);
             return handle;

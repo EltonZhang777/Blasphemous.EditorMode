@@ -92,37 +92,6 @@ internal sealed class ContentCatalog
         return new ContentCatalog(available, previewFactory);
     }
 
-    internal ContentCatalog WithFallbackCreators(IEnumerable<string> types)
-    {
-        List<CreatorMetadata> available = [.. Entries];
-        HashSet<string> known = new(StringComparer.Ordinal);
-        foreach (CreatorMetadata entry in Entries)
-            known.Add(entry.Type);
-
-        foreach (string type in types ?? [])
-        {
-            if (string.IsNullOrEmpty(type) || type.Trim().Length == 0 || !known.Add(type))
-                continue;
-
-            available.Add(new CreatorMetadata(
-                type,
-                type,
-                "Registered",
-                CreatorOrigin.BaseFramework,
-                "Not declared",
-                "Not declared",
-                TransformCapabilities.Position
-                    | TransformCapabilities.Rotation
-                    | TransformCapabilities.Scale,
-                new CreatorPropertyDefinition[0],
-                "Level Framework",
-                false,
-                false));
-        }
-
-        return new ContentCatalog(available, _previewFactory, _registryUnavailable);
-    }
-
     internal bool TryGet(string type, out CreatorMetadata metadata)
     {
         metadata = null;

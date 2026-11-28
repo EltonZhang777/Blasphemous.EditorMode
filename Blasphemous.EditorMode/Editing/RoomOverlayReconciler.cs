@@ -52,22 +52,20 @@ internal sealed class RoomOverlayReconciler
     internal RoomOverlayReconcileResult Apply(RoomIdentity room, FrameworkFileResult file)
     {
         ApplyReport report = new();
-        ContentCatalog sessionCatalog = _catalog;
         if (_catalog.RegistryUnavailable)
         {
-            sessionCatalog = _catalog.WithFallbackCreators(ReferencedAdditionTypes(file));
             report.Warning(
                 ReportCodes.CreatorRegistryUnavailable,
                 "<registry>",
-                "Level Framework creator registry is unavailable; existing additions use exact-type fallback support. Preview and Place are disabled.");
+                "Level Framework creator registry is unavailable; additions are preserved unchanged and Preview and Place are disabled.");
         }
 
-        LevelEditSessionImportResult imported = LevelEditSession.Import(room, file, sessionCatalog.Entries);
+        LevelEditSessionImportResult imported = LevelEditSession.Import(room, file, _catalog.Entries);
         report.Merge(imported.Report);
         if (!imported.Succeeded)
             return new RoomOverlayReconcileResult(room, null, null, report);
 
-        RuntimePlacementManager next = new(imported.Session, sessionCatalog, _factory);
+        RuntimePlacementManager next = new(imported.Session, _catalog, _factory);
         IRuntimePlacementAdoptionPass adoptionPass = _factory as IRuntimePlacementAdoptionPass;
         adoptionPass?.BeginAdoptionPass();
 
@@ -77,20 +75,6 @@ internal sealed class RoomOverlayReconciler
             {
                 if (next.TryProjectExisting(placement, report))
                     continue;
-
-                if (sessionCatalog.RegistryUnavailable)
-                {
-                    if (_manager != null
-                        && _session != null
-                        && _room != null
-                        && _room.Equals(room))
-                    {
-                        next.TryClear(report);
-                        return new RoomOverlayReconcileResult(room, _session, _manager, report);
-                    }
-
-                    continue;
-                }
 
                 next.TryClear(report);
                 return new RoomOverlayReconcileResult(room, null, null, report);
@@ -136,25 +120,6 @@ internal sealed class RoomOverlayReconciler
         }
 
         return result;
-    }
-
-    private static IEnumerable<string> ReferencedAdditionTypes(FrameworkFileResult file)
-    {
-        if (file?.Document == null)
-            yield break;
-
-        HashSet<string> seen = new(StringComparer.Ordinal);
-        foreach (FrameworkObjectData data in file.Document.Additions)
-        {
-            if (data == null
-                || data.PreserveOriginalAddition
-                || string.IsNullOrEmpty(data.Type)
-                || data.Type.Trim().Length == 0)
-                continue;
-
-            if (seen.Add(data.Type))
-                yield return data.Type;
-        }
     }
 }
 
