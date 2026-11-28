@@ -766,38 +766,33 @@ jobs:
         }
 
         $placeholderBody = 'This draft is created from validated release artifacts. Review and update these notes before publishing.'
-        $releaseEndpoint = "repos/$($env:GITHUB_REPOSITORY)/releases/tags/$([uri]::EscapeDataString($env:RELEASE_TAG))"
+        $releasesEndpoint = "repos/$($env:GITHUB_REPOSITORY)/releases?per_page=100"
 
         function Get-ReleaseState {
-          $rawLines = @(& gh api --include $releaseEndpoint 2>&1 | ForEach-Object { [string]$_ })
+          $rawLines = @(& gh api --paginate $releasesEndpoint 2>&1 | ForEach-Object { [string]$_ })
           $exitCode = $LASTEXITCODE
           $rawText = $rawLines -join "`n"
           if ($exitCode -eq 0) {
-            $jsonMatch = [regex]::Match($rawText, '(?m)^\{')
+            $jsonMatch = [regex]::Match($rawText, '(?m)^\[')
             if (-not $jsonMatch.Success) {
               throw 'GitHub Release lookup succeeded without a JSON response.'
             }
             try {
-              $release = $rawText.Substring($jsonMatch.Index) | ConvertFrom-Json
+              $releases = @($rawText.Substring($jsonMatch.Index) | ConvertFrom-Json)
             } catch {
               throw "GitHub Release lookup returned invalid JSON: $($_.Exception.Message)"
             }
-            return [pscustomobject]@{ State = 'present'; Release = $release }
+            $matchingReleases = @($releases | Where-Object { [string]$_.tag_name -ceq $env:RELEASE_TAG })
+            if ($matchingReleases.Count -eq 0) {
+              return [pscustomobject]@{ State = 'absent'; Release = $null }
+            }
+            if ($matchingReleases.Count -ne 1) {
+              throw "GitHub Release lookup found $($matchingReleases.Count) releases for '$($env:RELEASE_TAG)'; refusing to mutate."
+            }
+            return [pscustomobject]@{ State = 'present'; Release = $matchingReleases[0] }
           }
 
-          $statusMatches = [regex]::Matches($rawText, '(?m)^HTTP/\S+\s+(\d{3})\b')
-          $lastStatus = if ($statusMatches.Count -gt 0) {
-            [int]$statusMatches[$statusMatches.Count - 1].Groups[1].Value
-          } else {
-            $null
-          }
-          if ($lastStatus -eq 404) {
-            return [pscustomobject]@{ State = 'absent'; Release = $null }
-          }
-          if ($null -eq $lastStatus -and $rawText -match '(?im)^gh: Not Found \(HTTP 404\)\s*$') {
-            return [pscustomobject]@{ State = 'absent'; Release = $null }
-          }
-          throw "GitHub Release lookup failed without a definitive absence response. Refusing to mutate.`n$rawText"
+          throw "GitHub Release lookup failed; refusing to mutate.`n$rawText"
         }
 
         function Assert-DraftAssetBoundary {
