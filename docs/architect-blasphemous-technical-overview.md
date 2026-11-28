@@ -338,6 +338,8 @@ Object Catalog 是面向用户的对象目录，不等同于 Framework 内部 cr
 
 本次规格选择第一种作为默认方案，第二/第三种只列为扩展建议。
 
+实现更新（ADR 0007 / `#90`）：当前实现已改为直接枚举基础 Framework 的运行时 creator registry，并以运行时生成的 fallback metadata 作为目录视图；这取代了上面的第一种方案。受控反射失败必须成为可见诊断；共享反射适配器作为低优先级重构跟踪于 `#129`。本节其余条目字段和原生对象边界仍然有效。
+
 原生对象的操作边界：
 
 - 任何通过验证的新建或导入 addition 都由 EditAuthority 标记为可编辑；无法完整建模的 addition 作为 Preserved Addition 保留。
@@ -646,7 +648,7 @@ UI、输入、对象目录、RuntimePlacementManager 和 LevelFrameworkAdapter �
 | 当前 Architect 强耦合 Silksong 类型 | 极高 | 不共享 Silksong 运行时层，只迁移领域语义 |
 | Framework 版本不一致 | 极高 | 实现前锁定实际 deployed DLL；当前基础 csproj 为 0.1.4，Extended 包引用为 0.2.0 |
 | ModdingAPI 版本不一致 | 高 | 当前基础工程 2.4.1，Extended 3.0.1；不能混用未验证 API |
-| Framework creator registry 非公开 | 高 | Architect 自有 curated catalog；提出可选公共元数据扩展 |
+| Framework creator registry 非公开 | 高 | 已接受受控反射枚举运行时 registry；失败可见；共享反射适配器见 #129 |
 | Framework 没有完整实时 apply API | 高 | session/runtime manager 与 Framework adapter 分离 |
 | SceneLoader 加载临时场景会触发 LevelInitializer | 高 | 使用已有 LevelInit patch 语义作为参考；实现时验证初始化抑制和清理 |
 | 原版对象 path 不稳定 | 高 | P0 不允许任意修改原版对象；导入逐项报告 |
@@ -681,7 +683,7 @@ UI、输入、对象目录、RuntimePlacementManager 和 LevelFrameworkAdapter �
 
 ### Phase 2：P0 对象编辑闭环
 
-- 建立 curated Object Catalog。
+- 建立运行时 registry 驱动的 Object Catalog（ADR 0007）。
 - 通过已验证源 scene/creator 实现 clone 和 preview。
 - 实现 PlacementRecord 和 edit authority。
 - 实现选择、放置、移动、变换、删除、属性编辑。

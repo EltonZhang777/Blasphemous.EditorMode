@@ -45,3 +45,5 @@ The table is a verified reference used by existing tests. It is not catalog memb
 `RuntimeCreatorInventoryReader` reads the Framework's internal creator registry through guarded reflection and builds the complete runtime inventory. Registry, enumeration, and value-access failures become diagnostics; exact registry keys are preserved; and the inventory does not require `LevelFrameworkExtended`.
 
 `RuntimeCreatorRegistry.TryGet` resolves Preview and Place targets with the same exact key. A read or lookup failure leaves the rest of the editor usable and is surfaced through the existing report and log surfaces.
+
+The membership decision is recorded in [ADR 0007](adr/0007-runtime-creator-registry-owns-catalog-membership.md).

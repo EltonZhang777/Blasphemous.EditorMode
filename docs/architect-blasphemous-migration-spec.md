@@ -1,6 +1,6 @@
 # Architect for Blasphemous 迁移规格
 
-状态：需求已确认；实现按本规格分阶段进行。
+状态：历史规划稿；实现按后续 issue 分阶段进行。Object Catalog 的 curated 成员制决策已由 [ADR 0007](adr/0007-runtime-creator-registry-owns-catalog-membership.md) 和 `#90` 取代；本文保留原始规划证据，冲突处以 ADR 0007 为准。
 
 ## Problem Statement
 
@@ -31,7 +31,7 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 2. 以 BlasphemousLifecycleBridge 连接 LevelManager 的关卡生命周期，在关卡加载后启动编辑会话，在离开关卡时清理运行时对象。
 3. 以 RuntimePlacementManager 提供当前房间的实时预览和对象操作，不把基础 Level Framework 的预加载流程误当作实时编辑 API。
 4. 以 LevelFrameworkAdapter 读写基础 Framework 兼容的 canonical JSON；不修改 Framework 源码。
-5. 以 curated Object Catalog 暴露已经验证的原生对象；首版不依赖内部 creator registry 的自动枚举。
+5. 以 curated Object Catalog 暴露已经验证的原生对象；首版不依赖内部 creator registry 的自动枚举。（已由 [ADR 0007](adr/0007-runtime-creator-registry-owns-catalog-membership.md) 和 `#90` 取代：Content Catalog 现在以运行时 creator registry 为成员权威，并使用运行时 fallback metadata。）
 6. 以 UI、输入、属性编辑、错误报告组成游戏内编辑器界面；首版支持键鼠并通过动作抽象保留手柄扩展点。
 7. 以 capability registry 管理事件/脚本/Tilemap等不确定能力；未验证能力只能导入、保留或报告，不得静默执行。
 8. 将 Extended 的 creator、公开元数据、JSON codec、实时 apply 等能力作为可选扩展建议，不放进 Architect 默认依赖链。
@@ -60,6 +60,8 @@ Architect-Silksong 是一个为 Silksong 构建的带 UI 的运行时关卡编�
 15. As an author, I want unsupported creators to be hidden or clearly marked, so that I do not create content the target runtime cannot load.
 16. As an author, I want catalog entries to report their source and compatibility, so that an optional extension is not mistaken for a core dependency.
 17. As an author, I want to preserve the possibility of favourites and saved objects, so that frequently used content can later be reused efficiently.
+
+> 实现更新（ADR 0007 / `#90`）：Object Catalog 仍报告来源与能力；未声明的来源细节使用 `Level Framework`、`Not declared` 等稳定 fallback，而不是隐藏条目。
 
 ### 放置、选择与变换
 
@@ -279,7 +281,7 @@ P0 只有在主接缝、依赖缺失降级、房间重载一致性、错误恢�
 ## Further Notes
 
 1. 当前基础 Framework 工程的本地版本信息与 Extended 的包依赖存在差异：基础工程声明 0.1.4，Extended 引用 0.2.0；两者的 ModdingAPI 版本也不同。实现仓库必须先以实际部署 DLL 建立版本矩阵。
-2. 基础 Framework 的 creator 注册更接近“其他 mod 注册关卡对象”的服务，而不是完整的编辑器目录 API。Object Catalog 需要自己的稳定元数据层。
+2. 基础 Framework 的 creator 注册更接近“其他 mod 注册关卡对象”的服务，而不是完整的编辑器目录 API。Object Catalog 需要自己的稳定元数据层。实现更新（ADR 0007 / `#90`）：当前实现以运行时 creator registry 为成员权威，通过受控反射构建目录，并以 fallback metadata 补足缺失信息；共享反射适配器见 `#129`。
 3. Extended 的 .jsonc/$prev 逻辑适合作者工作流，但 canonical JSON 首版应先保持基础 Framework 独立可加载。
 4. 当前 Architect-Silksong 功能矩阵和平台适配证据见配套技术概述；本规格只保留实现决策和用户可验证行为。
 5. 未来如果需要把本规格拆为 agent 任务，应先按 Phase 0 → Phase 1 → Phase 2 顺序执行，并在每个阶段满足停止条件后再推进。

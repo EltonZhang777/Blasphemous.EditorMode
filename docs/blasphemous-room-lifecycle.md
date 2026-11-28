@@ -33,6 +33,8 @@ MainMenu, unrelated active scenes, unsupported scene suffixes, and missing value
 
 The bridge does not write the Original Save and does not treat `OnLevelPreloaded` as a real-time editing API.
 
-## Creator source preload
+## Creator source loading
 
-Start creator preload only after a validated Room Identity exists. A prior attempt from MainMenu logged `[Error :Editor Mode] Creator source preload failed for bell-iron: Scene to unload is invalid`; the preload is now gated on `CurrentRoom` and begins after the room-load callback. The latest target-profile smoke loaded the room and placed/imported bell-iron without reproducing the error. This verifies the bell-iron path only; other creators and broader transition/cleanup behavior still need coverage.
+Creator sources load lazily: selecting a creator in the Content Catalog requests its source, and Room Overlay preparation requests only the sources referenced by the current room. Opening the editor does not preload every catalog entry. A loader that already has an available result when the editor initializes enters `Ready` without another load.
+
+A room unload is a source-lifecycle boundary. Cached source states are invalidated, so a result from the previous room cannot keep a creator `Ready` or authorize Preview/Place in the new room. The next room's referenced sources are loaded serially before the Room Overlay is rebuilt, and selecting a creator after the boundary starts a fresh serial load.
