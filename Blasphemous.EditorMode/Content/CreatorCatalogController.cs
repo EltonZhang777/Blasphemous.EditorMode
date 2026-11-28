@@ -353,6 +353,10 @@ internal sealed class CreatorCatalogController
         return new ReadOnlyCollection<string>([.. _invalidatedLoadedSourceTypes]);
     }
 
+    /// <summary>
+    /// Drops cached source state at a room or catalog boundary. Every creator
+    /// with a loader is invalidated so an earlier context's result cannot stay Ready.
+    /// </summary>
     internal void ResetSourceStates()
     {
         _sourceLoadGeneration++;
@@ -363,7 +367,11 @@ internal sealed class CreatorCatalogController
             _invalidatedLoadedSourceTypes.Add(_activeSourceLoadType);
 
         foreach (CreatorMetadata metadata in _inventory.Entries)
+        {
+            if (metadata.HasLoader)
+                _invalidatedLoadedSourceTypes.Add(metadata.Type);
             _sourceStates[metadata.Type] = CreateInitialSourceState(metadata);
+        }
     }
 
     internal bool PreviousPage()

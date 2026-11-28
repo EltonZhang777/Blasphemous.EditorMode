@@ -654,7 +654,7 @@ public sealed class CreatorCatalogControllerTests
     }
 
     [Fact]
-    public void ResetReusesSourcesReportedByTheRuntimeProbe()
+    public void ResetInvalidatesSourcesThatWereReadyBeforeTheRoomBoundary()
     {
         CreatorCatalogController controller = new(
             RuntimeCreatorInventory.FromRegistryEntries(
@@ -665,14 +665,24 @@ public sealed class CreatorCatalogControllerTests
                 }),
             type => Probe(string.Equals(type, "loaded", StringComparison.Ordinal)));
 
+        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("loaded"));
+
         Assert.True(controller.TrySelect("pending"));
         Assert.True(controller.TryBeginNextSourceLoad(out string type, out int generation));
         Assert.True(controller.CompleteSourceLoad(type, generation, false, "Loader failed."));
 
         controller.ResetSourceStates();
 
-        Assert.Equal(CreatorCatalogSourceState.Ready, controller.GetSourceState("loaded"));
+        Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("loaded"));
         Assert.Equal(CreatorCatalogSourceState.NotRequested, controller.GetSourceState("pending"));
+        Assert.False(controller.PreviewAvailable);
+        Assert.False(controller.PlaceAvailable);
+        Assert.True(controller.TrySelect("loaded"));
+        Assert.True(controller.TryBeginNextSourceLoad(out type, out generation));
+        Assert.Equal("loaded", type);
+        Assert.Equal(CreatorCatalogSourceState.Loading, controller.GetSourceState("loaded"));
+        Assert.False(controller.PreviewAvailable);
+        Assert.False(controller.PlaceAvailable);
     }
 
     [Fact]

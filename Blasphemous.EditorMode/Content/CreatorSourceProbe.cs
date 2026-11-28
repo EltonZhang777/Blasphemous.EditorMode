@@ -54,14 +54,19 @@ internal readonly struct CreatorSourceProbeResult
 
 internal static class CreatorSourceProbe
 {
-    internal static CreatorSourceProbeResult Inspect(Func<object> readResult)
+    internal static CreatorSourceProbeResult Inspect(
+        Func<object> readResult,
+        Func<object, bool> isUnavailable = null)
     {
         if (readResult == null)
             return CreatorSourceProbeResult.Failed("Creator source result could not be read.");
 
         try
         {
-            return readResult() == null
+            object result = readResult();
+            bool unavailable = result == null
+                || (isUnavailable != null && isUnavailable(result));
+            return unavailable
                 ? CreatorSourceProbeResult.NotLoaded()
                 : CreatorSourceProbeResult.Ready();
         }
@@ -74,9 +79,10 @@ internal static class CreatorSourceProbe
 
     internal static bool TryConfirmLoadedSource(
         Func<object> readResult,
-        out string failureReason)
+        out string failureReason,
+        Func<object, bool> isUnavailable = null)
     {
-        CreatorSourceProbeResult result = Inspect(readResult);
+        CreatorSourceProbeResult result = Inspect(readResult, isUnavailable);
         if (result.State == CreatorSourceProbeState.Ready)
         {
             failureReason = null;

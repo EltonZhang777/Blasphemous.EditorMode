@@ -1096,7 +1096,8 @@ internal class EditorMode : BlasMod
                         {
                             if (CreatorSourceProbe.TryConfirmLoadedSource(
                                 () => creator.Loader.Result,
-                                out string sourceFailure))
+                                out string sourceFailure,
+                                IsUnavailableUnityObject))
                                 succeeded = true;
                             else
                                 reason = sourceFailure;
@@ -1185,7 +1186,14 @@ internal class EditorMode : BlasMod
         if (creator.Loader == null)
             return CreatorSourceProbeResult.Failed("Creator has no runtime loader.");
 
-        return CreatorSourceProbe.Inspect(() => creator.Loader.Result);
+        return CreatorSourceProbe.Inspect(
+            () => creator.Loader.Result,
+            IsUnavailableUnityObject);
+    }
+
+    private static bool IsUnavailableUnityObject(object value)
+    {
+        return value is UnityEngine.Object unityObject && unityObject == null;
     }
 
     private void PublishCreatorSourceProbeFailures(CreatorCatalogController catalog)
