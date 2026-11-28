@@ -55,19 +55,29 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
-    public void Entry_requires_debug_gate_and_compatible_room()
+    public void Entry_requires_compatible_room()
     {
         TestState state = new TestState();
         EditorModeGuard guard = CreateGuard(state);
         EditorRuntimeState target = CreateSnapshot();
         string error;
 
-        Assert.False(guard.TryEnter(false, true, target, out error));
-        Assert.Contains("debug", error);
-        Assert.False(guard.TryEnter(true, false, target, out error));
+        Assert.False(guard.TryEnter(false, target, out error));
         Assert.Contains("compatible", error);
         Assert.False(guard.IsActive);
         Assert.Equal(0, state.Applies);
+    }
+
+    [Fact]
+    public void Entry_accepts_packaged_build_when_room_is_compatible()
+    {
+        TestState state = new TestState();
+        EditorModeGuard guard = CreateGuard(state);
+        string error;
+
+        Assert.True(guard.TryEnter(true, CreateSnapshot(), out error), error);
+        Assert.True(guard.IsActive);
+        Assert.Equal(1, state.Applies);
     }
 
     [Fact]
@@ -78,7 +88,7 @@ public sealed class EditorModeGuardTests
         EditorModeGuard guard = CreateGuard(state);
         string error;
 
-        Assert.True(guard.TryEnter(true, true, CreateSnapshot(), out error));
+        Assert.True(guard.TryEnter(true, CreateSnapshot(), out error));
         Assert.True(guard.IsActive);
         Assert.True(state.Current.CursorVisible);
         Assert.Equal(0, state.Current.CursorLockState);
@@ -101,7 +111,7 @@ public sealed class EditorModeGuardTests
         string error;
         EditorRuntimeState editorState = CreateSnapshot(0f, true, true, false, false, false, false, true, false, false, false, true, 0);
 
-        Assert.True(guard.TryEnter(true, true, editorState, out error), error);
+        Assert.True(guard.TryEnter(true, editorState, out error), error);
         state.Current = CreateSnapshot(1f, false, true, false, false, false, false, true, false, false, false, true, 0);
 
         Assert.True(guard.TryResumeGameplay(out error), error);
@@ -140,7 +150,7 @@ public sealed class EditorModeGuardTests
         EditorModeGuard guard = CreateGuard(state);
         string error;
         EditorRuntimeState editorState = CreateSnapshot(0f, true, true, false, false, false, false, true, false, false, false, true, 0);
-        Assert.True(guard.TryEnter(true, true, editorState, out error), error);
+        Assert.True(guard.TryEnter(true, editorState, out error), error);
         state.Current = CreateSnapshot(1f, false, true, false, false, false, false, true, false, false, false, true, 0);
         state.ThrowOnApplyNumber = state.Applies + 1;
 
@@ -167,7 +177,7 @@ public sealed class EditorModeGuardTests
         EditorModeGuard guard = CreateGuard(state);
         string error;
 
-        Assert.False(guard.TryEnter(true, true, CreateSnapshot(), out error));
+        Assert.False(guard.TryEnter(true, CreateSnapshot(), out error));
         Assert.Contains("failed", error);
         Assert.False(guard.IsActive);
         Assert.Same(state.Original, state.Current);
@@ -180,7 +190,7 @@ public sealed class EditorModeGuardTests
         EditorModeGuard guard = CreateGuard(state);
         string error;
 
-        Assert.False(guard.TryEnter(true, true, CreateSnapshot(), out error));
+        Assert.False(guard.TryEnter(true, CreateSnapshot(), out error));
         Assert.Contains("Restore failed", error);
         Assert.True(guard.IsActive);
 
@@ -198,7 +208,7 @@ public sealed class EditorModeGuardTests
         EditorModeGuard guard = CreateGuard(state);
         string error;
 
-        Assert.False(guard.TryEnter(true, true, CreateSnapshot(), out error));
+        Assert.False(guard.TryEnter(true, CreateSnapshot(), out error));
         Assert.Contains("cinematic", error);
         Assert.Same(original, state.Current);
         Assert.Equal(0, state.Applies);

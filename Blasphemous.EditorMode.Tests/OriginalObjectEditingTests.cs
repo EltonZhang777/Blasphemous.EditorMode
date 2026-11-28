@@ -373,11 +373,11 @@ public sealed class OriginalObjectEditingTests
                 () => runtime,
                 value => runtime = value);
             Assert.True(
-                guard.TryEnter(true, true, CreateRuntimeState(), out string error),
+                guard.TryEnter(true, CreateRuntimeState(), out string error),
                 error);
             Assert.True(guard.TryExit(out error), error);
             Assert.True(
-                guard.TryEnter(true, true, CreateRuntimeState(), out error),
+                guard.TryEnter(true, CreateRuntimeState(), out error),
                 error);
 
             Assert.Single(result.Session.Deletions);
@@ -1523,11 +1523,11 @@ public sealed class OriginalObjectEditingTests
                 () => runtime,
                 value => runtime = value);
             Assert.True(
-                guard.TryEnter(true, true, CreateRuntimeState(), out string error),
+                guard.TryEnter(true, CreateRuntimeState(), out string error),
                 error);
             Assert.True(guard.TryExit(out error), error);
             Assert.True(
-                guard.TryEnter(true, true, CreateRuntimeState(), out error),
+                guard.TryEnter(true, CreateRuntimeState(), out error),
                 error);
 
             ApplyReport pageReport = new();

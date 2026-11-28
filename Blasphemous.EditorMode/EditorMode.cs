@@ -295,7 +295,7 @@ internal class EditorMode : BlasMod
             return;
         }
 
-        if (!_editorGuard.TryEnter(true, true, CreateEditorState(), out string error))
+        if (!_editorGuard.TryEnter(true, CreateEditorState(), out string error))
         {
             _lifecycleBridge.EndEditing();
             ModLog.Warn(error);
