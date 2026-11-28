@@ -6,7 +6,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class RawPropertiesTextTests
 {
     [Fact]
-    public void Creation_preserves_committed_order_and_raw_values()
+    public void CreationPreservesCommittedOrderAndRawValues()
     {
         string[] properties =
         [
@@ -24,7 +24,7 @@ public sealed class RawPropertiesTextTests
     }
 
     [Fact]
-    public void Creation_uses_empty_text_when_no_properties_exist()
+    public void CreationUsesEmptyTextWhenNoPropertiesExist()
     {
         RawPropertiesText result = RawPropertiesText.Create([]);
 
@@ -36,7 +36,7 @@ public sealed class RawPropertiesTextTests
     [InlineData("note=first\nsecond")]
     [InlineData("note=first\rsecond")]
     [InlineData("note=first\r\nsecond")]
-    public void Creation_detects_embedded_line_breaks_without_rewriting_them(string property)
+    public void CreationDetectsEmbeddedLineBreaksWithoutRewritingThem(string property)
     {
         RawPropertiesText result = RawPropertiesText.Create([property]);
 

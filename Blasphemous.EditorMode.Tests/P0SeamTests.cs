@@ -12,7 +12,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class P0SeamTests
 {
     [Fact]
-    public void Full_p0_seam_round_trips_the_edited_room_overlay()
+    public void FullP0SeamRoundTripsTheEditedRoomOverlay()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -60,7 +60,9 @@ public sealed class P0SeamTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, true);
+            }
         }
     }
 

@@ -38,7 +38,9 @@ internal static class P0AcceptanceGate
     internal static P0AcceptanceResult Evaluate(P0AcceptanceEvidence evidence)
     {
         if (evidence == null)
+        {
             throw new ArgumentNullException(nameof(evidence));
+        }
 
         ApplyReport report = new();
         Check(report, P0AcceptanceCheck.Seam, evidence.SeamPassed, "LevelEditSession import/edit/undo/redo/export/re-import seam");
@@ -76,8 +78,12 @@ internal static class P0AcceptanceGate
     {
         KeyValuePair<string, string> codeAndIdentity = ReportCodes.P0Code(check, passed);
         if (passed)
+        {
             report.Info(codeAndIdentity.Key, codeAndIdentity.Value, description + " passed.");
+        }
         else
+        {
             report.Error(codeAndIdentity.Key, codeAndIdentity.Value, description + " has no passing evidence.");
+        }
     }
 }

@@ -6,7 +6,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class RoomLifecycleTests
 {
     [Fact]
-    public void Room_identity_keeps_framework_key_scene_suffix_and_export_key()
+    public void RoomIdentityKeepsFrameworkKeySceneSuffixAndExportKey()
     {
         RoomIdentity identity;
         string error;
@@ -20,7 +20,7 @@ public sealed class RoomLifecycleTests
     }
 
     [Fact]
-    public void Main_menu_and_unrelated_scene_are_rejected()
+    public void MainMenuAndUnrelatedSceneAreRejected()
     {
         RoomIdentity identity;
         string error;
@@ -35,7 +35,7 @@ public sealed class RoomLifecycleTests
     }
 
     [Fact]
-    public void Repeated_load_is_idempotent_and_transition_cleans_previous_room()
+    public void RepeatedLoadIsIdempotentAndTransitionCleansPreviousRoom()
     {
         int loaded = 0;
         int unloaded = 0;
@@ -61,7 +61,7 @@ public sealed class RoomLifecycleTests
     }
 
     [Fact]
-    public void Invalid_loaded_scene_faults_without_creating_a_room()
+    public void InvalidLoadedSceneFaultsWithoutCreatingARoom()
     {
         BlasphemousLifecycleBridge bridge = new BlasphemousLifecycleBridge(null, null);
 
@@ -71,7 +71,7 @@ public sealed class RoomLifecycleTests
     }
 
     [Fact]
-    public void Editing_is_only_allowed_for_a_loaded_room_and_repeated_load_keeps_it()
+    public void EditingIsOnlyAllowedForALoadedRoomAndRepeatedLoadKeepsIt()
     {
         BlasphemousLifecycleBridge bridge = new BlasphemousLifecycleBridge(null, null);
         bridge.OnLevelLoaded("D03Z02S06", "D03Z02S06_LOGIC");

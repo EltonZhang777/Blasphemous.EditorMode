@@ -61,13 +61,17 @@ internal static class CreatorProbe
         IEnumerable<string> registeredTypes)
     {
         if (catalog == null)
+        {
             throw new ArgumentNullException(nameof(catalog));
+        }
 
         HashSet<string> registered = new(StringComparer.OrdinalIgnoreCase);
         foreach (string type in registeredTypes ?? [])
         {
             if (!string.IsNullOrEmpty(type) && type.Trim().Length > 0)
+            {
                 registered.Add(type);
+            }
         }
 
         List<CreatorMetadata> available = [];

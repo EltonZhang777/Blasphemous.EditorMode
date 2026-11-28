@@ -6,7 +6,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class EditorModeGuardTests
 {
     [Fact]
-    public void Restoring_unpaused_snapshot_keeps_native_resume_scale_after_editor_pause()
+    public void RestoringUnpausedSnapshotKeepsNativeResumeScaleAfterEditorPause()
     {
         EditorRuntimeState state = CreateSnapshot(0.1f, paused: false);
         bool currentlyPaused = true;
@@ -23,7 +23,7 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
-    public void Restoring_unpaused_snapshot_clears_slow_motion_without_pause_transition()
+    public void RestoringUnpausedSnapshotClearsSlowMotionWithoutPauseTransition()
     {
         EditorRuntimeState state = CreateSnapshot(0.1f, paused: false);
         float currentTimeScale = 0.1f;
@@ -38,7 +38,7 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
-    public void Restoring_a_paused_state_keeps_its_captured_time_scale()
+    public void RestoringAPausedStateKeepsItsCapturedTimeScale()
     {
         EditorRuntimeState state = CreateSnapshot(0.2f, paused: true);
         bool currentlyPaused = false;
@@ -55,7 +55,7 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
-    public void Entry_requires_debug_gate_and_compatible_room()
+    public void EntryRequiresDebugGateAndCompatibleRoom()
     {
         TestState state = new TestState();
         EditorModeGuard guard = CreateGuard(state);
@@ -71,7 +71,7 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
-    public void Exit_restores_every_captured_field()
+    public void ExitRestoresEveryCapturedField()
     {
         TestState state = new TestState { Current = CreateSnapshot(1.5f, true, true, false, true, false, false, true, false, true, false, false, 2) };
         EditorRuntimeState original = state.Current;
@@ -91,7 +91,7 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
-    public void Resume_restores_player_runtime_and_exit_preserves_live_gameplay_state()
+    public void ResumeRestoresPlayerRuntimeAndExitPreservesLiveGameplayState()
     {
         TestState state = new TestState
         {
@@ -131,7 +131,7 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
-    public void Failed_resume_restores_editor_state_and_can_be_retried()
+    public void FailedResumeRestoresEditorStateAndCanBeRetried()
     {
         TestState state = new TestState
         {
@@ -161,7 +161,7 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
-    public void Failed_entry_rolls_back_and_remains_inactive()
+    public void FailedEntryRollsBackAndRemainsInactive()
     {
         TestState state = new TestState { ThrowOnApplyNumber = 1 };
         EditorModeGuard guard = CreateGuard(state);
@@ -174,7 +174,7 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
-    public void Failed_entry_keeps_original_snapshot_when_rollback_also_fails()
+    public void FailedEntryKeepsOriginalSnapshotWhenRollbackAlsoFails()
     {
         TestState state = new TestState { ThrowOnApplyNumbers = new[] { 1, 2, 3 } };
         EditorModeGuard guard = CreateGuard(state);
@@ -191,7 +191,7 @@ public sealed class EditorModeGuardTests
     }
 
     [Fact]
-    public void Cinematic_state_rejects_entry_without_mutation()
+    public void CinematicStateRejectsEntryWithoutMutation()
     {
         TestState state = new TestState { Current = CreateSnapshot(cinematicMode: true) };
         EditorRuntimeState original = state.Current;
@@ -214,7 +214,9 @@ public sealed class EditorModeGuardTests
                 state.Current = snapshot;
                 if (state.Applies == state.ThrowOnApplyNumber
                     || System.Array.IndexOf(state.ThrowOnApplyNumbers, state.Applies) >= 0)
+                {
                     throw new System.InvalidOperationException("injected apply failure");
+                }
             });
     }
 

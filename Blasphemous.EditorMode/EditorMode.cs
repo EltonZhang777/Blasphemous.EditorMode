@@ -8,11 +8,9 @@ using Blasphemous.EditorMode.Runtime;
 using Blasphemous.Framework.UI;
 using Blasphemous.ModdingAPI;
 using Framework.Managers;
-using Gameplay.GameControllers.Environment;
 using Gameplay.UI;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using Tools.Level.Layout;
 using UnityEngine;
@@ -61,6 +59,7 @@ internal class EditorMode : BlasMod
     private BlasphemousLifecycleBridge _lifecycleBridge;
     private EditorModeGuard _editorGuard;
     private ApplyReportPublisher _reportPublisher;
+    private readonly RoomRuntimeContextAdapter _roomRuntimeContext = new();
     private UnityRuntimePlacementFactory _runtimeFactory;
     private RoomOverlayReconciler _overlayReconciler;
     private Coroutine _roomPreparation;
@@ -91,11 +90,17 @@ internal class EditorMode : BlasMod
             (severity, message) =>
             {
                 if (severity == ApplySeverity.Error)
+                {
                     ModLog.Error(message);
+                }
                 else if (severity == ApplySeverity.Warning)
+                {
                     ModLog.Warn(message);
+                }
                 else
+                {
                     ModLog.Info(message);
+                }
             });
         _editorGuard = new EditorModeGuard(
             BlasphemousEditorRuntimeState.Capture,
@@ -122,53 +127,40 @@ internal class EditorMode : BlasMod
     protected override void OnLevelPreloaded(string oldLevel, string newLevel)
     {
         _lifecycleBridge.OnLevelPreloaded(oldLevel, newLevel);
-        RefreshCurrentLevelConfig();
-    }
-
-    private void RefreshCurrentLevelConfig()
-    {
-        LogicManager logic = Core.Logic;
-        if (logic == null)
-            return;
-
-        Scene activeScene = SceneManager.GetActiveScene();
-        if (!activeScene.IsValid() || !activeScene.isLoaded)
-            return;
-
-        LevelInitializer initializer = null;
-        foreach (GameObject root in activeScene.GetRootGameObjects())
-        {
-            LevelInitializer candidate = root.GetComponentInChildren<LevelInitializer>();
-            if (candidate == null || !candidate.isActiveAndEnabled)
-                continue;
-
-            initializer = candidate;
-            break;
-        }
-
-        if (initializer == null)
-            return;
-
-        if (initializer.GetComponentInChildren<LevelEffectsStore>() == null)
+        RoomRuntimeContextRecord record = _roomRuntimeContext.ObserveAndRebindAtPreload(newLevel);
+        LogRoomRuntimeContext(record);
+        if (record.Kind == RoomRuntimeContextRecordKind.Failed
+            && record.Reason == RoomRuntimeContextReasons.StoreComponentMissing)
         {
             ApplyReport report = new();
             report.Error(
                 ReportCodes.RoomEffectsStoreMissing,
-                activeScene.name,
+                record.ActiveScene,
                 "The active room has no LevelEffectsStore component; its context was not refreshed.");
             PublishReport("Room context refresh", report, false);
-            return;
         }
+    }
 
-        if (logic.CurrentLevelConfig == initializer)
-            return;
-
-        logic.SetCurrentLevelConfig(initializer);
-        ModLog.Warn("Refreshed the active room context before spawning: " + activeScene.name);
+    private void LogRoomRuntimeContext(RoomRuntimeContextRecord record)
+    {
+        string line = record.ToLogLine();
+        if (record.State == RoomRuntimeContextState.Failed)
+        {
+            ModLog.Error(line);
+        }
+        else if (record.State == RoomRuntimeContextState.ObservedNotReady)
+        {
+            ModLog.Warn(line);
+        }
+        else
+        {
+            ModLog.Info(line);
+        }
     }
 
     protected override void OnLevelLoaded(string oldLevel, string newLevel)
     {
+        LogRoomRuntimeContext(_roomRuntimeContext.ObserveAfterLoad(newLevel));
         bool roomLoaded = _lifecycleBridge.OnLevelLoaded(
             newLevel,
             SceneManager.GetActiveScene().name);
@@ -218,7 +210,9 @@ internal class EditorMode : BlasMod
     protected override void OnUpdate()
     {
         if (InputHandler.GetKeyDown("OpenEditor"))
+        {
             ToggleEditorMode();
+        }
     }
 
     internal bool IsInputActionPressed(string actionName) => InputHandler.GetKeyDown(actionName);
@@ -272,7 +266,9 @@ internal class EditorMode : BlasMod
         catch (System.Exception exception)
         {
             if (!_editorGuard.TryExit(out error))
+            {
                 ModLog.Error(error);
+            }
             _lifecycleBridge.EndEditing();
             ModLog.Error("Editor Mode widget activation failed: " + exception.Message);
         }
@@ -356,7 +352,9 @@ internal class EditorMode : BlasMod
     internal bool TryPlacePreviewAtCursor()
     {
         if (_preview != null)
+        {
             return TryPlaceAtCursor(_preview.Metadata.Type);
+        }
 
         ApplyReport report = new();
         report.Warning(ReportCodes.PlaceNoPreview, "preview", "Select a catalog entry and create a preview before placing it.");
@@ -378,7 +376,9 @@ internal class EditorMode : BlasMod
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
+        {
             return false;
+        }
 
         ApplyReport report = new();
         bool result = manager.TryDelete(manager.Selected.Id, report);
@@ -390,7 +390,9 @@ internal class EditorMode : BlasMod
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
+        {
             return false;
+        }
 
         ApplyReport report = new();
         bool result = manager.TrySetLocked(
@@ -405,7 +407,9 @@ internal class EditorMode : BlasMod
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
+        {
             return false;
+        }
 
         ApplyReport report = new();
         bool result = manager.TryCopy(manager.Selected.Id, report, out _);
@@ -425,7 +429,7 @@ internal class EditorMode : BlasMod
         }
         if (manager.Selected == null)
         {
-            report.Warning(ReportCodes.PickNoSelection, "clipboard", "Select or place an Architect-owned placement before clicking Pick.");
+            report.Warning(ReportCodes.PickNoSelection, "clipboard", "Select or place an Editable Overlay Placement before clicking Pick.");
             PublishReport("Pick", report);
             return false;
         }
@@ -440,7 +444,7 @@ internal class EditorMode : BlasMod
             ApplyReport report = new();
             if (error == null)
             {
-                report.Warning(ReportCodes.PickNoTarget, "cursor", "Point to an Architect-owned placement before pressing P.");
+                report.Warning(ReportCodes.PickNoTarget, "cursor", "Point to an Editable Overlay Placement before pressing P.");
             }
             else
             {
@@ -464,7 +468,9 @@ internal class EditorMode : BlasMod
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null)
+        {
             return false;
+        }
 
         ApplyReport report = new();
         PlacementRecord clipboard = manager.Clipboard;
@@ -497,7 +503,9 @@ internal class EditorMode : BlasMod
     internal bool TryPreviewAtCursor(string type)
     {
         if (Catalog == null)
+        {
             return false;
+        }
 
         LogCursorPosition("CURSOR_PREVIEW", CursorWorldPosition());
         DisposePreview();
@@ -521,13 +529,17 @@ internal class EditorMode : BlasMod
     internal void UpdatePreviewAtCursor()
     {
         if (IsActive && _preview != null)
+        {
             _preview.FollowCursor();
+        }
     }
 
     internal void ClearPreview()
     {
         if (_preview == null)
+        {
             return;
+        }
 
         DisposePreview();
         ApplyReport report = new();
@@ -535,40 +547,30 @@ internal class EditorMode : BlasMod
         PublishReport("Preview", report);
     }
 
-    internal bool TryApplySelectedTransform(string[] values)
+    internal bool TryApplySelectedTransform(TransformInspectorValues values)
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
+        {
             return false;
+        }
 
         ApplyReport report = new();
-        if (values == null || values.Length != 9)
+        PlacementTransform transform = null;
+        string error = null;
+        bool valid = values != null
+            && values.TryCreateTransform(out transform, out error);
+        if (!valid)
         {
-            report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, "Exactly nine transform values are required.");
+            report.Error(
+                ReportCodes.TransformInvalid,
+                manager.Selected.Id,
+                values == null ? "Transform values are required." : error);
             PublishReport("Transform", report);
             return false;
         }
 
-        float[] parsed = new float[values.Length];
-        for (int index = 0; index < values.Length; index++)
-        {
-            if (!float.TryParse(values[index], NumberStyles.Float, CultureInfo.InvariantCulture, out parsed[index])
-                || float.IsNaN(parsed[index])
-                || float.IsInfinity(parsed[index]))
-            {
-                report.Error(ReportCodes.TransformInvalid, manager.Selected.Id, "Transform values must be finite numbers.");
-                PublishReport("Transform", report);
-                return false;
-            }
-        }
-
-        bool result = manager.TryMove(
-            manager.Selected.Id,
-            new PlacementTransform(
-                parsed[0], parsed[1], parsed[2],
-                parsed[3], parsed[4], parsed[5],
-                parsed[6], parsed[7], parsed[8]),
-            report);
+        bool result = manager.TryMove(manager.Selected.Id, transform, report);
         PublishReport("Transform", report);
         return result;
     }
@@ -577,7 +579,9 @@ internal class EditorMode : BlasMod
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null || manager.Selected == null)
+        {
             return false;
+        }
 
         ApplyReport report = new();
         bool result = manager.TryApplyProperties(manager.Selected.Id, text, report);
@@ -644,7 +648,9 @@ internal class EditorMode : BlasMod
     {
         RuntimePlacementManager manager = PlacementManager;
         if (manager == null)
+        {
             return false;
+        }
 
         ApplyReport report = new();
         bool result = command(manager, report);
@@ -669,7 +675,9 @@ internal class EditorMode : BlasMod
     private void StartRoomPreparation(RoomIdentity room)
     {
         if (room == null || _overlayReconciler == null)
+        {
             return;
+        }
 
         if (UIController.instance == null)
         {
@@ -678,7 +686,9 @@ internal class EditorMode : BlasMod
         }
 
         if (_roomPreparation != null)
+        {
             UIController.instance.StopCoroutine(_roomPreparation);
+        }
         _roomPreparation = UIController.instance.StartCoroutine(PrepareRoomAfterFrame(room));
     }
 
@@ -689,14 +699,18 @@ internal class EditorMode : BlasMod
             yield return null;
         _roomPreparation = null;
         if (_lifecycleBridge.CurrentRoom == null || !_lifecycleBridge.CurrentRoom.Equals(room))
+        {
             yield break;
+        }
         PrepareRoom(room);
     }
 
     private bool PrepareRoom(RoomIdentity room)
     {
         if (room == null || _overlayReconciler == null)
+        {
             return false;
+        }
 
         string path = RoomExportPath(room);
         FrameworkFileResult file = LevelFrameworkAdapter.ImportFile(path, room.ExportFileKey);
@@ -714,21 +728,29 @@ internal class EditorMode : BlasMod
     private void ClearRoomOverlay()
     {
         if (_roomPreparation != null && UIController.instance != null)
+        {
             UIController.instance.StopCoroutine(_roomPreparation);
+        }
         _roomPreparation = null;
 
         if (_overlayReconciler == null)
+        {
             return;
+        }
 
         ApplyReport report = new();
         if (!_overlayReconciler.TryClear(report) && report.Entries.Count > 0)
+        {
             PublishReport("Room cleanup", report, false);
+        }
     }
 
     private void DisposePreview()
     {
         if (_preview == null)
+        {
             return;
+        }
 
         _preview.Dispose();
         _preview = null;
@@ -742,7 +764,9 @@ internal class EditorMode : BlasMod
             || _creatorPreloadStarted
             || Catalog == null
             || UIController.instance == null)
+        {
             return;
+        }
 
         _creatorPreloadStarted = true;
         _creatorPreload = UIController.instance.StartCoroutine(PreloadCreatorSources());
@@ -761,7 +785,9 @@ internal class EditorMode : BlasMod
                     continue;
                 }
                 if (creator.Loader == null || creator.Loader.Result != null)
+                {
                     continue;
+                }
 
                 IEnumerator load;
                 try
@@ -782,7 +808,9 @@ internal class EditorMode : BlasMod
                     {
                         hasNext = load.MoveNext();
                         if (hasNext)
+                        {
                             current = load.Current;
+                        }
                     }
                     catch (System.Exception exception)
                     {
@@ -791,12 +819,16 @@ internal class EditorMode : BlasMod
                     }
 
                     if (!hasNext)
+                    {
                         break;
+                    }
                     yield return current;
                 }
 
                 if (creator.Loader.Result == null)
+                {
                     ModLog.Warn("Creator source preload returned no object: " + metadata.Type);
+                }
             }
         }
         finally
@@ -823,7 +855,9 @@ internal class EditorMode : BlasMod
     private static Vector3 CursorWorldPosition()
     {
         if (Camera.main == null)
+        {
             return Vector3.zero;
+        }
 
         Vector2 cameraPixels = UnityScreenCoordinateMapper.ToCameraPixels(Camera.main, Input.mousePosition);
         return UnityScreenCoordinateMapper.ToWorldPosition(Camera.main, cameraPixels);
@@ -833,7 +867,9 @@ internal class EditorMode : BlasMod
     {
         if (!_verboseDiagnostics
             && string.Equals(action, "CURSOR_PREVIEW", System.StringComparison.Ordinal))
+        {
             return;
+        }
 
         Camera camera = Camera.main;
         Vector2 screenPosition = Input.mousePosition;

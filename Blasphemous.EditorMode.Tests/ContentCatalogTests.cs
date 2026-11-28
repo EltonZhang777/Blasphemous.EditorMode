@@ -7,7 +7,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class ContentCatalogTests
 {
     [Fact]
-    public void Probe_builds_a_curated_catalog_with_creator_metadata()
+    public void ProbeBuildsACuratedCatalogWithCreatorMetadata()
     {
         ContentCatalog catalog = ContentCatalog.FromProbe(
             CreatorProbe.Evaluate(
@@ -23,7 +23,7 @@ public sealed class ContentCatalogTests
     }
 
     [Fact]
-    public void Missing_or_optional_entries_are_not_placeable_and_remain_diagnosed()
+    public void MissingOrOptionalEntriesAreNotPlaceableAndRemainDiagnosed()
     {
         CreatorMetadata optional = new CreatorMetadata(
             "optional-object",
@@ -49,7 +49,7 @@ public sealed class ContentCatalogTests
     }
 
     [Fact]
-    public void Preview_is_isolated_and_discard_is_idempotent()
+    public void PreviewIsIsolatedAndDiscardIsIdempotent()
     {
         int disposed = 0;
         ContentCatalog catalog = ContentCatalog.FromEntries(
@@ -68,7 +68,7 @@ public sealed class ContentCatalogTests
     }
 
     [Fact]
-    public void Preview_follows_cursor_until_disposed()
+    public void PreviewFollowsCursorUntilDisposed()
     {
         int updates = 0;
         PreviewInstance preview = new PreviewInstance(BaseCreatorCatalog.BellIron, null, () => updates++);
@@ -82,7 +82,7 @@ public sealed class ContentCatalogTests
     }
 
     [Fact]
-    public void Search_filters_by_display_text_and_category()
+    public void SearchFiltersByDisplayTextAndCategory()
     {
         ContentCatalog catalog = ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron });
 

@@ -8,7 +8,7 @@ namespace Blasphemous.EditorMode.Editing;
 /// <summary>Ownership boundary enforced by editor operations.</summary>
 internal enum PlacementOwnership
 {
-    ArchitectOwned,
+    EditableOverlayPlacement,
     Original
 }
 
@@ -130,9 +130,13 @@ internal sealed class PlacementRecord
         string condition = "")
     {
         if (string.IsNullOrEmpty(id) || id.Trim().Length == 0)
+        {
             throw new ArgumentException("Placement id is required.", nameof(id));
+        }
         if (string.IsNullOrEmpty(type) || type.Trim().Length == 0)
+        {
             throw new ArgumentException("Placement type is required.", nameof(type));
+        }
 
         Id = id;
         Type = type;
@@ -159,7 +163,7 @@ internal sealed class PlacementRecord
             data.Type,
             PlacementTransform.FromFramework(data),
             data.Properties,
-            PlacementOwnership.ArchitectOwned,
+            PlacementOwnership.EditableOverlayPlacement,
             false,
             data.Condition);
     }

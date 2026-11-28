@@ -6,7 +6,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class RawPropertiesDraftStateTests
 {
     [Fact]
-    public void Failed_apply_preserves_draft_until_a_non_preserving_refresh_reloads_committed_text()
+    public void FailedApplyPreservesDraftUntilANonPreservingRefreshReloadsCommittedText()
     {
         RawPropertiesDraftState state = new RawPropertiesDraftState();
         Assert.True(state.Reload("placement-1", "old=1", false));
@@ -20,7 +20,7 @@ public sealed class RawPropertiesDraftStateTests
     }
 
     [Fact]
-    public void Successful_apply_reloads_normalized_committed_text()
+    public void SuccessfulApplyReloadsNormalizedCommittedText()
     {
         RawPropertiesDraftState state = new RawPropertiesDraftState();
         state.Reload("placement-1", "old=1", false);
@@ -31,7 +31,7 @@ public sealed class RawPropertiesDraftStateTests
     }
 
     [Fact]
-    public void Selection_change_discards_draft_even_when_the_refresh_requests_preservation()
+    public void SelectionChangeDiscardsDraftEvenWhenTheRefreshRequestsPreservation()
     {
         RawPropertiesDraftState state = new RawPropertiesDraftState();
         state.Reload("placement-1", "old=1", false);
@@ -42,7 +42,7 @@ public sealed class RawPropertiesDraftStateTests
     }
 
     [Fact]
-    public void Selection_change_requests_a_view_reset_when_committed_text_is_unchanged()
+    public void SelectionChangeRequestsAViewResetWhenCommittedTextIsUnchanged()
     {
         RawPropertiesDraftState state = new RawPropertiesDraftState();
         state.Reload("placement-1", "same=1", false);
@@ -52,7 +52,7 @@ public sealed class RawPropertiesDraftStateTests
     }
 
     [Fact]
-    public void External_committed_text_change_discards_draft_even_when_preservation_is_requested()
+    public void ExternalCommittedTextChangeDiscardsDraftEvenWhenPreservationIsRequested()
     {
         RawPropertiesDraftState state = new RawPropertiesDraftState();
         state.Reload("placement-1", "old=1", false);
@@ -63,7 +63,7 @@ public sealed class RawPropertiesDraftStateTests
     }
 
     [Fact]
-    public void A_non_preserving_reload_discards_a_draft_and_restores_committed_text()
+    public void ANonPreservingReloadDiscardsADraftAndRestoresCommittedText()
     {
         RawPropertiesDraftState state = new RawPropertiesDraftState();
         state.Reload("placement-1", "old=1", false);
@@ -74,7 +74,7 @@ public sealed class RawPropertiesDraftStateTests
     }
 
     [Fact]
-    public void Editing_an_unchanged_value_is_not_reported_as_a_user_edit()
+    public void EditingAnUnchangedValueIsNotReportedAsAUserEdit()
     {
         RawPropertiesDraftState state = new RawPropertiesDraftState();
         Assert.True(state.Reload(null, string.Empty, false));

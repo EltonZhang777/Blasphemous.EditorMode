@@ -6,7 +6,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class CreatorProbeTests
 {
     [Fact]
-    public void Registered_base_creator_is_available()
+    public void RegisteredBaseCreatorIsAvailable()
     {
         CreatorProbeResult result = CreatorProbe.Evaluate(
             new[] { BaseCreatorCatalog.BellIron },
@@ -21,7 +21,7 @@ public sealed class CreatorProbeTests
     }
 
     [Fact]
-    public void Missing_creator_is_reported_without_throwing()
+    public void MissingCreatorIsReportedWithoutThrowing()
     {
         CreatorProbeResult result = CreatorProbe.Evaluate(
             new[] { BaseCreatorCatalog.BellIron },
@@ -34,7 +34,7 @@ public sealed class CreatorProbeTests
     }
 
     [Fact]
-    public void Unsupported_creator_is_reported_without_throwing()
+    public void UnsupportedCreatorIsReportedWithoutThrowing()
     {
         CreatorMetadata unsupported = new CreatorMetadata(
             "optional-object",

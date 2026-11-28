@@ -13,7 +13,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class LevelEditSessionTests
 {
     [Fact]
-    public void Import_rejects_a_mismatched_room_before_creating_session()
+    public void ImportRejectsAMismatchedRoomBeforeCreatingSession()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -42,7 +42,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void Import_keeps_valid_owned_entries_and_reports_unsupported_entries()
+    public void ImportKeepsValidEditableOverlayPlacementsAndReportsUnsupportedEntries()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -73,7 +73,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void Import_retains_original_object_operations_as_read_only_round_trip_data()
+    public void ImportRetainsOriginalObjectEditsAsReadOnlyRoundTripData()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -129,7 +129,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void Export_emits_active_owned_additions_and_preserves_condition_data()
+    public void ExportEmitsActiveEditableOverlayPlacementsAndPreservesConditionData()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -158,7 +158,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void Export_preserves_uneditable_additions_and_round_trips_supported_edits()
+    public void ExportRetainsPreservedAdditionsAndRoundTripsSupportedEdits()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -222,7 +222,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void Export_does_not_reemit_a_deleted_owned_placement()
+    public void ExportDoesNotReemitADeletedEditableOverlayPlacement()
     {
         string directory = MakeDirectory();
         string path = Path.Combine(directory, "D03Z02S06.json");
@@ -257,7 +257,7 @@ public sealed class LevelEditSessionTests
     }
 
     [Fact]
-    public void Export_scope_failure_preserves_the_existing_file()
+    public void ExportScopeFailurePreservesTheExistingFile()
     {
         string directory = MakeDirectory();
         string sourcePath = Path.Combine(directory, "D03Z02S06.json");
@@ -341,6 +341,8 @@ public sealed class LevelEditSessionTests
     private static void DeleteDirectory(string directory)
     {
         if (Directory.Exists(directory))
+        {
             Directory.Delete(directory, true);
+        }
     }
 }

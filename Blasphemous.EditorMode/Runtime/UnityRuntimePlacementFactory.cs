@@ -50,10 +50,14 @@ internal sealed class UnityRuntimePlacementFactory :
     public IRuntimePlacementHandle Create(PlacementRecord placement)
     {
         if (placement == null)
+        {
             throw new ArgumentNullException(nameof(placement));
+        }
 
         if (!RuntimeCreatorRegistry.TryGet(placement.Type, out ObjectCreator creator, out string error))
+        {
             throw new InvalidOperationException(error);
+        }
 
         if (creator.Loader == null || creator.Loader.Result == null)
         {
@@ -73,7 +77,9 @@ internal sealed class UnityRuntimePlacementFactory :
                 clone,
                 creator);
             if (!handle.TryApply(placement, out string applyError))
+            {
                 throw new InvalidOperationException(applyError ?? "Runtime projection rejected the placement.");
+            }
 
             MarkEditorProjection(clone, placement);
             return handle;
@@ -81,7 +87,9 @@ internal sealed class UnityRuntimePlacementFactory :
         catch
         {
             if (clone != null)
+            {
                 UnityEngine.Object.Destroy(clone);
+            }
             throw;
         }
     }
@@ -100,7 +108,9 @@ internal sealed class UnityRuntimePlacementFactory :
         }
 
         if (!RuntimeCreatorRegistry.TryGet(placement.Type, out ObjectCreator creator, out error))
+        {
             return false;
+        }
 
         Transform holder = _adoptionPassActive ? _adoptionPassHolder : _holderProvider();
         if (holder == null)
@@ -112,7 +122,9 @@ internal sealed class UnityRuntimePlacementFactory :
         Dictionary<string, Dictionary<string, Queue<RuntimePlacementMarker>>> lookup =
             _adoptionPassActive ? _adoptionMarkers : BuildFrameworkMarkerLookup(holder);
         if (!TryTakeMatchingMarker(lookup, holder, placement, out RuntimePlacementMarker marker))
+        {
             return false;
+        }
 
         UnityRuntimePlacementHandle adopted = new(
             placement.Id,
@@ -137,7 +149,9 @@ internal sealed class UnityRuntimePlacementFactory :
             new(
                 StringComparer.OrdinalIgnoreCase);
         if (holder == null)
+        {
             return lookup;
+        }
 
         RuntimePlacementMarker[] markers = UnityEngine.Object.FindObjectsOfType<RuntimePlacementMarker>();
         foreach (RuntimePlacementMarker marker in markers)
@@ -147,7 +161,9 @@ internal sealed class UnityRuntimePlacementFactory :
                 || !string.Equals(marker.Source, "Framework", StringComparison.OrdinalIgnoreCase)
                 || string.IsNullOrEmpty(marker.PlacementId)
                 || string.IsNullOrEmpty(marker.Type))
+            {
                 continue;
+            }
 
             if (!lookup.TryGetValue(marker.PlacementId, out Dictionary<string, Queue<RuntimePlacementMarker>> byType))
             {
@@ -175,11 +191,15 @@ internal sealed class UnityRuntimePlacementFactory :
     {
         marker = null;
         if (lookup == null)
+        {
             return false;
+        }
 
         if (!lookup.TryGetValue(placement.Id, out Dictionary<string, Queue<RuntimePlacementMarker>> byType)
             || !byType.TryGetValue(placement.Type, out Queue<RuntimePlacementMarker> candidates))
+        {
             return false;
+        }
 
         while (candidates.Count > 0)
         {
@@ -189,7 +209,9 @@ internal sealed class UnityRuntimePlacementFactory :
                 || !string.Equals(candidate.Source, "Framework", StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(candidate.PlacementId, placement.Id, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(candidate.Type, placement.Type, StringComparison.OrdinalIgnoreCase))
+            {
                 continue;
+            }
 
             marker = candidate;
             break;
@@ -199,7 +221,9 @@ internal sealed class UnityRuntimePlacementFactory :
         {
             byType.Remove(placement.Type);
             if (byType.Count == 0)
+            {
                 lookup.Remove(placement.Id);
+            }
         }
 
         return marker != null;
@@ -209,7 +233,9 @@ internal sealed class UnityRuntimePlacementFactory :
     {
         reason = null;
         if (placement == null || string.IsNullOrEmpty(placement.Condition))
+        {
             return true;
+        }
 
         int colon = placement.Condition.IndexOf(':');
         if (colon <= 0 || colon == placement.Condition.Length - 1)
@@ -290,10 +316,14 @@ internal sealed class UnityRuntimePlacementFactory :
                 + " result=" + (marker == null ? "<none>" : marker.PlacementId));
         }
         if (marker == null)
+        {
             return false;
+        }
 
         if (!RuntimeCreatorRegistry.TryGet(marker.Type, out ObjectCreator creator, out error))
+        {
             return false;
+        }
 
         handle = new UnityRuntimePlacementHandle(
             marker.PlacementId,
@@ -321,28 +351,38 @@ internal sealed class UnityRuntimePlacementFactory :
         {
             RuntimePlacementMarker marker = hit?.GetComponentInParent<RuntimePlacementMarker>();
             if (IsSelectableMarker(marker, holder))
+            {
                 return marker;
+            }
         }
 
         RuntimePlacementMarker[] markers = holder.GetComponentsInChildren<RuntimePlacementMarker>(true);
         foreach (RuntimePlacementMarker marker in markers)
         {
             if (!IsSelectableMarker(marker, holder))
+            {
                 continue;
+            }
             Renderer[] renderers = marker.GetComponentsInChildren<Renderer>(true);
             if (renderers.Length == 0)
+            {
                 continue;
+            }
 
             foreach (Renderer renderer in renderers)
             {
                 if (renderer == null)
+                {
                     continue;
+                }
 
                 bool rayHit = renderer.enabled
                     && renderer.gameObject.activeInHierarchy
                     && renderer.bounds.IntersectRay(screenRay);
                 if (rayHit)
+                {
                     return marker;
+                }
             }
         }
 
@@ -364,7 +404,7 @@ internal sealed class UnityRuntimePlacementFactory :
     }
 }
 
-/// <summary>Unity projection for one Architect-owned Placement.</summary>
+/// <summary>Unity projection for one Editable Overlay Placement.</summary>
 internal sealed class UnityRuntimePlacementHandle : IRuntimePlacementHandle
 {
     private readonly string _type;
@@ -409,7 +449,9 @@ internal sealed class UnityRuntimePlacementHandle : IRuntimePlacementHandle
             ObjectData data = RuntimeObjectData.Create(placement);
             _baseModifier.Apply(_object, data);
             if (_creator != null && _creator.Modifier != null)
+            {
                 _creator.Modifier.Apply(_object, data);
+            }
             return true;
         }
         catch (Exception exception)
@@ -508,7 +550,9 @@ internal static class RuntimeCreatorRegistry
                 PropertyInfo value = entryType.GetProperty("Value");
                 if (key == null || value == null
                     || !string.Equals(key.GetValue(entry, null) as string, type, StringComparison.OrdinalIgnoreCase))
+                {
                     continue;
+                }
 
                 creator = value.GetValue(entry, null) as ObjectCreator;
                 if (creator == null)

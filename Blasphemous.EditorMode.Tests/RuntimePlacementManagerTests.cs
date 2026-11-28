@@ -1,3 +1,4 @@
+using Blasphemous.EditorMode.Components;
 using Blasphemous.EditorMode.Content;
 using Blasphemous.EditorMode.Diagnostics;
 using Blasphemous.EditorMode.Editing;
@@ -14,7 +15,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class RuntimePlacementManagerTests
 {
     [Fact]
-    public void Place_creates_unique_owned_records_and_projection_handles()
+    public void PlaceCreatesUniqueEditableOverlayPlacementsAndProjectionHandles()
     {
         LevelEditSession session = CreateSession();
         ContentCatalog catalog = ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron });
@@ -27,14 +28,14 @@ public sealed class RuntimePlacementManagerTests
         Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out first));
         Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out second));
         Assert.NotEqual(first.Id, second.Id);
-        Assert.Equal(PlacementOwnership.ArchitectOwned, first.Ownership);
+        Assert.Equal(PlacementOwnership.EditableOverlayPlacement, first.Ownership);
         Assert.Equal(2, manager.OwnedPlacementIds.Count);
         Assert.Equal(2, session.Placements.Count);
         Assert.Equal(2, factory.Created.Count);
     }
 
     [Fact]
-    public void Select_move_and_remove_update_domain_and_runtime_once()
+    public void SelectMoveAndRemoveUpdateDomainAndRuntimeOnce()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -62,7 +63,85 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Original_runtime_objects_are_rejected_by_selection_and_creation()
+    public void InspectorValuesRoundTripThroughSelectedPlacement()
+    {
+        LevelEditSession session = CreateSession();
+        FakeFactory factory = new FakeFactory();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            factory);
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        string[] position = ["4.25", "-5.5", "6.75"];
+        string[] rotation = ["7.125", "-8.25", "9.5"];
+        string[] scale = ["1.5", "2.5", "3.5"];
+        TransformInspectorValues values = new(
+            new TransformInspectorGroup(position[0], position[1], position[2]),
+            new TransformInspectorGroup(rotation[0], rotation[1], rotation[2]),
+            new TransformInspectorGroup(scale[0], scale[1], scale[2]));
+
+        Assert.True(values.TryCreateTransform(out PlacementTransform expected, out string error), error);
+        Assert.True(manager.TryMove(manager.Selected.Id, expected, report));
+        Assert.True(session.TryGetPlacement(placement.Id, out PlacementRecord stored));
+        Assert.Equal(expected, manager.Selected.Transform);
+        Assert.Equal(expected, stored.Transform);
+    }
+
+    [Fact]
+    public void SelectionChangeUsesCaseInsensitiveIdentityWithoutRewritingStoredId()
+    {
+        LevelEditSession session = CreateSession();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            new FakeFactory());
+        ApplyReport report = new ApplyReport();
+        PlacementRecord first;
+        PlacementRecord second;
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out first));
+        Assert.True(manager.TryPlace(BaseCreatorCatalog.BellIronType, PlacementTransform.Default, null, report, out second));
+
+        Assert.True(manager.TrySelect(first.Id.ToUpperInvariant(), report, out PlacementRecord selected));
+
+        Assert.Equal(first.Id, selected.Id);
+        Assert.Equal(first.Id, manager.Selected.Id);
+        Assert.NotEqual(second.Id, manager.Selected.Id);
+    }
+
+    [Fact]
+    public void TransformOnlyChangeKeepsTheSelectedIdentity()
+    {
+        LevelEditSession session = CreateSession();
+        RuntimePlacementManager manager = new RuntimePlacementManager(
+            session,
+            ContentCatalog.FromEntries(new[] { BaseCreatorCatalog.BellIron }),
+            new FakeFactory());
+        ApplyReport report = new ApplyReport();
+        PlacementRecord placement;
+        Assert.True(manager.TryPlace(
+            BaseCreatorCatalog.BellIronType,
+            PlacementTransform.Default,
+            null,
+            report,
+            out placement));
+        string selectedId = manager.Selected.Id;
+        PlacementTransform moved = new(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f);
+
+        Assert.True(manager.TryMove(selectedId.ToUpperInvariant(), moved, report));
+
+        Assert.Equal(selectedId, manager.Selected.Id);
+        Assert.Equal(moved, manager.Selected.Transform);
+    }
+
+    [Fact]
+    public void OriginalRuntimeObjectsAreRejectedBySelectionAndCreation()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory { ReturnOriginal = true };
@@ -85,7 +164,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Generated_ids_are_sanitized_and_skip_existing_ids()
+    public void GeneratedIdsAreSanitizedAndSkipExistingIds()
     {
         Assert.Equal(
             "bell-iron-2",
@@ -96,7 +175,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Transform_and_property_failures_leave_previous_values_intact()
+    public void TransformAndPropertyFailuresLeavePreviousValuesIntact()
     {
         CreatorMetadata creator = new CreatorMetadata(
             "limited",
@@ -140,7 +219,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Runtime_apply_failures_restore_previous_runtime_and_session_values()
+    public void RuntimeApplyFailuresRestorePreviousRuntimeAndSessionValues()
     {
         CreatorMetadata creator = new CreatorMetadata(
             "limited",
@@ -183,7 +262,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Apply_properties_accepts_exact_three_line_acceptance_input()
+    public void ApplyPropertiesAcceptsExactThreeLineAcceptanceInput()
     {
         CreatorMetadata creator = new CreatorMetadata(
             "typed",
@@ -230,7 +309,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Apply_properties_splits_trims_and_preserves_raw_duplicate_entries()
+    public void ApplyPropertiesSplitsTrimsAndPreservesRawDuplicateEntries()
     {
         CreatorMetadata creator = new CreatorMetadata(
             "typed",
@@ -276,7 +355,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Apply_properties_clears_all_entries_for_blank_input()
+    public void ApplyPropertiesClearsAllEntriesForBlankInput()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -305,7 +384,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Apply_properties_no_op_reports_success_without_runtime_dirty_or_history_change()
+    public void ApplyPropertiesNoOpReportsSuccessWithoutRuntimeDirtyOrHistoryChange()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -341,7 +420,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Apply_properties_rejects_locked_placement_without_mutation()
+    public void ApplyPropertiesRejectsLockedPlacementWithoutMutation()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -379,7 +458,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Apply_properties_runtime_rejection_restores_previous_projection_and_history()
+    public void ApplyPropertiesRuntimeRejectionRestoresPreviousProjectionAndHistory()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -417,7 +496,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Apply_properties_runtime_exception_restores_previous_projection_and_history()
+    public void ApplyPropertiesRuntimeExceptionRestoresPreviousProjectionAndHistory()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -458,7 +537,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Apply_properties_rollback_exception_reports_runtime_rollback_failure()
+    public void ApplyPropertiesRollbackExceptionReportsRuntimeRollbackFailure()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -500,7 +579,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Apply_properties_rejects_committed_line_breaks_with_per_property_diagnostics()
+    public void ApplyPropertiesRejectsCommittedLineBreaksWithPerPropertyDiagnostics()
     {
         CreatorMetadata creator = new CreatorMetadata(
             "lined",
@@ -563,7 +642,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Apply_properties_undo_redo_and_export_preserve_complete_ordered_list()
+    public void ApplyPropertiesUndoRedoAndExportPreserveCompleteOrderedList()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -624,12 +703,14 @@ public sealed class RuntimePlacementManagerTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, true);
+            }
         }
     }
 
     [Fact]
-    public void Copy_pick_and_paste_preserve_data_but_remap_the_id()
+    public void CopyPickAndPastePreserveDataButRemapTheId()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -656,7 +737,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Paste_preserves_raw_properties_accepted_by_apply()
+    public void PastePreservesRawPropertiesAcceptedByApply()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -700,7 +781,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Lock_is_editor_only_and_blocks_mutating_operations()
+    public void LockIsEditorOnlyAndBlocksMutatingOperations()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -722,7 +803,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Inactive_conditions_are_not_projected_into_runtime()
+    public void InactiveConditionsAreNotProjectedIntoRuntime()
     {
         LevelEditSession session = CreateSession();
         InactiveConditionFactory factory = new InactiveConditionFactory();
@@ -747,7 +828,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Undo_and_redo_restore_session_runtime_and_dirty_state()
+    public void UndoAndRedoRestoreSessionRuntimeAndDirtyState()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -775,7 +856,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Reset_discards_edit_history_and_keeps_imported_source_in_memory_only()
+    public void ResetDiscardsEditHistoryAndKeepsImportedSourceInMemoryOnly()
     {
         LevelEditSession session = CreateSession();
         string originalSource = session.OriginalSourceText;
@@ -800,7 +881,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Reset_restores_earlier_projections_when_a_later_destroy_fails()
+    public void ResetRestoresEarlierProjectionsWhenALaterDestroyFails()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -831,7 +912,7 @@ public sealed class RuntimePlacementManagerTests
     }
 
     [Fact]
-    public void Reset_reports_the_placement_when_projection_rollback_fails()
+    public void ResetReportsThePlacementWhenProjectionRollbackFails()
     {
         LevelEditSession session = CreateSession();
         FakeFactory factory = new FakeFactory();
@@ -907,7 +988,9 @@ public sealed class RuntimePlacementManagerTests
         {
             _createCallCount++;
             if (_createCallCount == FailCreateCall)
+            {
                 return null;
+            }
 
             FakeHandle handle = new FakeHandle(placement.Id, ReturnOriginal, placement, this);
             Created.Add(handle);

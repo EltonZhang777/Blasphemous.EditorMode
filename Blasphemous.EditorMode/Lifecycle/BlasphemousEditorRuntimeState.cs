@@ -50,13 +50,19 @@ internal static class BlasphemousEditorRuntimeState
                 timeScale =>
                 {
                     if (logic.CurrentLevelConfig != null)
+                    {
                         logic.CurrentLevelConfig.TimeScale = timeScale;
+                    }
                     else
+                    {
                         Time.timeScale = timeScale;
+                    }
                 });
         }
         else
+        {
             Time.timeScale = state.Paused ? state.TimeScale : 1f;
+        }
 
         Core.Input?.SetBlocker(InputBlocker, state.EditorInputBlocked);
 
@@ -71,7 +77,9 @@ internal static class BlasphemousEditorRuntimeState
 
         Penitent penitent = logic?.Penitent;
         if (penitent == null)
+        {
             return;
+        }
 
         penitent.PlatformCharacterController?.enabled = state.PlayerControlEnabled;
         penitent.DamageArea?.enabled = state.DamageAreaEnabled;

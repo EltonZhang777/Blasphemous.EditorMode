@@ -6,7 +6,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class DependencyGateTests
 {
     [Fact]
-    public void Compatible_dependencies_enable_editor_mode()
+    public void CompatibleDependenciesEnableEditorMode()
     {
         DependencyGateResult result = DependencyGate.Evaluate(
             new[] { Requirement("Blasphemous.ModdingAPI", "3.0.1") },
@@ -18,7 +18,7 @@ public sealed class DependencyGateTests
     }
 
     [Fact]
-    public void Missing_dependency_disables_editor_mode_with_actionable_diagnostic()
+    public void MissingDependencyDisablesEditorModeWithActionableDiagnostic()
     {
         DependencyGateResult result = DependencyGate.Evaluate(
             new[] { Requirement("Blasphemous.Framework.Levels", "0.2.0") },
@@ -33,7 +33,7 @@ public sealed class DependencyGateTests
     }
 
     [Fact]
-    public void Older_dependency_version_disables_editor_mode_with_required_and_actual_versions()
+    public void OlderDependencyVersionDisablesEditorModeWithRequiredAndActualVersions()
     {
         DependencyGateResult result = DependencyGate.Evaluate(
             new[] { Requirement("Blasphemous.ModdingAPI", "3.0.1") },

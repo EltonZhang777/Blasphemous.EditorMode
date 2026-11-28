@@ -11,7 +11,9 @@ internal static class ApplyReportAssert
     internal static void MatchesCodes(ApplyReport report, params string[] allowlist)
     {
         if (report == null)
+        {
             throw new ArgumentNullException(nameof(report));
+        }
 
         allowlist ??= [];
         HashSet<string> allowed = new HashSet<string>(allowlist, StringComparer.Ordinal);
@@ -35,7 +37,9 @@ internal static class ApplyReportAssert
         foreach (string code in allowlist)
         {
             if (!observed.Contains(code) && staleSet.Add(code))
+            {
                 stale.Add(code);
+            }
         }
 
         Assert.True(

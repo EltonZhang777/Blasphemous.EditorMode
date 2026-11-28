@@ -18,13 +18,19 @@ internal static class UnityPreviewFactory
         bool verboseDiagnostics)
     {
         if (metadata == null)
+        {
             throw new ArgumentNullException(nameof(metadata));
+        }
 
         if (!RuntimeCreatorRegistry.TryGet(metadata.Type, out ObjectCreator creator, out string error))
+        {
             throw new InvalidOperationException(error);
+        }
         if (creator.Loader == null || creator.Loader.Result == null)
+        {
             throw new InvalidOperationException(
                 "Creator '" + metadata.Type + "' has no loaded source object.");
+        }
 
         Transform holder = (holderProvider == null ? null : holderProvider()) ?? throw new InvalidOperationException("Current LevelInitializer object holder is unavailable.");
         Vector3 position = positionProvider == null ? Vector3.zero : positionProvider();
@@ -53,7 +59,7 @@ internal static class UnityPreviewFactory
                     1f,
                     1f),
                 [],
-                PlacementOwnership.ArchitectOwned);
+                PlacementOwnership.EditableOverlayPlacement);
             ObjectData data = RuntimeObjectData.Create(placement);
             BaseModifier baseModifier = new();
             baseModifier.Apply(previewObject, data);
@@ -67,7 +73,9 @@ internal static class UnityPreviewFactory
                 foreach (Renderer renderer in previewObject.GetComponentsInChildren<Renderer>(true))
                 {
                     if (renderer == null)
+                    {
                         continue;
+                    }
 
                     bool cameraIncludesLayer = camera != null
                         && (camera.cullingMask & (1 << renderer.gameObject.layer)) != 0;
@@ -90,7 +98,9 @@ internal static class UnityPreviewFactory
                 () =>
                 {
                     if (previewObject != null && positionProvider != null)
+                    {
                         previewObject.transform.position = positionProvider();
+                    }
                 });
         }
         catch

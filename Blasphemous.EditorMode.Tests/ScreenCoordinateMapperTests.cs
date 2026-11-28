@@ -8,7 +8,7 @@ public sealed class ScreenCoordinateMapperTests
     [Theory]
     [InlineData(1920, 1080, 960f, 540f, 640, 360, 320f, 180f)]
     [InlineData(1280, 800, 640f, 400f, 640, 360, 320f, 180f)]
-    public void Maps_screen_position_to_target_texture_dimensions(
+    public void MapsScreenPositionToTargetTextureDimensions(
         int screenWidth,
         int screenHeight,
         float screenX,
@@ -33,7 +33,7 @@ public sealed class ScreenCoordinateMapperTests
     }
 
     [Fact]
-    public void Preserves_position_when_dimensions_are_invalid()
+    public void PreservesPositionWhenDimensionsAreInvalid()
     {
         ScreenCoordinateMapper.MapToTargetPixels(
             12.5f,

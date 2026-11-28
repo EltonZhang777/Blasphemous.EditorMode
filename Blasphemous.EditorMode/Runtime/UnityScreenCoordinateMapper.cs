@@ -7,7 +7,9 @@ internal static class UnityScreenCoordinateMapper
     internal static Vector2 ToCameraPixels(Camera camera, Vector2 screenPosition)
     {
         if (camera == null || camera.targetTexture == null)
+        {
             return screenPosition;
+        }
 
         ScreenCoordinateMapper.MapToTargetPixels(
             screenPosition.x,
@@ -24,7 +26,9 @@ internal static class UnityScreenCoordinateMapper
     internal static Vector3 ToWorldPosition(Camera camera, Vector2 cameraPixels)
     {
         if (camera == null)
+        {
             return Vector3.zero;
+        }
 
         Vector3 world = camera.ScreenToWorldPoint(new Vector3(
             cameraPixels.x,

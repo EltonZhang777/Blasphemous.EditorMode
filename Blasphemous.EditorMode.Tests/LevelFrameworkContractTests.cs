@@ -7,7 +7,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class LevelFrameworkContractTests
 {
     [Fact]
-    public void Addition_contract_matches_framework_object_data()
+    public void AdditionContractMatchesFrameworkObjectData()
     {
         Assert.Equal(
             new[] { "type", "id", "position", "rotation", "scale", "condition", "properties" },
@@ -15,7 +15,7 @@ public sealed class LevelFrameworkContractTests
     }
 
     [Fact]
-    public void Modification_and_deletion_require_scene_path()
+    public void ModificationAndDeletionRequireScenePath()
     {
         Assert.Contains("scene", LevelFrameworkContract.RequiredFields(FrameworkOperation.Modification));
         Assert.Contains("path", LevelFrameworkContract.RequiredFields(FrameworkOperation.Modification));
@@ -25,7 +25,7 @@ public sealed class LevelFrameworkContractTests
     }
 
     [Fact]
-    public void Unknown_fields_are_not_part_of_canonical_object_data()
+    public void UnknownFieldsAreNotPartOfCanonicalObjectData()
     {
         Assert.True(LevelFrameworkContract.IsKnownObjectField("properties"));
         Assert.False(LevelFrameworkContract.IsKnownObjectField("editorMetadata"));

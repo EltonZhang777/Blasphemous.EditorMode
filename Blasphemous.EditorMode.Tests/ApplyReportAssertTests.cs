@@ -7,7 +7,7 @@ namespace Blasphemous.EditorMode.Tests;
 public sealed class ApplyReportAssertTests
 {
     [Fact]
-    public void Missing_expected_code_fails_as_stale()
+    public void MissingExpectedCodeFailsAsStale()
     {
         ApplyReport report = new ApplyReport();
         report.Error("OBSERVED", "$", "failure");
@@ -20,7 +20,7 @@ public sealed class ApplyReportAssertTests
     }
 
     [Fact]
-    public void Unexpected_error_code_fails()
+    public void UnexpectedErrorCodeFails()
     {
         ApplyReport report = new ApplyReport();
         report.Error("OBSERVED", "$", "observed");
@@ -34,7 +34,7 @@ public sealed class ApplyReportAssertTests
     }
 
     [Fact]
-    public void Skipped_error_is_still_unexpected()
+    public void SkippedErrorIsStillUnexpected()
     {
         ApplyReport report = new ApplyReport();
         report.Error("SKIPPED_ERROR", "$", "skipped", true);
@@ -48,7 +48,7 @@ public sealed class ApplyReportAssertTests
     }
 
     [Fact]
-    public void Warning_and_info_codes_outside_the_allowlist_are_ignored()
+    public void WarningAndInfoCodesOutsideTheAllowlistAreIgnored()
     {
         ApplyReport report = new ApplyReport();
         report.Warning("EXPECTED_WARNING", "$", "expected");
@@ -59,7 +59,7 @@ public sealed class ApplyReportAssertTests
     }
 
     [Fact]
-    public void Duplicate_entries_and_allowlist_codes_are_allowed()
+    public void DuplicateEntriesAndAllowlistCodesAreAllowed()
     {
         ApplyReport report = new ApplyReport();
         report.Error("DUPLICATE_ERROR", "$", "first");
@@ -72,7 +72,7 @@ public sealed class ApplyReportAssertTests
     }
 
     [Fact]
-    public void Duplicate_unexpected_errors_report_the_code_once()
+    public void DuplicateUnexpectedErrorsReportTheCodeOnce()
     {
         ApplyReport report = new ApplyReport();
         report.Error("DUPLICATE_UNEXPECTED", "$", "first");
@@ -90,7 +90,7 @@ public sealed class ApplyReportAssertTests
     }
 
     [Fact]
-    public void Matching_is_limited_to_the_ordinal_code_field()
+    public void MatchingIsLimitedToTheOrdinalCodeField()
     {
         ApplyReport report = new ApplyReport();
         report.Warning(
@@ -106,7 +106,7 @@ public sealed class ApplyReportAssertTests
     }
 
     [Fact]
-    public void Failure_output_contains_the_allowlist_and_ordered_entries()
+    public void FailureOutputContainsTheAllowlistAndOrderedEntries()
     {
         ApplyReport report = new ApplyReport();
         report.Warning("FIRST_WARNING", "location-1", "first message");
