@@ -159,7 +159,7 @@ internal sealed class UnityRuntimePlacementFactory :
 
             if (!lookup.TryGetValue(marker.PlacementId, out Dictionary<string, Queue<RuntimePlacementMarker>> byType))
             {
-                byType = new Dictionary<string, Queue<RuntimePlacementMarker>>(StringComparer.OrdinalIgnoreCase);
+                byType = FrameworkMarkerRouting.CreateCreatorTypeBuckets<Queue<RuntimePlacementMarker>>();
                 lookup.Add(marker.PlacementId, byType);
             }
 
@@ -185,8 +185,11 @@ internal sealed class UnityRuntimePlacementFactory :
         if (lookup == null)
             return false;
 
-        if (!lookup.TryGetValue(placement.Id, out Dictionary<string, Queue<RuntimePlacementMarker>> byType)
-            || !byType.TryGetValue(placement.Type, out Queue<RuntimePlacementMarker> candidates))
+        if (!FrameworkMarkerRouting.TryGetCreatorTypeBuckets(
+                lookup,
+                placement.Id,
+                placement.Type,
+                out Queue<RuntimePlacementMarker> candidates))
             return false;
 
         while (candidates.Count > 0)
@@ -196,7 +199,7 @@ internal sealed class UnityRuntimePlacementFactory :
                 || !candidate.transform.IsChildOf(holder)
                 || !string.Equals(candidate.Source, "Framework", StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(candidate.PlacementId, placement.Id, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(candidate.Type, placement.Type, StringComparison.OrdinalIgnoreCase))
+                || !FrameworkMarkerRouting.AreExactCreatorTypes(candidate.Type, placement.Type))
                 continue;
 
             marker = candidate;
@@ -205,8 +208,9 @@ internal sealed class UnityRuntimePlacementFactory :
 
         if (candidates.Count == 0)
         {
-            byType.Remove(placement.Type);
-            if (byType.Count == 0)
+            if (lookup.TryGetValue(placement.Id, out Dictionary<string, Queue<RuntimePlacementMarker>> byType))
+                byType.Remove(placement.Type);
+            if (byType != null && byType.Count == 0)
                 lookup.Remove(placement.Id);
         }
 
