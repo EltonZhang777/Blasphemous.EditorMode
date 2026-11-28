@@ -1,0 +1,231 @@
+
+name: Build
+
+on:
+  push:
+    branches: [main, test-ci]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore and verify solution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $solution = 'Blasphemous.EditorMode.sln'
+
+          dotnet restore $solution
+          if ($LASTEXITCODE -ne 0) {
+            throw "Restore failed with exit code $LASTEXITCODE."
+          }
+
+          $solutionProjects = @(dotnet sln $solution list)
+          if ($LASTEXITCODE -ne 0) {
+            throw "Solution listing failed with exit code $LASTEXITCODE."
+          }
+
+          $normalizedProjects = @($solutionProjects | ForEach-Object { $_.Replace('\', '/') })
+          foreach ($requiredProject in @(
+            'Blasphemous.EditorMode/Blasphemous.EditorMode.csproj',
+            'Blasphemous.EditorMode.Tests/Blasphemous.EditorMode.Tests.csproj'
+          )) {
+            if ($normalizedProjects -notcontains $requiredProject) {
+              throw "Solution is missing required project: $requiredProject"
+            }
+          }
+
+      - name: Build without deployment
+        id: build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $solution = 'Blasphemous.EditorMode.sln'
+          $modProject = 'Blasphemous.EditorMode/Blasphemous.EditorMode.csproj'
+
+          $defaultDeployToGame = dotnet msbuild $modProject -p:Configuration=Release -getProperty:DeployToGame
+          if ($LASTEXITCODE -ne 0) {
+            throw "Default deployment inspection failed with exit code $LASTEXITCODE."
+          }
+          $defaultDeployToGame = [string]$defaultDeployToGame
+          $defaultDeployToGame = $defaultDeployToGame.Trim()
+          if ($defaultDeployToGame -notin @('', 'false', 'False')) {
+            throw "DeployToGame must default to false, but evaluated to '$defaultDeployToGame'."
+          }
+
+          $probe = Join-Path $env:RUNNER_TEMP ('blasmod-deploy-probe-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $probe -ErrorAction Stop | Out-Null
+
+          dotnet build $solution --configuration Release --no-restore --no-incremental -p:Version=1.2.3 "-p:DevFolder=$probe"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Default Release build failed with exit code $LASTEXITCODE."
+          }
+
+          $probeEntries = @(Get-ChildItem -LiteralPath $probe -Force -Recurse -ErrorAction Stop)
+          if ($probeEntries.Count -ne 0) {
+            throw "Default build wrote $($probeEntries.Count) entries to DevFolder '$probe'."
+          }
+
+          dotnet build $solution --configuration Release --no-restore -p:Version=1.2.3 -p:DeployToGame=false
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release solution build failed with exit code $LASTEXITCODE."
+          }
+
+          "deploy_default=$defaultDeployToGame" >> $env:GITHUB_OUTPUT
+          "probe_entries=$($probeEntries.Count)" >> $env:GITHUB_OUTPUT
+          Write-Host "DeployToGame default: $defaultDeployToGame"
+          Write-Host "No-write probe entries: $($probeEntries.Count)"
+
+      - name: Run explicit test project
+        id: tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $testProject = 'Blasphemous.EditorMode.Tests/Blasphemous.EditorMode.Tests.csproj'
+          $resultsDirectory = Join-Path $env:GITHUB_WORKSPACE 'artifacts/test-results'
+          $trxPath = Join-Path $resultsDirectory 'editor-mode.trx'
+
+          dotnet test $testProject --configuration Release --no-build --results-directory $resultsDirectory --logger "trx;LogFileName=editor-mode.trx"
+          if ($LASTEXITCODE -ne 0) {
+            throw "dotnet test failed with exit code $LASTEXITCODE."
+          }
+          if (-not (Test-Path -LiteralPath $trxPath -PathType Leaf)) {
+            throw "TRX result was not produced at $trxPath."
+          }
+
+          [xml]$trx = Get-Content -LiteralPath $trxPath -Raw
+          $counters = $trx.SelectSingleNode("/*[local-name()='TestRun']/*[local-name()='ResultSummary']/*[local-name()='Counters']")
+          if ($null -eq $counters) {
+            throw "TRX result at $trxPath has no Counters element."
+          }
+
+          $executed = [int]$counters.GetAttribute('executed')
+          $failed = [int]$counters.GetAttribute('failed')
+          if ($executed -le 0) {
+            throw "TRX reports zero executed tests."
+          }
+          if ($failed -ne 0) {
+            throw "TRX reports $failed failed tests."
+          }
+
+          "executed=$executed" >> $env:GITHUB_OUTPUT
+          "failed=$failed" >> $env:GITHUB_OUTPUT
+          Write-Host "Tests executed: $executed; failed: $failed"
+
+      - name: Verify whitespace and style
+        id: formatting
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $solution = 'Blasphemous.EditorMode.sln'
+
+          dotnet format whitespace $solution --no-restore --verify-no-changes
+          if ($LASTEXITCODE -ne 0) {
+            throw "Whitespace verification failed with exit code $LASTEXITCODE."
+          }
+
+          dotnet format style $solution --no-restore --severity warn --verify-no-changes
+          if ($LASTEXITCODE -ne 0) {
+            throw "Style verification failed with exit code $LASTEXITCODE."
+          }
+
+          "result=PASS" >> $env:GITHUB_OUTPUT
+          Write-Host "Whitespace and style verification: PASS"
+
+      - name: Verify canonical ZIP
+        id: package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE 'publish/EditorMode.zip'
+          if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
+            throw "Canonical ZIP was not produced at $zipPath."
+          }
+
+          $resourcesRoot = (Resolve-Path 'resources').Path
+          $dataRoot = Join-Path $resourcesRoot 'data'
+          if (-not (Test-Path -LiteralPath $dataRoot -PathType Container)) {
+            throw "Canonical data directory was not found at $dataRoot."
+          }
+
+          $dataEntries = @(Get-ChildItem -LiteralPath $dataRoot -Recurse -File -ErrorAction Stop | ForEach-Object {
+            [System.IO.Path]::GetRelativePath($resourcesRoot, $_.FullName).Replace('\', '/')
+          })
+          if ($dataEntries.Count -eq 0) {
+            throw "Canonical data directory '$dataRoot' contains no files."
+          }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+          try {
+            $zipEntries = @(
+              $archive.Entries |
+                Where-Object { $_.FullName -and -not $_.FullName.EndsWith('/') } |
+                ForEach-Object { $_.FullName.Replace('\', '/') }
+            )
+          }
+          finally {
+            $archive.Dispose()
+          }
+
+          $expectedEntries = @('plugins/EditorMode.dll') + $dataEntries
+          if ($zipEntries.Count -ne ($zipEntries | Sort-Object -Unique).Count) {
+            throw 'Canonical ZIP contains duplicate entries.'
+          }
+          if ($zipEntries.Count -ne $expectedEntries.Count) {
+            throw "Canonical ZIP has $($zipEntries.Count) files, expected $($expectedEntries.Count)."
+          }
+          $missingEntries = @($expectedEntries | Where-Object { $zipEntries -cnotcontains $_ })
+          $unexpectedEntries = @($zipEntries | Where-Object { $expectedEntries -cnotcontains $_ })
+          if ($missingEntries.Count -ne 0 -or $unexpectedEntries.Count -ne 0) {
+            throw "Canonical ZIP entries do not match; missing=[$($missingEntries -join ', ')] unexpected=[$($unexpectedEntries -join ', ')]."
+          }
+
+          $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+          "entries=$($zipEntries.Count)" >> $env:GITHUB_OUTPUT
+          "sha256=$zipHash" >> $env:GITHUB_OUTPUT
+          Write-Host "ZIP entries checked: $($zipEntries.Count); SHA-256: $zipHash"
+
+      - name: Publish validation summary
+        shell: pwsh
+        env:
+          DEFAULT_DEPLOY_TO_GAME: ${{ steps.build.outputs.deploy_default }}
+          PROBE_ENTRIES: ${{ steps.build.outputs.probe_entries }}
+          TESTS_EXECUTED: ${{ steps.tests.outputs.executed }}
+          TESTS_FAILED: ${{ steps.tests.outputs.failed }}
+          FORMAT_RESULT: ${{ steps.formatting.outputs.result }}
+          ZIP_ENTRIES: ${{ steps.package.outputs.entries }}
+          ZIP_SHA256: ${{ steps.package.outputs.sha256 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceSha = $env:GITHUB_SHA
+          if ($sourceSha -notmatch '^[0-9a-f]{40}$') {
+            throw "GITHUB_SHA is not an exact 40-character commit SHA: '$sourceSha'."
+          }
+
+          $runUrl = "$($env:GITHUB_SERVER_URL)/$($env:GITHUB_REPOSITORY)/actions/runs/$($env:GITHUB_RUN_ID)"
+          @"
+          ## Build validation
+
+          - Source SHA: ``$sourceSha``
+          - Workflow run: $runUrl
+          - DeployToGame default: ``$($env:DEFAULT_DEPLOY_TO_GAME)``
+          - No-write probe: PASS, ``$($env:PROBE_ENTRIES)`` entries
+          - Tests: PASS, ``$($env:TESTS_EXECUTED)`` executed, ``$($env:TESTS_FAILED)`` failed
+          - Whitespace and style: ``$($env:FORMAT_RESULT)``
+          - ZIP: PASS, ``$($env:ZIP_ENTRIES)`` entries, SHA-256 ``$($env:ZIP_SHA256)``
+          - Runtime/gameplay: NOT RUN
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

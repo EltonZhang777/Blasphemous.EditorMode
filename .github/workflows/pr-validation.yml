@@ -1,0 +1,172 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  xunit:
+    name: xUnit and package
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore dependencies
+        shell: pwsh
+        run: dotnet restore Blasphemous.EditorMode.sln
+
+      - name: Verify deployment defaults to disabled
+        shell: pwsh
+        run: |
+          $deployToGame = dotnet msbuild Blasphemous.EditorMode\Blasphemous.EditorMode.csproj -nologo -p:Configuration=Release -getProperty:DeployToGame
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          $evaluated = ($deployToGame | Out-String).Trim()
+          if ($evaluated -notin @('', 'false')) {
+            throw "DeployToGame must default to false; evaluated value was '$evaluated'."
+          }
+
+      - name: Build with deployment disabled and verify no game writes
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP ("editor-mode-no-write-" + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $probe | Out-Null
+
+          dotnet build Blasphemous.EditorMode.sln --configuration Release --no-restore --no-incremental -p:Version=1.2.3 -p:DeployToGame=false "-p:DevFolder=$probe"
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          if (-not (Test-Path -LiteralPath $probe -PathType Container)) {
+            throw "Deployment-disabled build removed the DevFolder probe '$probe'."
+          }
+          $entries = @(Get-ChildItem -LiteralPath $probe -Force)
+          if ($entries.Count -ne 0) {
+            throw "Deployment-disabled build wrote $($entries.Count) entries to DevFolder '$probe'."
+          }
+
+          Write-Output "Deployment-disabled build wrote 0 entries to disposable DevFolder."
+
+      - name: Run explicit xUnit test project
+        shell: pwsh
+        run: dotnet test Blasphemous.EditorMode.Tests\Blasphemous.EditorMode.Tests.csproj --configuration Release --no-build --results-directory TestResults --logger "trx;LogFileName=editor-mode.trx"
+
+      - name: Verify xUnit results
+        shell: pwsh
+        run: |
+          $trxPath = 'TestResults\editor-mode.trx'
+          if (-not (Test-Path -LiteralPath $trxPath -PathType Leaf)) {
+            throw "TRX result not found at '$trxPath'."
+          }
+
+          [xml]$trx = Get-Content -LiteralPath $trxPath -Raw
+          $counters = $trx.TestRun.ResultSummary.Counters
+          $executed = [int]$counters.executed
+          $passed = [int]$counters.passed
+          $failed = [int]$counters.failed
+          $skipped = [int]$counters.notExecuted
+          Write-Output "xUnit executed=$executed passed=$passed failed=$failed skipped=$skipped"
+
+          if ($executed -le 0) {
+            throw 'xUnit executed zero tests.'
+          }
+          if ($failed -ne 0) {
+            throw "xUnit reported $failed failed tests."
+          }
+
+      - name: Build deployment-disabled Release package
+        shell: pwsh
+        run: |
+          dotnet build Blasphemous.EditorMode.sln --configuration Release --no-restore -p:Version=1.2.3 -p:DeployToGame=false -p:GeneratePackageOnBuild=true
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          $packages = @(Get-ChildItem -Path . -Filter '*.nupkg' -File -Recurse)
+          if ($packages.Count -ne 1) {
+            throw "Expected one NuGet package, found $($packages.Count)."
+          }
+
+      - name: Verify canonical ZIP contents
+        shell: pwsh
+        run: |
+          $zipPath = 'publish\EditorMode.zip'
+          if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
+            throw "Canonical ZIP not found at '$zipPath'."
+          }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $zipPath).Path)
+          try {
+            $entries = @(
+              $archive.Entries |
+                Where-Object { $_.Name } |
+                ForEach-Object { $_.FullName.Replace('\', '/') }
+            )
+          }
+          finally {
+            $archive.Dispose()
+          }
+
+          $resourceRoot = (Resolve-Path -LiteralPath 'resources').Path
+          $dataFiles = @(
+            Get-ChildItem -LiteralPath (Join-Path $resourceRoot 'data') -Recurse -File |
+              ForEach-Object { [IO.Path]::GetRelativePath($resourceRoot, $_.FullName).Replace('\', '/') }
+          )
+          if ($dataFiles.Count -eq 0) {
+            throw 'No data files were found to compare with the canonical ZIP.'
+          }
+
+          $required = @('plugins/EditorMode.dll') + $dataFiles
+          if ($entries.Count -ne ($entries | Sort-Object -Unique).Count) {
+            throw 'Canonical ZIP contains duplicate entries.'
+          }
+          if ($entries.Count -ne $required.Count) {
+            throw "Canonical ZIP has $($entries.Count) files, expected $($required.Count)."
+          }
+          $missing = @($required | Where-Object { $entries -cnotcontains $_ })
+          $unexpected = @($entries | Where-Object { $required -cnotcontains $_ })
+          if ($missing.Count -ne 0 -or $unexpected.Count -ne 0) {
+            throw "Canonical ZIP entries do not match; missing=[$($missing -join ', ')] unexpected=[$($unexpected -join ', ')]."
+          }
+
+          Write-Output "Canonical ZIP entries=$($entries.Count) required=$($required.Count) unexpected=0"
+
+  formatting:
+    name: Formatting
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore dependencies
+        shell: pwsh
+        run: dotnet restore Blasphemous.EditorMode.sln
+
+      - name: Verify whitespace
+        shell: pwsh
+        run: dotnet format whitespace Blasphemous.EditorMode.sln --no-restore --verify-no-changes
+
+      - name: Verify style
+        shell: pwsh
+        run: dotnet format style Blasphemous.EditorMode.sln --no-restore --severity warn --verify-no-changes
